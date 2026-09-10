@@ -3,10 +3,19 @@
 //! Boundary: pure evaluation of `expected vs observed`. Principle: a tool
 //! call completing without exception does NOT mean the intended action
 //! succeeded — every browser action must be verified.
+//!
+//! Layering: this crate never imports `executor` (action vocabulary lives
+//! there and references types here, not vice versa).
 
-use browser_agent_executor::BrowserAction;
 use browser_agent_observation::SemanticSnapshot;
 use serde::{Deserialize, Serialize};
+
+pub mod expect;
+
+pub use expect::{
+    check_expectation, default_effect_for, verify_expected, EffectExpectation, ExpectedEffect,
+    ExpectationVerdict, SideEffects,
+};
 
 /// Verification outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +36,9 @@ pub struct VerificationResult {
     pub evidence: serde_json::Value,
     #[serde(default)]
     pub state_delta: serde_json::Value,
+    /// Deciding check name (e.g. `value-is`, `no-effect`) for evidence.
+    #[serde(default)]
+    pub check: String,
 }
 
 impl VerificationResult {
@@ -37,6 +49,7 @@ impl VerificationResult {
             observed: observed.into(),
             evidence: serde_json::Value::Null,
             state_delta: serde_json::Value::Null,
+            check: String::new(),
         }
     }
 
@@ -47,6 +60,7 @@ impl VerificationResult {
             observed: observed.into(),
             evidence: serde_json::Value::Null,
             state_delta: serde_json::Value::Null,
+            check: String::new(),
         }
     }
 
@@ -57,7 +71,13 @@ impl VerificationResult {
             observed: observed.into(),
             evidence: serde_json::Value::Null,
             state_delta: serde_json::Value::Null,
+            check: String::new(),
         }
+    }
+
+    pub fn with_check(mut self, check: &str) -> Self {
+        self.check = check.to_string();
+        self
     }
 
     pub fn is_success(&self) -> bool {
@@ -67,19 +87,10 @@ impl VerificationResult {
 
 /// Verify a navigation: expected URL (substring match) vs observed snapshot.
 pub fn verify_navigation(
-    action: &BrowserAction,
+    expected_url: &str,
     before: &SemanticSnapshot,
     after: &SemanticSnapshot,
 ) -> VerificationResult {
-    let expected_url = match action {
-        BrowserAction::Navigate { url, .. } => url.clone(),
-        _ => {
-            return VerificationResult::uncertain(
-                "navigation",
-                format!("action is not a navigation: {action:?}"),
-            )
-        }
-    };
     let normalize = |u: &str| u.trim_end_matches('/').to_lowercase();
     let result = if normalize(&after.url).contains(&normalize(&expected_url))
         || normalize(&expected_url).contains(&normalize(&after.url))
@@ -119,21 +130,21 @@ mod tests {
 
     #[test]
     fn navigation_success_when_urls_match() {
-        let action = BrowserAction::Navigate {
-            url: "https://example.com".into(),
-            expected_effect: None,
-        };
-        let r = verify_navigation(&action, &snap("about:blank"), &snap("https://example.com/"));
+        let r = verify_navigation(
+            "https://example.com",
+            &snap("about:blank"),
+            &snap("https://example.com/"),
+        );
         assert!(r.is_success());
     }
 
     #[test]
     fn navigation_failure_when_urls_differ() {
-        let action = BrowserAction::Navigate {
-            url: "https://example.com".into(),
-            expected_effect: None,
-        };
-        let r = verify_navigation(&action, &snap("about:blank"), &snap("https://other.test/"));
+        let r = verify_navigation(
+            "https://example.com",
+            &snap("about:blank"),
+            &snap("https://other.test/"),
+        );
         assert_eq!(r.status, VerificationStatus::Failure);
     }
 }

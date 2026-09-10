@@ -11,4 +11,4 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 browser-agent-observation = { path = "../observation" }
-browser-agent-executor = { path = "../executor" }
+browser-agent-element-registry = { path = "../element-registry" }

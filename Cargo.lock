@@ -123,6 +123,8 @@ name = "browser-agent-executor"
 version = "0.1.0"
 dependencies = [
  "browser-agent-element-registry",
+ "browser-agent-observation",
+ "browser-agent-verification",
  "serde",
  "serde_json",
  "thiserror",
@@ -174,7 +176,7 @@ dependencies = [
 name = "browser-agent-verification"
 version = "0.1.0"
 dependencies = [
- "browser-agent-executor",
+ "browser-agent-element-registry",
  "browser-agent-observation",
  "serde",
  "serde_json",
