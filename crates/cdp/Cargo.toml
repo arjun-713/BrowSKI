@@ -1,0 +1,28 @@
+[package]
+name = "browser-agent-cdp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Minimal typed CDP transport and protocol adapters (direct websocket client for the slice)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+browser-agent-observation = { path = "../observation" }
+chromiumoxide = { version = "0.9", optional = true }
+
+[features]
+default = []
+# Comparison spike only (see tests/chromiumoxide_spike.rs + ADR-002): evaluates
+# the external transport against the same workload. NOT part of the runtime.
+transport-chromiumoxide = ["dep:chromiumoxide"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

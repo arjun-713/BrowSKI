@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Controlled form</title></head>
+<body>
+<h1>Profile</h1>
+<label for="nickname">Nickname</label>
+<input id="nickname" data-controlled="true" value="ada">
+<div id="save" role="button" tabindex="0" aria-label="Save profile">Save</div>
+<div id="color" role="combobox" aria-label="Theme" aria-expanded="false" tabindex="0">Light</div>
+<div id="consent" role="checkbox" aria-checked="true" aria-label="Email consent" tabindex="0"></div>
+<script>
+  // Simulate controlled components: canonical value lives in JS state.
+  window.__state = { nickname: 'ada' };
+  const nick = document.getElementById('nickname');
+  nick.addEventListener('input', e => { window.__state.nickname = e.target.value; });
+  document.getElementById('save').addEventListener('click', () => { window.__saved = true; });
+</script>
+</body>
+</html>

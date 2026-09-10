@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SPA</title></head>
+<body>
+<h1 id="heading">Home</h1>
+<button id="go-a">Go to A</button>
+<button id="go-b">Go to B</button>
+<script>
+  function nav(name, hash) {
+    history.pushState({}, '', hash);
+    document.getElementById('heading').textContent = name;
+  }
+  document.getElementById('go-a').addEventListener('click', () => nav('Section A', '#/a'));
+  document.getElementById('go-b').addEventListener('click', () => nav('Section B', '#/b'));
+</script>
+</body>
+</html>

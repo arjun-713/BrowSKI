@@ -1,0 +1,56 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "browser-agent"
+version = "0.1.0"
+description = "General-purpose open-source browser agent: autonomous browser tasks via any LLM provider"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "browser-agent contributors" }]
+keywords = ["browser", "agent", "automation", "cdp", "chromium", "llm"]
+dependencies = [
+  "pydantic>=2.0",
+  "typing-extensions>=4.8",
+  "typer>=0.9",
+  "rich>=13.0",
+  "anyio>=4.0",
+  "structlog>=23.0",
+]
+
+[project.optional-dependencies]
+llm = ["litellm>=1.0"]
+test = ["pytest>=8.0", "pytest-asyncio>=0.23", "hypothesis>=6.0", "anyio[trio]>=4.0"]
+dev = ["browser-agent[llm,test]", "ruff>=0.4", "pyright>=1.1", "maturin>=1.0"]
+
+[project.scripts]
+agent = "browser_agent.cli:main"
+
+[tool.maturin]
+bindings = "pyo3"
+python-source = "src"
+module-name = "browser_agent._core"
+manifest-path = "../crates/python-bindings/Cargo.toml"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+[tool.uv]
+package = true

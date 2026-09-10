@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Native form</title></head>
+<body>
+<h1>Job application</h1>
+<form name="application" id="apply-form" action="/submit">
+  <label for="username">Full name</label>
+  <input id="username" name="username" type="text" value="Ada" required>
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" placeholder="you@example.com">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password">
+  <label for="age">Age</label>
+  <input id="age" name="age" type="number" value="30">
+  <label for="country">Country</label>
+  <select id="country" name="country">
+    <option value="">Choose…</option>
+    <option value="in" selected>India</option>
+    <option value="us">USA</option>
+  </select>
+  <label><input id="subscribe" name="subscribe" type="checkbox" checked> Subscribe</label>
+  <fieldset>
+    <legend>Plan</legend>
+    <label><input type="radio" name="plan" value="free" checked> Free</label>
+    <label><input type="radio" name="plan" value="pro"> Pro</label>
+  </fieldset>
+  <label for="bio">Bio</label>
+  <textarea id="bio" name="bio">Hello</textarea>
+  <button type="submit" id="submit">Submit application</button>
+  <button type="reset" id="reset">Reset</button>
+</form>
+</body>
+</html>

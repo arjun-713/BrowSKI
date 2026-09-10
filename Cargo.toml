@@ -1,0 +1,32 @@
+[workspace]
+members = [
+  "crates/browser-core",
+  "crates/cdp",
+  "crates/observation",
+  "crates/element-registry",
+  "crates/executor",
+  "crates/verification",
+  "crates/recovery",
+  "crates/telemetry",
+  "crates/python-bindings",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.78"
+license = "MIT"
+repository = "https://github.com/example/browser-agent"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+anyhow = "1"
+pyo3 = { version = "0.26", features = ["extension-module"] }

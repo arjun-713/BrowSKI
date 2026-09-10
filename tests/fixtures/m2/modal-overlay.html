@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Modal overlay</title>
+<style>
+  #veil { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10; }
+  #dialog { position: fixed; z-index: 11; background: white; padding: 16px; }
+</style>
+</head>
+<body>
+<h1>Overlay</h1>
+<button id="under">Buried action</button>
+<div id="veil"></div>
+<div id="dialog" role="dialog" aria-label="Confirm"><button id="confirm">Confirm</button></div>
+</body>
+</html>

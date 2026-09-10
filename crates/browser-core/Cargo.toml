@@ -1,0 +1,25 @@
+[package]
+name = "browser-agent-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Central browser runtime API: BrowserSession lifecycle, tab/frame coordination, events"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+browser-agent-cdp = { path = "../cdp" }
+browser-agent-observation = { path = "../observation" }
+browser-agent-element-registry = { path = "../element-registry" }
+browser-agent-executor = { path = "../executor" }
+browser-agent-verification = { path = "../verification" }
+browser-agent-recovery = { path = "../recovery" }
+browser-agent-telemetry = { path = "../telemetry" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

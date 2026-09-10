@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Shadow DOM</title></head>
+<body>
+<h1>Widgets</h1>
+<div id="open-host"></div>
+<div id="closed-host"></div>
+<script>
+  const open = document.getElementById('open-host').attachShadow({ mode: 'open' });
+  open.innerHTML = `<label for="sw">Shadow input</label><input id="sw" value=""><button id="sb">Shadow save</button>`;
+  const closed = document.getElementById('closed-host').attachShadow({ mode: 'closed' });
+  closed.innerHTML = `<button id="cb">Closed secret action</button>`;
+</script>
+</body>
+</html>

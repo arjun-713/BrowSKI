@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Comboboxes</title></head>
+<body>
+<h1>Location</h1>
+<label for="country">Country</label>
+<select id="country" name="country">
+  <option value="in" selected>India</option>
+  <option value="us">USA</option>
+</select>
+<label for="city">City</label>
+<input id="city" list="cities" value="">
+<datalist id="cities">
+  <option value="Bengaluru"></option>
+  <option value="Mumbai"></option>
+</datalist>
+<div id="custom" role="combobox" aria-label="State" aria-expanded="false" tabindex="0">Karnataka</div>
+</body>
+</html>

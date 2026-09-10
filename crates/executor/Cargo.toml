@@ -1,0 +1,13 @@
+[package]
+name = "browser-agent-executor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Validated browser actions (click/type/select/scroll/navigation). No agent reasoning."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+browser-agent-element-registry = { path = "../element-registry" }

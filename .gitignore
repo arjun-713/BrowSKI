@@ -1,0 +1,68 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+htmlcov/
+.coverage*
+
+# Rust
+target/
+**/*.rs.bk
+
+# JS / TS
+node_modules/
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Generated benchmark artifacts (keep dir via .gitkeep)
+benchmarks/reports/*
+!benchmarks/reports/.gitkeep
+
+# Browser profiles
+.browser-data/
+profiles/
+chrome-profile-*/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+
+# Screenshots / traces
+artifacts/
+traces/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Maturin / Bindings output (local dev only; keep lockfiles)
+*.so
+*.pyd
+*.dylib
+
+# uv
+.uv/

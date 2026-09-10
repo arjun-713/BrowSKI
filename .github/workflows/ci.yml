@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: install chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: install chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: sync + build bindings
+        working-directory: python
+        run: uv sync --extra test
+      - name: ruff check
+        working-directory: python
+        run: uv run ruff check .
+      - name: ruff format
+        working-directory: python
+        run: uv run ruff format --check .
+      - name: pyright
+        working-directory: python
+        run: uv run --extra dev pyright || npx --yes pyright .
+      - name: pytest (includes live-Chromium smoke test)
+        working-directory: python
+        run: uv run pytest

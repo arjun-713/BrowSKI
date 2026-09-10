@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Reorder</title></head>
+<body>
+<h1>Tasks</h1>
+<button id="rev">Reverse order</button>
+<ul id="list">
+  <li>Alpha <button data-item="alpha">Open alpha</button></li>
+  <li>Beta <button data-item="beta">Open beta</button></li>
+  <li>Gamma <button data-item="gamma">Open gamma</button></li>
+  <li>Delta <button data-item="delta">Open delta</button></li>
+  <li>Epsilon <button data-item="epsilon">Open epsilon</button></li>
+</ul>
+<script>
+  document.getElementById('rev').addEventListener('click', () => {
+    const list = document.getElementById('list');
+    [...list.children].reverse().forEach(li => list.appendChild(li));
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dynamic form</title></head>
+<body>
+<h1>Invite members</h1>
+<form name="invite" id="invite-form">
+  <div id="fields">
+    <label>Member 1 <input name="member-1" value=""></label>
+  </div>
+  <button type="button" id="add">Add member</button>
+  <button type="submit" id="send">Send invites</button>
+</form>
+<script>
+  let n = 1;
+  document.getElementById('add').addEventListener('click', () => {
+    n += 1;
+    const label = document.createElement('label');
+    label.textContent = `Member ${n} `;
+    const input = document.createElement('input');
+    input.name = `member-${n}`;
+    label.appendChild(input);
+    document.getElementById('fields').appendChild(label);
+  });
+</script>
+</body>
+</html>
