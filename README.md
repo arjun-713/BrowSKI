@@ -3,9 +3,9 @@
 BROWSKI is an open-source autonomous browser-agent runtime. This repository
 contains its Rust browser foundation: persistent Chromium control, semantic
 observation, stable element identity, typed actions, and deterministic
-verification. Its Python package also contains the M4 LangGraph workflow with
-an injected decision-agent seam. Laya/Jev and Luna provider integrations are
-later milestones and are not implemented yet.
+verification. Its Python package also contains a LangGraph workflow and a
+shared System One decision interface with local Laya and optional TypeSafe Jev
+adapters.
 
 ```python
 from browser_agent import BrowserSession
@@ -16,11 +16,24 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M4 browser and orchestration foundations implemented. The
-> Rust action API is exposed through PyO3 and a LangGraph workflow can complete
-> local fake-agent tasks. The graph's default in-memory checkpoint does not
-> survive process restart. Laya/Jev and Luna providers are not implemented.
+> **Status:** M0–M5 foundations and decision-provider adapters implemented.
+> Laya is loaded locally on CPU by default; Jev is optional and requires a
+> TypeSafe API key. Adapter contract tests use fakes. Live model quality,
+> calibration thresholds, latency, and cloud integration have not been
+> measured. GPT-6 Luna is the planned System Two reasoning provider and is not
+> implemented. The graph's default in-memory checkpoint does not survive
+> process restart.
 > See the [roadmap](docs/development/roadmap.md) for milestone gates.
+
+Install one or both optional System One providers from `python/`:
+
+```sh
+uv sync --extra decisions-local   # Laya and its CPU-capable runtime
+uv sync --extra decisions-cloud   # TypeSafe SDK for Jev
+```
+
+`DecisionConfig` selects `laya` by default and also accepts `jev` or `adaptive`.
+Provider-specific calibration and thresholds are configured independently.
 
 ## What "browser agent" means here
 
@@ -124,9 +137,9 @@ measuring it.
 ## Roadmap
 
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-M3 executor + verification, and M4 LangGraph runtime are implemented. Next are
-M5 Laya/Jev decisions, M6 adaptive Luna reasoning, and M7 memory/progress/
-recovery. See the
+M3 executor + verification, M4 LangGraph runtime, and M5 decision-provider
+adapters are implemented. Next are M6 adaptive Luna reasoning and M7
+memory/progress/recovery. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

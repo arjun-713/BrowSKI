@@ -89,12 +89,19 @@ Validation on 2026-10-02: all 13 Python tests passed; Ruff format/check and
 strict Pyright passed. The Rust/Python extension build included the new action
 binding.
 
-## M5. System One decisions (NEXT)
+## M5. System One decisions (DONE)
 
-Add Laya as the preferred local CPU provider and TypeSafe Jev as a switchable
-cloud fallback/comparison behind `DecisionProvider`. Support bounded Choice,
-Score, yes/no probability, semantic verification, recovery classification,
-and progress checks with provider-specific calibration.
+Added a shared `DecisionProvider`, local CPU `LayaProvider` default, optional
+`JevProvider`, and Laya-first adaptive fallback. Both adapters support bounded
+Choice, Score, and Noul decisions, semantic verification, recovery classification,
+and progress checks. Calibration policies and thresholds are provider-specific;
+default thresholds remain unset pending held-out BROWSKI task data. Tests use
+fake model and SDK clients, so they prove adapter contracts but do not measure
+live model quality, calibration, CPU latency, or Jev API behavior.
+
+Gate: fake-backed provider contracts, bounds, mapping, config selection, and
+adaptive routing pass; Rust remains provider-independent. Live provider and
+benchmark validation remains outstanding.
 
 ## M6. GPT-6 Luna + adaptive reasoning
 

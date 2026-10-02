@@ -66,6 +66,7 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
 - `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
 - `python/src/browser_agent/providers/` — OUR interface (`base.py`); LiteLLM is one adapter.
+- `python/src/browser_agent/decisions/` — bounded System One contract, Laya/Jev adapters, calibration, and routing.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
 - `benchmarks/`, `tests/`, `examples/`, `docs/`, `scripts/` — as named.
 
@@ -93,6 +94,8 @@ Do not create directories with no expected ownership or purpose.
 - Do NOT add Redis, Postgres, vector DBs, Kubernetes, Docker Compose,
   microservices, auth systems, or cloud infra without a benchmark-backed need.
 - Keep new dependencies minimal (“no 30 dependencies for later”).
+- Laya and TypeSafe SDK are optional provider extras; neither may become a
+  required dependency of the base browser runtime.
 - Commit lockfiles: `Cargo.lock`, `python/uv.lock`.
 
 ## 7. Test requirements

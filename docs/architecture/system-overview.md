@@ -1,9 +1,10 @@
 # System overview
 
-Current BROWSKI architecture and implementation boundary. M0–M4 provide the
-Rust browser runtime, semantic observation, typed action execution, and a
-minimal Python LangGraph loop. Laya/Jev routing, Luna reasoning, and durable
-long-horizon recovery remain later milestones.
+Current BROWSKI architecture and implementation boundary. M0–M5 provide the
+Rust browser runtime, semantic observation, typed action execution, a Python
+LangGraph loop, and shared Laya/Jev System One adapters. Live provider quality
+and calibration remain unmeasured. Luna reasoning and durable long-horizon
+recovery remain later milestones.
 
 ```mermaid
 flowchart TB
@@ -14,7 +15,9 @@ flowchart TB
     Runtime --> Progress[Progress Tracker]
     Runtime --> HLRecovery[High-level Recovery]
     Runtime --> Graph[LangGraph workflow\nserializable AgentState]
-    Graph --> Providers[Injected decision agent\nM4 fake implementation]
+    Graph --> Decision[DecisionProvider interface]
+    Decision --> Laya[LayaProvider\nlocal CPU default]
+    Decision --> Jev[JevProvider\noptional cloud]
     Runtime --> Tools[Tool Registry]
     Tools --> Core[Rust Browser Core\nBrowserSession]
     Core --> Obs[Observation\nDOM + AX + layout]
@@ -37,7 +40,7 @@ flowchart TB
 | Working Memory | Python | Compressed history, facts, milestones, failed strategies (bounded) |
 | Planner | Python | Next-action decisions; hierarchical planning later |
 | Tool Registry | Python | Model-facing typed tools bridging into the Rust runtime |
-| Provider Layer | Python | Provider abstractions exist; M4 injects a deterministic fake agent |
+| Provider Layer | Python | M5 provides shared Choice/Score/Noul, verification, recovery, and progress contracts; Laya is local/default, Jev optional |
 | Rust Browser Core | Rust | `BrowserSession`: Chromium process, tab/frame coordination, events |
 | Observation | Rust | DOM + accessibility + layout → `SemanticSnapshot` |
 | Element Registry | Rust | Stable refs (`@name`), fingerprints, reacquisition, generations |
@@ -51,6 +54,9 @@ flowchart TB
 ## Key invariants
 
 - The browser core never knows which LLM provider is in use.
+- Laya and Jev implement the same typed decision contract, but confidence is
+  calibrated and thresholded independently per provider; raw values are not
+  compared across providers.
 - Browser infrastructure and reasoning stay in separate processes of
   responsibility (Rust vs Python), joined only by the versioned binding API.
 - Frontend/browser-facing code talks through public APIs and events, never by
