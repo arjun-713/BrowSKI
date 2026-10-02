@@ -21,8 +21,10 @@ async with BrowserSession.launch() as browser:
 > TypeSafe API key. Adapter contract tests use fakes. Live model quality,
 > calibration thresholds, latency, and cloud integration have not been
 > measured. GPT-6 Luna is the planned System Two reasoning provider and is not
-> implemented. The graph's default in-memory checkpoint does not survive
-> process restart.
+> implemented. The low-level `AgentRuntime` constructor still uses an
+> in-memory saver for tests and injection; use its `open_sqlite` context
+> manager for durable task checkpoints. CLI task orchestration remains planned
+> until the reasoning provider is integrated.
 > See the [roadmap](docs/development/roadmap.md) for milestone gates.
 
 Install one or both optional System One providers from `python/`:

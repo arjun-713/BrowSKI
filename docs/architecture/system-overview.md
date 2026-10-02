@@ -48,7 +48,7 @@ flowchart TB
 | Verification | Rust | `SUCCESS / FAILURE / UNCERTAIN` + evidence for every action |
 | Low-level Recovery | Rust | Stale nodes, detached frames, nav races; bounded mechanical retries |
 | Vision fallback | Python+provider | Screenshots to a multimodal model when native semantics are insufficient |
-| Checkpointing | Python | LangGraph thread checkpoints; M4 default is in-memory, durable SQLite is future work |
+| Checkpointing | Python | LangGraph thread checkpoints; `AgentRuntime.open_sqlite` uses the async SQLite saver and can resume after process exit |
 | Telemetry | both | Trace events, timing, tokens, cost |
 
 ## Key invariants

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from browser_agent._types import AgentDecision, SemanticSnapshot, TaskState, WorkingMemory
 from browser_agent.agent.graph import build_agent_graph
@@ -61,6 +64,31 @@ class AgentRuntime:
             checkpointer=self.checkpointer,
             interrupt_before=interrupt_before,
         )
+
+    @classmethod
+    @asynccontextmanager
+    async def open_sqlite(
+        cls,
+        agent: Agent,
+        browser: BrowserSession,
+        database: str | Path = "browski-checkpoints.sqlite",
+        config: AgentConfig | None = None,
+        *,
+        interrupt_before: Sequence[str] = (),
+    ) -> AsyncIterator[AgentRuntime]:
+        """Open a durable checkpointed runtime for the lifetime of a context.
+
+        SQLite connections are owned by the asynchronous context and must not
+        outlive it. Reopen the same database and run id to resume a task.
+        """
+        async with AsyncSqliteSaver.from_conn_string(str(database)) as checkpointer:
+            yield cls(
+                agent,
+                browser,
+                config,
+                checkpointer=checkpointer,
+                interrupt_before=interrupt_before,
+            )
 
     async def run(self, task: str, run_id: str | None = None) -> TaskState:
         """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""

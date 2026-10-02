@@ -1,4 +1,4 @@
-"""Durable run/checkpoint storage is planned for M7; M4 uses LangGraph memory."""
+"""Run metadata storage; LangGraph thread checkpoints are managed by M4 runtime."""
 
 from browser_agent.persistence.store import RunStore
 

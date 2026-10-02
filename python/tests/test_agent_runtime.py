@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from langgraph.checkpoint.memory import InMemorySaver
 
 from browser_agent import AgentDecision, BrowserAction, BrowserSession, ElementRef
 from browser_agent._types import SemanticSnapshot, TaskState, WorkingMemory
@@ -63,24 +62,24 @@ async def test_graph_executes_verified_actions_on_local_fixture() -> None:
         assert "checked" in checkbox.state
 
 
-async def test_graph_checkpoint_resumes_with_same_thread_state() -> None:
+async def test_graph_checkpoint_resumes_with_same_thread_state(tmp_path: Path) -> None:
     async with BrowserSession.launch() as browser:
-        checkpointer = InMemorySaver()
-        first = AgentRuntime(
+        database = tmp_path / "agent-checkpoints.sqlite"
+        async with AgentRuntime.open_sqlite(
             CompleteAfterObserveAgent(),
             browser,
-            checkpointer=checkpointer,
+            database,
             interrupt_before=("decide",),
-        )
-        pending = await first.run("Finish after observing.", run_id="resume-test")
-        assert not pending.done
-        assert (await first.graph.aget_state({"configurable": {"thread_id": "resume-test"}})).next
+        ) as first:
+            pending = await first.run("Finish after observing.", run_id="resume-test")
+            assert not pending.done
+            state = await first.graph.aget_state({"configurable": {"thread_id": "resume-test"}})
+            assert state.next
 
-        resumed = AgentRuntime(
-            CompleteAfterObserveAgent(),
-            browser,
-            checkpointer=checkpointer,
-        )
-        completed = await resumed.resume("resume-test")
+        async with AgentRuntime.open_sqlite(
+            CompleteAfterObserveAgent(), browser, database
+        ) as resumed_runtime:
+            completed = await resumed_runtime.resume("resume-test")
+
         assert completed.done
         assert completed.task == "Finish after observing."

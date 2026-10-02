@@ -74,20 +74,27 @@ Validation on 2026-10-02: `cargo fmt --all -- --check`,
 workspace run also passed 15 M2 integration tests, 12 runtime stress tests,
 and browser smoke tests. This gate does not claim Python agent integration.
 
-## M4. LangGraph agent runtime (DONE)
+## M4. LangGraph agent runtime (IN PROGRESS)
 
 Implemented typed `AgentState`, observe/decide/execute/verify nodes, bounded
 step and decision counts, and a LangGraph checkpointer. PyO3 exposes the Rust
 typed action/outcome API as JSON; Python validates action contracts before
 crossing that boundary. A deterministic fake agent navigates a local form,
-checks a control, and stops only after inspecting the verified result. A second
-test pauses and resumes a thread after reconstructing the runtime. The default
-`InMemorySaver` is process-local; durable SQLite persistence remains future
-work. No Laya, Jev, or Luna model is used by M4.
+checks a control, and stops only after inspecting the verified result.
+`AgentRuntime.open_sqlite` scopes an async SQLite checkpointer to a runtime
+context. Tests verify both runtime resume after reopening the database and
+checkpoint recovery from a separate process. In-memory saver injection remains
+available for lightweight tests. No Laya, Jev, or Luna model is used by M4.
 
-Validation on 2026-10-02: all 13 Python tests passed; Ruff format/check and
-strict Pyright passed. The Rust/Python extension build included the new action
-binding.
+Validation on 2026-10-02: 13 Python tests passed before durable checkpointing;
+the SQLite cross-process and runtime-reconstruction checks are part of the
+current full Python suite. Ruff format/check and strict Pyright passed. The
+Rust/Python extension build included the new action binding.
+
+The task-oriented `browski run "task"` / `browski resume <run-id>` CLI is not
+yet wired to a default reasoning agent. Complete it with M6 after the
+`ReasoningProvider` is available; the existing CLI still provides the M0
+navigate-and-observe vertical slice.
 
 ## M5. System One decisions (DONE)
 
