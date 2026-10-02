@@ -1,11 +1,20 @@
-"""Agent lifecycle contract (Milestone 4; not yet executed)."""
+"""Agent lifecycle and LangGraph-backed browser task execution."""
 
 from __future__ import annotations
 
+import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 
 from browser_agent._types import AgentDecision, SemanticSnapshot, TaskState, WorkingMemory
+from browser_agent.agent.graph import build_agent_graph
+from browser_agent.agent.state import AgentState
+from browser_agent.session import BrowserSession
 
 
 @dataclass
@@ -13,10 +22,11 @@ class AgentConfig:
     max_steps: int = 50
     max_llm_calls: int = 50
     max_stagnant_steps: int = 5
+    max_history_events: int = 50
 
 
 class Agent(ABC):
-    """Decides the next step given a snapshot, task state, and memory."""
+    """Chooses a typed action from the current semantic state."""
 
     @abstractmethod
     async def decide(
@@ -29,12 +39,57 @@ class Agent(ABC):
 
 
 class AgentRuntime:
-    """Owns the agent loop lifecycle; drives OBSERVE/DECIDE/ACT/VERIFY/UPDATE."""
+    """Owns the graph lifecycle while Rust owns browser action mechanics."""
 
-    def __init__(self, agent: Agent, config: AgentConfig | None = None) -> None:
+    def __init__(
+        self,
+        agent: Agent,
+        browser: BrowserSession,
+        config: AgentConfig | None = None,
+        *,
+        checkpointer: BaseCheckpointSaver[Any] | None = None,
+        interrupt_before: Sequence[str] = (),
+    ) -> None:
         self.agent = agent
+        self.browser = browser
         self.config = config or AgentConfig()
-        self.history: list[str] = []
+        self.checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
+        self.graph = build_agent_graph(
+            self.agent,
+            self.browser,
+            limits=self.config,
+            checkpointer=self.checkpointer,
+            interrupt_before=interrupt_before,
+        )
 
-    async def run(self, task: str) -> TaskState:  # pragma: no cover - milestone 4
-        raise NotImplementedError("AgentRuntime.run lands in Milestone 4 (first autonomous loop)")
+    async def run(self, task: str, run_id: str | None = None) -> TaskState:
+        """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""
+        thread_id = run_id or str(uuid.uuid4())
+        task_state = TaskState(task=task)
+        initial_state: AgentState = {
+            "task": task,
+            "task_state": task_state.model_dump(mode="json"),
+            "memory": WorkingMemory().model_dump(mode="json"),
+            "snapshot": None,
+            "decision": None,
+            "outcome": None,
+            "action_history": [],
+            "status": "running",
+            "result_summary": None,
+        }
+        result = await self.graph.ainvoke(
+            initial_state,
+            self._graph_config(thread_id),
+        )
+        return TaskState.model_validate(result["task_state"])
+
+    async def resume(self, run_id: str) -> TaskState:
+        """Resume a task from its most recent checkpoint."""
+        result = await self.graph.ainvoke(None, self._graph_config(run_id))
+        return TaskState.model_validate(result["task_state"])
+
+    def _graph_config(self, thread_id: str) -> dict[str, object]:
+        return {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": max(25, self.config.max_steps * 5),
+        }

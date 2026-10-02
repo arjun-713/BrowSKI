@@ -1,27 +1,23 @@
-# Agent loop (future)
+# Agent loop (M4 baseline)
 
 ```
-UNDERSTAND → PLAN → OBSERVE → DECIDE → ACT → VERIFY → UPDATE
-    → CHECK PROGRESS → RECOVER → REPEAT
+OBSERVE → DECIDE → EXECUTE → VERIFY → REPEAT
 ```
 
 | Phase | Meaning |
 |---|---|
-| UNDERSTAND | Parse the user task into goals and constraints. |
-| PLAN | Produce or refine a plan (hierarchical in later milestones). |
-| OBSERVE | Collect a `SemanticSnapshot` from the Rust core (never trust stale state). |
-| DECIDE | LLM resolves ambiguity → one typed tool call (deterministic ops preferred once intent is known). |
-| ACT | Rust executor performs the validated action. |
-| VERIFY | Postconditions checked against before/after state; evidence recorded. |
-| UPDATE | Working memory + task state updated (compressed, bounded). |
-| CHECK PROGRESS | Completion criteria, partial progress, stagnation detection. |
-| RECOVER | Low-level retry (Rust) or replan/alternate-strategy/escalate (Python). |
+| OBSERVE | Collect the current `SemanticSnapshot` from the Rust core. |
+| DECIDE | Injected `Agent` returns one typed `BrowserAction` or completion. |
+| EXECUTE | Python passes the typed contract through PyO3; Rust resolves, acts, and verifies. |
+| VERIFY | The graph accepts success only when Rust reports successful execution and verification. |
+| REPEAT | Continue within configured step and decision limits. |
 
-## Why it is not implemented yet
+The graph state contains serializable task state, bounded working-memory events,
+the latest observation, decision, outcome, and a capped action history. The live
+`BrowserSession` and `Agent` are closure dependencies and are never checkpointed.
+The default `InMemorySaver` supports pause/resume while the process is alive;
+M7 will add durable persistence and long-horizon recovery.
 
-The scaffold (v0.1) validates the architecture and toolchain: Rust compiles,
-bindings compile, Chromium launches, navigation + observation + shutdown work.
-Building the loop before observation, element identity, executor, and
-verification exist would cement the wrong abstractions. The loop lands in
-Milestone 4 on top of those primitives; its lifecycle contract already lives
-in `python/src/browser_agent/agent/runtime.py`.
+M4 uses deterministic fake agents and local browser fixtures. It does not
+include provider integrations, semantic decision routing, deep reasoning,
+stagnation recovery, or durable checkpoints; those belong to M5–M7.

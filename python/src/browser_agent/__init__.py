@@ -1,8 +1,8 @@
-"""browser-agent: general-purpose open-source browser agent (scaffold, v0.1).
+"""BROWSKI browser runtime and M4 LangGraph orchestration package.
 
-Slice status: :class:`BrowserSession` (launch / navigate / observe / close)
-works against a live Chromium driven by the Rust core. Autonomous planning,
-memory, recovery, and provider orchestration are contracts/interfaces only.
+The Rust core owns Chromium observation and action execution. The Python graph
+orchestrates a typed decision agent; model integrations and long-horizon
+memory/recovery arrive in later milestones.
 """
 
 from browser_agent._types import (

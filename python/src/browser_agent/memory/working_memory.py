@@ -1,4 +1,4 @@
-"""Working memory implementation notes (Milestone 5).
+"""Working memory implementation notes (M7 long-horizon behavior).
 
 Rules enforced by :class:`WorkingMemory` (see ``_types.py``):
 - raw historical context must not grow without bound (bounded deque);

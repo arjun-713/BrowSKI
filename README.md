@@ -3,8 +3,9 @@
 BROWSKI is an open-source autonomous browser-agent runtime. This repository
 contains its Rust browser foundation: persistent Chromium control, semantic
 observation, stable element identity, typed actions, and deterministic
-verification. The Python orchestration and model-provider layers are separate
-milestones and are not implemented here yet.
+verification. Its Python package also contains the M4 LangGraph workflow with
+an injected decision-agent seam. Laya/Jev and Luna provider integrations are
+later milestones and are not implemented yet.
 
 ```python
 from browser_agent import BrowserSession
@@ -15,10 +16,11 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M3 browser foundation implemented. The full Rust workspace
-> tests pass, including the local Chromium M1/M2 suites and 22 M3 action tests.
-> There is no autonomous agent loop in this repository yet. See the
-> [roadmap](docs/development/roadmap.md) for the current milestone sequence.
+> **Status:** M0–M4 browser and orchestration foundations implemented. The
+> Rust action API is exposed through PyO3 and a LangGraph workflow can complete
+> local fake-agent tasks. The graph's default in-memory checkpoint does not
+> survive process restart. Laya/Jev and Luna providers are not implemented.
+> See the [roadmap](docs/development/roadmap.md) for milestone gates.
 
 ## What "browser agent" means here
 
@@ -122,9 +124,9 @@ measuring it.
 ## Roadmap
 
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-and M3 executor + verification are implemented in the Rust foundation. Next
-are M4 LangGraph runtime, M5 Laya/Jev decisions, M6 adaptive Luna reasoning,
-and M7 memory/progress/recovery. See the
+M3 executor + verification, and M4 LangGraph runtime are implemented. Next are
+M5 Laya/Jev decisions, M6 adaptive Luna reasoning, and M7 memory/progress/
+recovery. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

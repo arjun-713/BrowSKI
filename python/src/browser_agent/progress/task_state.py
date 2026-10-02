@@ -8,7 +8,7 @@ from browser_agent._types import SemanticSnapshot
 
 
 def check_completion(goal: str, snapshot: SemanticSnapshot) -> bool:  # pragma: no cover
-    """Completion-criteria hook (Milestone 5). Scaffold always returns False."""
+    """Completion-criteria hook for M7; deterministic rules are not wired yet."""
     _ = (goal, snapshot)
     return False
 

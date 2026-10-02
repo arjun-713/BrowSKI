@@ -91,5 +91,6 @@ connection states escalate with evidence).
 
 ## What M1 deliberately omits
 
-Live download end-to-end (events parsed + translated, behavior control lands
-with the M3 executor), full AX/DOM observation (M2), autonomous loop (M4).
+Live download end-to-end (events parsed + translated; action support can be
+added through the executor), and richer agent planning/recovery beyond the M4
+observe/decide/execute/verify loop.

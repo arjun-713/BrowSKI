@@ -8,7 +8,7 @@ import json
 import typer
 from rich import print as rprint
 
-app = typer.Typer(name="agent", help="General-purpose browser agent (scaffold v0.1).")
+app = typer.Typer(name="agent", help="BROWSKI browser runtime.")
 
 
 @app.command()
@@ -30,7 +30,10 @@ def run(
 
 @app.command()
 def resume(run_id: str = typer.Argument(...)) -> None:  # pragma: no cover
-    rprint(f"[yellow]resume {run_id}[/yellow]: lands in Milestone 5 (persistence).")
+    rprint(
+        f"[yellow]resume {run_id}[/yellow]: use AgentRuntime.resume(run_id); "
+        "the CLI command is not wired yet."
+    )
 
 
 @app.command()

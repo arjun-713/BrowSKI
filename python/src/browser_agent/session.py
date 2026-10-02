@@ -19,7 +19,7 @@ import json
 from types import TracebackType
 from typing import Any, Self
 
-from browser_agent._types import ElementRef, SemanticSnapshot, SnapshotDelta, TabInfo
+from browser_agent._types import BrowserAction, ElementRef, SemanticSnapshot, SnapshotDelta, TabInfo
 
 
 class BrowserSession:
@@ -84,6 +84,20 @@ class BrowserSession:
         if raw is None:
             return None
         return ElementRef.model_validate(json.loads(raw))
+
+    async def act(self, action: BrowserAction, tab_id: str | None = None) -> dict[str, Any]:
+        """Run a typed action through the Rust executor and verifier."""
+        native = self._require_open()
+        selected_tab = tab_id or await self.active_tab_id()
+        if selected_tab is None:
+            raise RuntimeError("browser session has no active tab")
+        payload = action.model_dump(mode="json", exclude_none=True)
+        raw: str = await asyncio.to_thread(
+            native.act_json,
+            selected_tab,
+            json.dumps(payload),
+        )
+        return json.loads(raw)
 
     async def close(self) -> None:
         native, self._native = self._native, None

@@ -74,13 +74,22 @@ Validation on 2026-10-02: `cargo fmt --all -- --check`,
 workspace run also passed 15 M2 integration tests, 12 runtime stress tests,
 and browser smoke tests. This gate does not claim Python agent integration.
 
-## M4. LangGraph agent runtime (NEXT)
+## M4. LangGraph agent runtime (DONE)
 
-Implement typed agent state, observe/execute/verify workflow nodes,
-checkpointing, and resume. Initially use a fake reasoning provider to validate
-graph behavior and local browser fixtures before adding cloud integrations.
+Implemented typed `AgentState`, observe/decide/execute/verify nodes, bounded
+step and decision counts, and a LangGraph checkpointer. PyO3 exposes the Rust
+typed action/outcome API as JSON; Python validates action contracts before
+crossing that boundary. A deterministic fake agent navigates a local form,
+checks a control, and stops only after inspecting the verified result. A second
+test pauses and resumes a thread after reconstructing the runtime. The default
+`InMemorySaver` is process-local; durable SQLite persistence remains future
+work. No Laya, Jev, or Luna model is used by M4.
 
-## M5. System One decisions
+Validation on 2026-10-02: all 13 Python tests passed; Ruff format/check and
+strict Pyright passed. The Rust/Python extension build included the new action
+binding.
+
+## M5. System One decisions (NEXT)
 
 Add Laya as the preferred local CPU provider and TypeSafe Jev as a switchable
 cloud fallback/comparison behind `DecisionProvider`. Support bounded Choice,

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "browser-agent"
 version = "0.1.0"
-description = "General-purpose open-source browser agent: autonomous browser tasks via any LLM provider"
+description = "BROWSKI open-source browser runtime and agent orchestration foundation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -18,6 +18,7 @@ dependencies = [
   "rich>=13.0",
   "anyio>=4.0",
   "structlog>=23.0",
+  "langgraph>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]

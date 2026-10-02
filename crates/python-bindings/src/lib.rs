@@ -74,6 +74,25 @@ impl PyBrowserSession {
         serde_json::to_string(&snapshot).map_err(map_err)
     }
 
+    /// Execute one typed action and return its evidence-bearing outcome as
+    /// JSON. Action mechanics and verification remain in the Rust core.
+    fn act_json(&self, tab_id: &str, action_json: &str) -> PyResult<String> {
+        let action: browser_agent_core::BrowserAction =
+            serde_json::from_str(action_json).map_err(map_err)?;
+        let tab = browser_agent_core::TabId::from(tab_id);
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| map_err("session lock poisoned"))?;
+        let session = guard.as_ref().ok_or_else(|| map_err("session is closed"))?;
+        let outcome = runtime().block_on(session.act(
+            &tab,
+            action,
+            browser_agent_core::ActOptions::default(),
+        ));
+        serde_json::to_string(&outcome).map_err(map_err)
+    }
+
     fn session_id(&self) -> PyResult<String> {
         let guard = self
             .inner

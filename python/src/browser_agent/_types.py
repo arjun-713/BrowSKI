@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ElementRef(BaseModel):
@@ -210,14 +210,63 @@ class AgentObservation(BaseModel):
 
 
 class BrowserAction(BaseModel):
-    type: Literal["navigate", "click", "type", "select", "check", "scroll", "press", "wait"]
-    target: str | None = None
-    value: Any | None = None
+    """Python mirror of Rust's tagged ``BrowserAction`` enum."""
+
+    type: Literal[
+        "click",
+        "type",
+        "select",
+        "check",
+        "press",
+        "scroll",
+        "hover",
+        "navigate",
+        "back",
+        "forward",
+        "reload",
+        "activate_tab",
+        "close_tab",
+        "new_tab",
+        "handle_dialog",
+        "wait",
+    ]
+    target: ElementRef | None = None
+    text: str | None = None
+    clear: bool = True
+    submit: bool = False
+    value: str | None = None
+    by: Literal["value", "label"] = "value"
+    checked: bool | None = None
+    key: str | None = None
+    dx: int = 0
+    dy: int = 0
+    url: str | None = None
+    tab: str | None = None
+    accept: bool | None = None
+    ms: int | None = None
+    expected_effect: Any | None = None
     options: dict[str, Any] = Field(default_factory=dict[str, Any])
-    expected_effect: str | None = Field(
-        default=None,
-        description="Postcondition used by verification; required for all but wait.",
-    )
+
+    @model_validator(mode="after")
+    def validate_action_fields(self) -> BrowserAction:
+        target_required = {"click", "type", "select", "check", "hover"}
+        if self.type in target_required and self.target is None:
+            raise ValueError(f"{self.type} action requires a semantic target")
+        if self.type == "type" and self.text is None:
+            raise ValueError("type action requires text")
+        if self.type == "select" and self.value is None:
+            raise ValueError("select action requires a value")
+        if self.type == "check" and self.checked is None:
+            raise ValueError("check action requires checked=true or false")
+        if self.type == "press" and self.key is None:
+            raise ValueError("press action requires a key")
+        if self.type in {"activate_tab", "close_tab"} and self.tab is None:
+            raise ValueError(f"{self.type} action requires a tab id")
+        if self.type == "handle_dialog" and self.accept is None:
+            raise ValueError("handle_dialog action requires accept=true or false")
+        if self.type == "wait" and self.ms is None:
+            raise ValueError("wait action requires milliseconds")
+        return self
 
 
 class ActionResult(BaseModel):
@@ -272,7 +321,7 @@ class RecoveryDecision(BaseModel):
 
 
 class TaskState(BaseModel):
-    """Explicit task state for long-running tasks (progress Milestone 5)."""
+    """Explicit task state for long-running tasks (expanded in M7)."""
 
     task: str
     goal: str | None = None
