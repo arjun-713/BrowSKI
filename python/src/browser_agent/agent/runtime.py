@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,7 +75,7 @@ class AgentRuntime:
         config: AgentConfig | None = None,
         *,
         interrupt_before: Sequence[str] = (),
-    ) -> AsyncIterator[AgentRuntime]:
+    ) -> AsyncGenerator[AgentRuntime, None]:
         """Open a durable checkpointed runtime for the lifetime of a context.
 
         SQLite connections are owned by the asynchronous context and must not

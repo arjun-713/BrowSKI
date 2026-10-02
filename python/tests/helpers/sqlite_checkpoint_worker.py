@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import END, START, StateGraph  # type: ignore[reportMissingTypeStubs]
 
 
 class WorkerState(TypedDict):
@@ -17,7 +17,7 @@ class WorkerState(TypedDict):
 
 
 def build_graph(checkpointer: AsyncSqliteSaver, *, pause_before_advance: bool) -> Any:
-    builder = StateGraph(WorkerState)
+    builder: Any = StateGraph(WorkerState)
 
     def advance(state: WorkerState) -> WorkerState:
         return {"count": state["count"] + 1}
