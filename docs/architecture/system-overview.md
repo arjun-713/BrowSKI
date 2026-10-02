@@ -1,10 +1,11 @@
 # System overview
 
-Current BROWSKI architecture and implementation boundary. M0–M5 provide the
-Rust browser runtime, semantic observation, typed action execution, a Python
-LangGraph loop, and shared Laya/Jev System One adapters. Live provider quality
-and calibration remain unmeasured. Luna reasoning and durable long-horizon
-recovery remain later milestones.
+Current BROWSKI architecture and implementation boundary. M0–M7 provide the
+Rust browser runtime, semantic observation, typed action execution, Python
+LangGraph orchestration, shared Laya/Jev System One adapters, durable task
+checkpoints, bounded working memory, progress tracking, recovery budgets, and
+high-risk confirmation. Live provider quality and calibration remain
+unmeasured. Concrete Luna reasoning and its recovery routing remain M6 work.
 
 ```mermaid
 flowchart TB

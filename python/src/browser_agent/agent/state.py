@@ -15,5 +15,11 @@ class AgentState(TypedDict):
     decision: dict[str, Any] | None
     outcome: dict[str, Any] | None
     action_history: list[dict[str, Any]]
+    recovery_budget: dict[str, int]
+    recovery_history: list[dict[str, Any]]
+    after_snapshot: dict[str, Any] | None
+    last_progress: dict[str, Any] | None
+    pending_confirmation: bool
+    risk_assessment: dict[str, Any] | None
     status: str
     result_summary: str | None

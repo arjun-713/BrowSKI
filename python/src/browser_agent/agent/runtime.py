@@ -13,10 +13,12 @@ from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 
 from browser_agent._types import AgentDecision, SemanticSnapshot, TaskState, WorkingMemory
 from browser_agent.agent.graph import build_agent_graph
 from browser_agent.agent.state import AgentState
+from browser_agent.decisions.base import DecisionProvider
 from browser_agent.session import BrowserSession
 
 
@@ -26,6 +28,17 @@ class AgentConfig:
     max_llm_calls: int = 50
     max_stagnant_steps: int = 5
     max_history_events: int = 50
+    max_recovery_actions: int = 4
+    max_replans: int = 2
+    confirm_high_risk: bool = True
+
+    def __post_init__(self) -> None:
+        if self.max_steps <= 0 or self.max_llm_calls <= 0:
+            raise ValueError("step and decision budgets must be greater than zero")
+        if self.max_stagnant_steps <= 0 or self.max_recovery_actions < 0:
+            raise ValueError("stagnation and recovery budgets are invalid")
+        if self.max_history_events < 0 or self.max_replans < 0:
+            raise ValueError("history and replan budgets cannot be negative")
 
 
 class Agent(ABC):
@@ -51,6 +64,7 @@ class AgentRuntime:
         config: AgentConfig | None = None,
         *,
         checkpointer: BaseCheckpointSaver[Any] | None = None,
+        decision_provider: DecisionProvider | None = None,
         interrupt_before: Sequence[str] = (),
     ) -> None:
         self.agent = agent
@@ -62,6 +76,7 @@ class AgentRuntime:
             self.browser,
             limits=self.config,
             checkpointer=self.checkpointer,
+            decision_provider=decision_provider,
             interrupt_before=interrupt_before,
         )
 
@@ -74,6 +89,7 @@ class AgentRuntime:
         database: str | Path = "browski-checkpoints.sqlite",
         config: AgentConfig | None = None,
         *,
+        decision_provider: DecisionProvider | None = None,
         interrupt_before: Sequence[str] = (),
     ) -> AsyncGenerator[AgentRuntime, None]:
         """Open a durable checkpointed runtime for the lifetime of a context.
@@ -87,21 +103,38 @@ class AgentRuntime:
                 browser,
                 config,
                 checkpointer=checkpointer,
+                decision_provider=decision_provider,
                 interrupt_before=interrupt_before,
             )
 
-    async def run(self, task: str, run_id: str | None = None) -> TaskState:
+    async def run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
         """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""
         thread_id = run_id or str(uuid.uuid4())
-        task_state = TaskState(task=task)
+        task_state = (
+            task.model_copy(deep=True) if isinstance(task, TaskState) else TaskState(task=task)
+        )
+        task_state.run_id = thread_id
         initial_state: AgentState = {
-            "task": task,
+            "task": task_state.user_goal or task_state.task,
             "task_state": task_state.model_dump(mode="json"),
-            "memory": WorkingMemory().model_dump(mode="json"),
+            "memory": WorkingMemory(
+                user_goal=task_state.user_goal or task_state.task,
+                constraints=task_state.constraints,
+                completed_milestones=task_state.completed,
+                current_subgoal=task_state.current_subgoal,
+                next_milestone=task_state.next_milestone,
+                failed_strategies=task_state.failed_strategies,
+            ).model_dump(mode="json"),
             "snapshot": None,
             "decision": None,
             "outcome": None,
             "action_history": [],
+            "recovery_budget": {},
+            "recovery_history": [],
+            "after_snapshot": None,
+            "last_progress": None,
+            "pending_confirmation": False,
+            "risk_assessment": None,
             "status": "running",
             "result_summary": None,
         }
@@ -109,12 +142,41 @@ class AgentRuntime:
             initial_state,
             self._graph_config(thread_id),
         )
-        return TaskState.model_validate(result["task_state"])
+        return self._task_state_from_result(result)
 
     async def resume(self, run_id: str) -> TaskState:
-        """Resume a task from its most recent checkpoint."""
-        result = await self.graph.ainvoke(None, self._graph_config(run_id))
-        return TaskState.model_validate(result["task_state"])
+        """Resume a checkpoint, requiring explicit input for safety interrupts."""
+        return await self._resume(run_id, confirmation=None)
+
+    async def resume_with_confirmation(self, run_id: str, *, approved: bool) -> TaskState:
+        """Resume a pending consequential action with an explicit user decision."""
+        return await self._resume(run_id, confirmation=approved)
+
+    async def _resume(self, run_id: str, confirmation: bool | None) -> TaskState:
+        config = self._graph_config(run_id)
+        checkpoint = await self.graph.aget_state(config)
+        pending = checkpoint.values.get("pending_confirmation") is True
+        if pending and confirmation is None:
+            raise ValueError("pending high-risk actions require explicit confirmation")
+        graph_input: Any = Command(resume=confirmation) if pending else None
+        result = await self.graph.ainvoke(graph_input, config)
+        return self._task_state_from_result(result)
+
+    @staticmethod
+    def _task_state_from_result(result: dict[str, Any]) -> TaskState:
+        task_state = TaskState.model_validate(result["task_state"])
+        status = result.get("status")
+        if status in {"running", "awaiting_user", "completed", "failed"}:
+            task_state.status = status
+        if result.get("pending_confirmation") is True and result.get("__interrupt__"):
+            task_state.status = "pending_confirmation"
+        summary = result.get("result_summary")
+        if isinstance(summary, str):
+            task_state.result_summary = summary
+        elif task_state.status == "pending_confirmation":
+            task_state.result_summary = "High-risk browser action requires explicit confirmation."
+        task_state.done = task_state.status == "completed"
+        return task_state
 
     def _graph_config(self, thread_id: str) -> dict[str, object]:
         return {

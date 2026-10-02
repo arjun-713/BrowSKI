@@ -35,6 +35,31 @@ SITE_BLOCK, MODEL_FORMAT, SAFETY, UNKNOWN`.
 - High-level (Python, `recovery/`): replan, alternate strategy, escalate to
   the user. Also bounded (`RecoveryPolicy.max_replans`).
 
+The Python recovery budget names the intended ladder: one mechanical repair,
+reobserve, bounded alternate action, System One classification, normal Luna
+replan, ComplexityGate, high Luna replan, ask the user, then terminate. Only
+available capabilities may run. Until M6 provides a Luna reasoning adapter,
+the graph does not invoke the Luna rungs and terminates or asks the user when
+the implemented recovery options are exhausted.
+
+Progress records distinguish activity from meaningful change. The bounded
+stagnation detector tracks repeated state/action pairs, A–B cycles, uncertain
+verification, and recovery without progress. Its rolling sample window and
+per-run recovery/action budgets prevent unbounded retry loops.
+
+## Completion and consequential actions
+
+A model completion claim is accepted only after deterministic successful
+verification and satisfaction of required milestones and configured visible
+evidence. Semantic completion probability may add a future bounded check; it
+cannot replace deterministic evidence.
+
+High-risk actions, including form submission, Enter in a form, and controls
+labelled for consequential operations, suspend the graph. The caller must
+resume with an explicit approval or denial. Action-history and approval
+summaries contain action type and semantic target reference, not typed values
+or URL data.
+
 ## Low-level vs high-level recovery
 
 Mechanical problems (the page moved under us) are fixed mechanically without

@@ -123,11 +123,23 @@ Add the only generative reasoning provider in the baseline and a
 `ComplexityGate`; deep reasoning is exceptional and de-escalates after the
 difficult decision is resolved.
 
-## M7. Memory, progress, and recovery
+## M7. Memory, progress, and recovery (CORE IMPLEMENTED)
 
-Add bounded working memory, task milestones, progress and stagnation checks,
-checkpoint/resume behavior, and explicit recovery budgets. Verify long-horizon
-and interrupted workflows against local fixtures.
+The Python runtime now carries bounded structured working memory, task goals,
+constraints, milestones, visible evidence, capped action/recovery histories,
+and checkpoint summaries. Progress uses semantic controls, document changes,
+visible text, verification, and milestone signals; repeated actions and states
+are bounded by stagnation and recovery budgets. Completion claims require a
+verified action plus configured task evidence and required milestones.
+
+High-risk actions suspend the graph for explicit approval. Confirmation and
+action-history summaries omit typed values and URL data. Local tests cover a
+10-action task, recovery bounds, completion refusal, and approval/denial.
+
+The recovery policy defines the System One, normal-reasoning, ComplexityGate,
+and high-reasoning rungs. Wiring those reasoning rungs to the concrete Luna
+provider remains dependent on M6; unavailable reasoning does not run and
+recovery can ask the user or stop within its configured bounds.
 
 ## M8. Vision fallback (future)
 

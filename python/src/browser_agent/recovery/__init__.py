@@ -1,5 +1,9 @@
-"""High-level recovery: replan, alternate strategy, escalation (Milestone 6)."""
+"""Bounded high-level recovery ladder above Rust mechanical retries."""
 
-from browser_agent.recovery.high_level import RecoveryPolicy
+from browser_agent.recovery.high_level import (
+    RecoveryBudget,
+    RecoveryContext,
+    RecoveryPolicy,
+)
 
-__all__ = ["RecoveryPolicy"]
+__all__ = ["RecoveryBudget", "RecoveryContext", "RecoveryPolicy"]

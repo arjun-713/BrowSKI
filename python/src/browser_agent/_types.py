@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 
 class ElementRef(BaseModel):
@@ -313,41 +313,140 @@ class FailureKind(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class RecoveryStep(StrEnum):
+    MECHANICAL_REPAIR = "mechanical_repair"
+    REOBSERVE = "reobserve"
+    ALTERNATE_ACTION = "alternate_bounded_action"
+    SYSTEM_ONE_CLASSIFICATION = "system_one_classification"
+    LUNA_NORMAL_REPLAN = "luna_normal_replan"
+    COMPLEXITY_GATE = "complexity_gate"
+    LUNA_HIGH_REPLAN = "luna_high_replan"
+    ASK_USER = "ask_user"
+    TERMINATE = "terminate"
+
+
 class RecoveryDecision(BaseModel):
-    decision: Literal["retry", "reacquire_and_retry", "replan", "escalate"]
+    decision: Literal["retry", "reacquire_and_retry", "replan", "escalate", "ask_user", "terminate"]
     attempt: int = 0
     max_attempts: int = 3
     reason: str = ""
+    step: RecoveryStep = RecoveryStep.LUNA_NORMAL_REPLAN
 
 
 class TaskState(BaseModel):
-    """Explicit task state for long-running tasks (expanded in M7)."""
+    """Checkpoint-safe task goal, milestones, and explicit bounded budgets."""
 
     task: str
+    user_goal: str | None = None
     goal: str | None = None
-    milestones: list[str] = Field(default_factory=list[str])
-    completed: list[str] = Field(default_factory=list[str])
-    failed_strategies: list[str] = Field(default_factory=list[str])
-    steps_taken: int = 0
-    llm_calls: int = 0
+    constraints: list[str] = Field(default_factory=list[str], max_length=50)
+    milestones: list[str] = Field(default_factory=list[str], max_length=50)
+    required_milestones: list[str] = Field(default_factory=list[str], max_length=50)
+    completed: list[str] = Field(default_factory=list[str], max_length=50)
+    current_subgoal: str | None = None
+    next_milestone: str | None = None
+    milestone_evidence: dict[str, str] = Field(
+        default_factory=lambda: dict[str, str](),
+    )
+    required_evidence: list[str] = Field(default_factory=list[str], max_length=30)
+    deterministic_evidence: list[str] = Field(default_factory=list[str], max_length=30)
+    failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
+    steps_taken: int = Field(default=0, ge=0)
+    llm_calls: int = Field(default=0, ge=0)
+    recovery_count: int = Field(default=0, ge=0)
+    replan_count: int = Field(default=0, ge=0)
+    stagnant_steps: int = Field(default=0, ge=0)
+    recovery_history: list[dict[str, Any]] = Field(
+        default_factory=list[dict[str, Any]], max_length=50
+    )
+    progress_signals: list[str] = Field(default_factory=list[str], max_length=20)
+    status: Literal["running", "awaiting_user", "pending_confirmation", "completed", "failed"] = (
+        "running"
+    )
+    run_id: str | None = None
+    result_summary: str | None = None
     done: bool = False
+
+    @model_validator(mode="after")
+    def default_goal(self) -> TaskState:
+        if self.user_goal is None:
+            self.user_goal = self.goal or self.task
+        if self.goal is None:
+            self.goal = self.user_goal
+        if not self.required_milestones and self.milestones:
+            self.required_milestones = list(self.milestones)
+        return self
 
 
 class WorkingMemory(BaseModel):
-    """Bounded working memory: compressed history, facts, milestones."""
+    """Bounded structured memory; raw conversation and snapshots are not stored."""
 
-    max_events: int = 200
-    facts: dict[str, str] = Field(default_factory=dict[str, str])
-    milestones: list[str] = Field(default_factory=list[str])
-    recent_events: list[str] = Field(default_factory=list[str])
+    max_events: int = Field(default=20, ge=0, le=50)
+    user_goal: str = ""
+    constraints: list[str] = Field(default_factory=list[str], max_length=50)
+    completed_milestones: list[str] = Field(default_factory=list[str], max_length=50)
+    current_subgoal: str | None = None
+    acquired_facts: dict[str, str] = Field(
+        default_factory=lambda: dict[str, str](),
+        validation_alias=AliasChoices("acquired_facts", "facts"),
+    )
+    relevant_entities: list[str] = Field(default_factory=list[str], max_length=100)
+    failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
+    irreversible_actions: list[str] = Field(default_factory=list[str], max_length=50)
+    pending_questions: list[str] = Field(default_factory=list[str], max_length=50)
+    next_milestone: str | None = None
+    checkpoint_summary: str = Field(default="", max_length=2_000)
+    recent_events: list[str] = Field(
+        default_factory=list[str],
+        max_length=50,
+        validation_alias=AliasChoices("recent_events", "recent_steps"),
+    )
+
+    @property
+    def facts(self) -> dict[str, str]:
+        """Compatibility view for existing agent code and older checkpoints."""
+        return self.acquired_facts
+
+    @property
+    def recent_steps(self) -> list[str]:
+        return self.recent_events
 
     def remember_fact(self, key: str, value: str) -> None:
-        self.facts[key] = value
+        normalized_key = key.strip()[:120]
+        if not normalized_key:
+            raise ValueError("fact key cannot be empty")
+        if normalized_key not in self.acquired_facts and len(self.acquired_facts) >= 100:
+            oldest_key = next(iter(self.acquired_facts))
+            del self.acquired_facts[oldest_key]
+        self.acquired_facts[normalized_key] = value.strip()[:1_000]
+
+    def _append_bounded(self, field_name: str, value: str, limit: int) -> None:
+        values = getattr(self, field_name)
+        values.append(" ".join(value.split())[:300])
+        if len(values) > limit:
+            del values[: len(values) - limit]
+
+    def remember_entity(self, entity: str) -> None:
+        self._append_bounded("relevant_entities", entity, 100)
+
+    def record_failed_strategy(self, strategy: str) -> None:
+        self._append_bounded("failed_strategies", strategy, 50)
+
+    def record_irreversible_action(self, action: str) -> None:
+        self._append_bounded("irreversible_actions", action, 50)
+
+    def add_pending_question(self, question: str) -> None:
+        self._append_bounded("pending_questions", question, 50)
+
+    def complete_milestone(self, milestone: str) -> None:
+        if milestone not in self.completed_milestones:
+            self._append_bounded("completed_milestones", milestone, 50)
 
     def record_event(self, event: str) -> None:
-        self.recent_events.append(event)
+        if self.max_events == 0:
+            return
+        self.recent_events.append(" ".join(event.split())[:300])
         if len(self.recent_events) > self.max_events:
-            # Raw history must not grow without bound: drop oldest first.
             del self.recent_events[: len(self.recent_events) - self.max_events]
 
 
@@ -355,6 +454,7 @@ class AgentDecision(BaseModel):
     reasoning: str = ""
     action: BrowserAction | None = None
     done: bool = False
+    completed_milestone: str | None = None
     result_summary: str | None = None
 
 
