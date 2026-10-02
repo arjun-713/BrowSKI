@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Native select</title></head>
+<body>
+<h1>State picker</h1>
+<label for="state">State</label>
+<select id="state" name="state">
+  <option value="">Choose…</option>
+  <option value="ka">Karnataka</option>
+  <option value="mh">Maharashtra</option>
+</select>
+<p>Selected: <span id="out"></span></p>
+<script>
+  document.getElementById('state').addEventListener('change', e => {
+    document.getElementById('out').textContent = e.target.value;
+  });
+</script>
+</body>
+</html>

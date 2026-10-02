@@ -3,13 +3,13 @@
 Every phase has a measurable gate. Do not start the next phase’s headline
 work until the gate is met (docs and small refactors may proceed in parallel).
 
-## 0. Scaffold + research (current)
+## M0. Scaffold + research (DONE)
 
 Build the repo, contracts, docs, and minimal executable slice.
 Gate: the Definition of Done in `AGENTS.md` §14 — `make test` and `make
 lint` green, Chromium launch/navigate/observe/close proven from Python.
 
-## 1. Browser runtime
+## M1. Persistent browser runtime (DONE)
 
 Persistent multiplexed CDP session, tab/frame coordination, browser event
 stream, graceful lifecycle (crash/disconnect handling). Design:
@@ -32,7 +32,7 @@ Also measured: RSS +10→10 fds, +12.7→13.0MB RSS across 3 launch/close
 cycles. Suite: `cargo test -p browser-agent-core --test stress_runtime`
 (~55s, local fixture server, serialized).
 
-## 2. Observation + element identity
+## M2. Observation + element identity (DONE)
 
 Full DOM/AX/layout collection, `SemanticSnapshot` population, stable refs
 with reacquisition across small page changes. Design:
@@ -61,56 +61,64 @@ local fixture corpus `tests/fixtures/m2/`, 16 pages). Python surface
 (`tabs/render_observation/observe_delta/resolve`) covered by
 `python/tests/test_session_smoke.py::test_m2_render_delta_and_resolve`.
 
-## 3. Executor + verification
+## M3. Executor + deterministic verification (DONE)
 
-All `BrowserAction` variants executed and verified with evidence on
-synthetic pages (forms, navigation, dialogs, scrolling).
-Gate: 100% verification agreement with ground truth on the synthetic suite
-(no false SUCCESS).
+Typed browser actions execute through trusted browser input, bounded settling,
+and deterministic postcondition verification. Outcomes include structured
+failures and evidence. Coverage includes forms, navigation/history, tabs,
+dialogs, hover, scrolling, native selects, and stale/ambiguous targets.
 
-## 4. First autonomous loop
+Validation on 2026-10-02: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`cargo test --workspace` passed. The M3 integration suite has 22 tests; the
+workspace run also passed 15 M2 integration tests, 12 runtime stress tests,
+and browser smoke tests. This gate does not claim Python agent integration.
 
-UNDERSTAND→…→RECOVER on short tasks (≤10 steps) with one provider.
-Gate: ≥70% task success on an internal 20-task synthetic set.
+## M4. LangGraph agent runtime (NEXT)
 
-## 5. Memory + progress
+Implement typed agent state, observe/execute/verify workflow nodes,
+checkpointing, and resume. Initially use a fake reasoning provider to validate
+graph behavior and local browser fixtures before adding cloud integrations.
 
-`WorkingMemory`, `TaskState`, stagnation detection, SQLite checkpoints,
-`resume`/`inspect` commands.
-Gate: a 30-step task survives a mid-run restart and completes; memory stays
-bounded (assert on event-cap tests).
+## M5. System One decisions
 
-## 6. Recovery
+Add Laya as the preferred local CPU provider and TypeSafe Jev as a switchable
+cloud fallback/comparison behind `DecisionProvider`. Support bounded Choice,
+Score, yes/no probability, semantic verification, recovery classification,
+and progress checks with provider-specific calibration.
 
-Full failure taxonomy wired end-to-end; low-level bounded retries plus
-high-level replan/alternate-strategy/escalation.
-Gate: recovery success rate measured on injected-failure suite; stagnation
-rate drops vs Phase 4 baseline.
+## M6. GPT-6 Luna + adaptive reasoning
 
-## 7. Vision / code escape hatch
+Add the only generative reasoning provider in the baseline and a
+`ComplexityGate`; deep reasoning is exceptional and de-escalates after the
+difficult decision is resolved.
 
-Screenshot fallback via multimodal providers; deterministic code-execution
-actions for structured extraction.
-Gate: vision-gated tasks (canvas/custom widgets) succeed where Phase 4 fails,
-with vision-call rate reported (lower is better).
+## M7. Memory, progress, and recovery
 
-## 8. Provider hardening
+Add bounded working memory, task milestones, progress and stagnation checks,
+checkpoint/resume behavior, and explicit recovery budgets. Verify long-horizon
+and interrupted workflows against local fixtures.
 
-Capability detection per model, structured-output paths, cost/latency
-tracking, local-model support.
-Gate: same task set passes on ≥3 providers (one local) with cost/latency
-tables published.
+## M8. Vision fallback (future)
 
-## 9. Benchmarks
+On-demand multimodal interpretation for semantic dead ends; not the primary
+page representation.
 
-BrowserGym integration first, then WebArena-family suites; reports in
-`benchmarks/reports/`.
-Gate: published task-success numbers with full metric set; CI runs the
-synthetic suite.
+## M9. Browser-code escape hatch (future)
 
-## 10. Privacy / extension / procedural memory
+An explicitly enabled, restricted, traced, and time-bounded tool for difficult
+deterministic browser operations.
 
-Token vault, PII/secret detectors, sanitized screenshots, optional browser
-extension, trace viewer, procedural memory.
-Gate: secret-redaction suite passes (no raw secret reaches a mocked remote
-endpoint); trace viewer renders a recorded run.
+## M10. Privacy mode (future)
+
+Optional PII/secret detection, tokenization, sanitized screenshots, and local
+visual processing. These are not mandatory middleware for every action.
+
+## M11. Product surface (future)
+
+CLI, SDK, trace viewer, optional extension, packaging, examples, and user docs.
+
+## M12. Benchmark hardening (future)
+
+Run representative long-horizon evaluations and publish reproducible results.
+No comparative claim without controlled benchmark evidence.

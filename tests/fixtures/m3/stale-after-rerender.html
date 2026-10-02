@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Node swap</title></head>
+<body>
+<h1>Swap</h1>
+<label for="victim">Victim input</label>
+<input id="victim" value="before">
+<label for="stable">Stable input</label>
+<input id="stable" value="">
+<button id="swap">Replace victim node</button>
+<script>
+  document.getElementById('swap').addEventListener('click', () => {
+    const old = document.getElementById('victim');
+    const fresh = document.createElement('input');
+    fresh.id = 'victim';
+    fresh.value = old.value;
+    old.replaceWith(fresh);
+  });
+</script>
+</body>
+</html>

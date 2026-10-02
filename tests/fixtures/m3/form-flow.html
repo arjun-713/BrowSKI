@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Signup flow</title></head>
+<body>
+<h1>Create account</h1>
+<form id="flow" action="confirmation.html" method="get">
+  <label for="first">First name</label>
+  <input id="first" name="first" type="text" value="">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" value="">
+  <label for="state">State</label>
+  <select id="state" name="state">
+    <option value="">Choose…</option>
+    <option value="ka">Karnataka</option>
+    <option value="mh">Maharashtra</option>
+  </select>
+  <label><input type="checkbox" id="terms" name="terms" value="yes"> Accept terms</label>
+  <button type="submit" id="continue">Continue</button>
+</form>
+</body>
+</html>

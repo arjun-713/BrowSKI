@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Click success</title></head>
+<body>
+<h1>Counter</h1>
+<button id="inc">Increment</button>
+<p>Count: <span id="count">0</span></p>
+<p id="msg"></p>
+<script>
+  let n = 0;
+  document.getElementById('inc').addEventListener('click', () => {
+    n += 1;
+    document.getElementById('count').textContent = String(n);
+    document.getElementById('msg').textContent = `clicked ${n} times`;
+  });
+</script>
+</body>
+</html>

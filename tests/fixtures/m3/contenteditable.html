@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Editable note</title></head>
+<body>
+<h1>Editable content</h1>
+<div id="note" contenteditable="true" aria-label="Note editor">Draft</div>
+<p>Mirror: <span id="mirror"></span></p>
+<script>
+  document.getElementById('note').addEventListener('input', e => {
+    document.getElementById('mirror').textContent = e.target.innerText;
+  });
+</script>
+</body>
+</html>

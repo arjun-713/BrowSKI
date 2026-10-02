@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Custom combobox</title>
+<style>#list { border: 1px solid black; display: none; } #list.open { display: block; }</style>
+</head>
+<body>
+<h1>Custom picker</h1>
+<div id="combo" role="combobox" aria-label="Fruit" aria-expanded="false" tabindex="0">Apple</div>
+<div id="list" role="listbox" aria-label="Fruits">
+  <div role="option" data-value="apple">Apple</div>
+  <div role="option" data-value="mango">Mango</div>
+  <div role="option" data-value="guava">Guava</div>
+</div>
+<script>
+  const combo = document.getElementById('combo');
+  const list = document.getElementById('list');
+  combo.addEventListener('click', () => {
+    const open = list.classList.toggle('open');
+    combo.setAttribute('aria-expanded', String(open));
+  });
+  list.querySelectorAll('[role=option]').forEach(o => o.addEventListener('click', () => {
+    combo.textContent = o.textContent;
+    combo.dataset.value = o.dataset.value;
+    list.classList.remove('open');
+    combo.setAttribute('aria-expanded', 'false');
+  }));
+</script>
+</body>
+</html>

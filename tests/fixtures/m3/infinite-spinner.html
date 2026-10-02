@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Infinite spinner</title>
+</head>
+<body>
+  <button id="start" onclick="finishTask()">Start task</button>
+  <p id="result" role="status">Waiting</p>
+  <div id="spinner" role="status" aria-label="Loading" aria-busy="true"></div>
+  <script>
+    let tick = 0;
+    setInterval(() => {
+      document.getElementById('spinner').textContent = `Loading ${tick++}`;
+    }, 50);
+    function finishTask() {
+      document.getElementById('result').textContent = 'Complete';
+    }
+  </script>
+</body>
+</html>

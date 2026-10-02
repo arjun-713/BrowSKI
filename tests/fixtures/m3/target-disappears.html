@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Vanishing</title></head>
+<body>
+<h1>Vanish</h1>
+<button id="vanish">Remove target</button>
+<button id="target">Target action</button>
+<p id="out"></p>
+<script>
+  document.getElementById('vanish').addEventListener('click', () => {
+    document.getElementById('target').remove();
+    document.getElementById('out').textContent = 'target gone';
+  });
+  document.getElementById('target').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'target clicked';
+  });
+</script>
+</body>
+</html>

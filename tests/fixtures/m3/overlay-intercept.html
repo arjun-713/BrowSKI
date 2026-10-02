@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Overlay intercept</title>
+<style>
+  #veil { position: fixed; inset: 0; background: transparent; z-index: 50; }
+  #dismiss { position: relative; z-index: 51; }
+  #panel { position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+<h1>Covered</h1>
+<div id="panel">
+  <button id="buried">Buried action</button>
+  <p id="out"></p>
+</div>
+<div id="veil"></div>
+<button id="dismiss">Dismiss veil</button>
+<script>
+  document.getElementById('buried').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'buried clicked';
+  });
+  document.getElementById('dismiss').addEventListener('click', () => {
+    document.getElementById('veil').remove();
+  });
+</script>
+</body>
+</html>

@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 pub mod expect;
 
 pub use expect::{
-    check_expectation, default_effect_for, verify_expected, EffectExpectation, ExpectedEffect,
-    ExpectationVerdict, SideEffects,
+    check_expectation, default_effect_for, verify_expected, EffectExpectation, ExpectationVerdict,
+    ExpectedEffect, SideEffects,
 };
 
 /// Verification outcome.
@@ -92,8 +92,10 @@ pub fn verify_navigation(
     after: &SemanticSnapshot,
 ) -> VerificationResult {
     let normalize = |u: &str| u.trim_end_matches('/').to_lowercase();
-    let result = if normalize(&after.url).contains(&normalize(&expected_url))
-        || normalize(&expected_url).contains(&normalize(&after.url))
+    let actual_url = normalize(&after.url);
+    let expected_url = normalize(expected_url);
+    let result = if actual_url.contains(expected_url.as_str())
+        || expected_url.contains(actual_url.as_str())
     {
         VerificationResult::success(
             format!("url becomes {expected_url}"),

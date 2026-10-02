@@ -87,6 +87,9 @@ pub enum CdpEvent {
         message: String,
         url: String,
     },
+    DialogClosed {
+        session: CdpSessionId,
+    },
     DownloadWillBegin {
         session: CdpSessionId,
         guid: String,
@@ -227,6 +230,7 @@ impl CdpEvent {
                 message: str_field(params, "message"),
                 url: str_field(params, "url"),
             },
+            "Page.javascriptDialogClosed" => CdpEvent::DialogClosed { session: session() },
             "Browser.downloadWillBegin" => CdpEvent::DownloadWillBegin {
                 session: session(),
                 guid: str_field(params, "guid"),
@@ -267,6 +271,7 @@ impl CdpEvent {
             CdpEvent::FrameStoppedLoading { .. } => "Page.frameStoppedLoading",
             CdpEvent::LoadEventFired { .. } => "Page.loadEventFired",
             CdpEvent::DialogOpening { .. } => "Page.javascriptDialogOpening",
+            CdpEvent::DialogClosed { .. } => "Page.javascriptDialogClosed",
             CdpEvent::DownloadWillBegin { .. } => "Browser.downloadWillBegin",
             CdpEvent::DownloadProgress { .. } => "Browser.downloadProgress",
             CdpEvent::TargetCrashed { .. } => "Inspector.targetCrashed",

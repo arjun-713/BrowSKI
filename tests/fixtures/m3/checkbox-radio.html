@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checks</title></head>
+<body>
+<h1>Preferences</h1>
+<label><input type="checkbox" id="news" checked> Newsletter</label>
+<label><input type="checkbox" id="offers"> Offers</label>
+<fieldset>
+  <legend>Size</legend>
+  <label><input type="radio" name="size" value="s"> S</label>
+  <label><input type="radio" name="size" value="m" checked> M</label>
+</fieldset>
+<p id="out"></p>
+<script>
+  const out = () => {
+    document.getElementById('out').textContent =
+      `news=${document.getElementById('news').checked} offers=${document.getElementById('offers').checked}`;
+  };
+  document.querySelectorAll('input').forEach(i => i.addEventListener('change', out));
+  out();
+</script>
+</body>
+</html>

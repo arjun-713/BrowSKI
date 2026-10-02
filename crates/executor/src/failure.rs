@@ -36,19 +36,19 @@ impl ExecutionFailureKind {
         match self {
             ExecutionFailureKind::StaleTarget
             | ExecutionFailureKind::TargetNotFound
+            | ExecutionFailureKind::TargetOccluded
             | ExecutionFailureKind::NavigationRace
             | ExecutionFailureKind::ActionTimeout
-            | ExecutionFailureKind::InteractionRejected
-            | ExecutionFailureKind::DialogBlocked => true,
+            | ExecutionFailureKind::InteractionRejected => true,
             ExecutionFailureKind::AmbiguousTarget
             | ExecutionFailureKind::TargetHidden
-            | ExecutionFailureKind::TargetOccluded
             | ExecutionFailureKind::TargetDisabled
             | ExecutionFailureKind::TargetReadonly
             | ExecutionFailureKind::FrameDetached
             | ExecutionFailureKind::TabClosed
             | ExecutionFailureKind::NoEffect
             | ExecutionFailureKind::WrongEffect
+            | ExecutionFailureKind::DialogBlocked
             | ExecutionFailureKind::ConnectionLost => false,
         }
     }
@@ -87,6 +87,12 @@ impl ExecutionFailure {
     }
 }
 
+impl std::fmt::Display for ExecutionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {}", self.kind, self.details)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,7 +101,7 @@ mod tests {
     fn retryability_is_conservative() {
         assert!(ExecutionFailureKind::StaleTarget.retryable());
         assert!(!ExecutionFailureKind::AmbiguousTarget.retryable());
-        assert!(!ExecutionFailureKind::TargetOccluded.retryable());
+        assert!(ExecutionFailureKind::TargetOccluded.retryable());
         assert!(!ExecutionFailureKind::ConnectionLost.retryable());
         let f = ExecutionFailure::new(
             ExecutionFailureKind::TargetDisabled,

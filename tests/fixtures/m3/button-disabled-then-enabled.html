@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Late enable</title></head>
+<body>
+<h1>Wait for it</h1>
+<button id="late" disabled>Not yet</button>
+<p id="out"></p>
+<script>
+  setTimeout(() => {
+    const b = document.getElementById('late');
+    b.disabled = false;
+    b.textContent = 'Ready now';
+  }, 600);
+  document.getElementById('late').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'late clicked';
+  });
+</script>
+</body>
+</html>

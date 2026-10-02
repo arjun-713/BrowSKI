@@ -85,7 +85,7 @@ pub struct BrowserSession {
     transport: RwLock<Arc<PersistentTransport>>,
     tabs: Arc<RwLock<TabRegistry>>,
     event_tx: broadcast::Sender<BrowserEvent>,
-    generation: AtomicU64,
+    generation: Arc<AtomicU64>,
     navigation_timeout: Duration,
     command_timeout: Duration,
     closed: Arc<AtomicBool>,
@@ -93,6 +93,7 @@ pub struct BrowserSession {
     registries: Arc<RwLock<HashMap<TargetId, ElementRegistry>>>,
     snapshots: Arc<RwLock<HashMap<TargetId, SemanticSnapshot>>>,
     deltas: Arc<RwLock<HashMap<TargetId, SnapshotDelta>>>,
+    dialog_open_flag: Arc<AtomicBool>,
 }
 
 impl BrowserSession {
@@ -144,7 +145,7 @@ impl BrowserSession {
             transport: RwLock::new(Arc::clone(&transport)),
             tabs: Arc::new(RwLock::new(TabRegistry::new())),
             event_tx,
-            generation: AtomicU64::new(0),
+            generation: Arc::new(AtomicU64::new(0)),
             navigation_timeout: options.navigation_timeout,
             command_timeout: options.command_timeout,
             closed: Arc::new(AtomicBool::new(false)),
@@ -152,6 +153,7 @@ impl BrowserSession {
             registries: Arc::new(RwLock::new(HashMap::new())),
             snapshots: Arc::new(RwLock::new(HashMap::new())),
             deltas: Arc::new(RwLock::new(HashMap::new())),
+            dialog_open_flag: Arc::new(AtomicBool::new(false)),
         };
         session.spawn_pump().await;
         // Pump first: no event loss after this point. initialize() then
@@ -295,6 +297,8 @@ impl BrowserSession {
         let event_tx = self.event_tx.clone();
         let session_id = self.session_id.clone();
         let closed = Arc::clone(&self.closed);
+        let dialog_open = Arc::clone(&self.dialog_open_flag);
+        let generation = Arc::clone(&self.generation);
         let handle = tokio::spawn(async move {
             let mut downloads: HashMap<String, (TabId, String)> = HashMap::new();
             let mut lagged_total = 0u64;
@@ -314,6 +318,8 @@ impl BrowserSession {
                             &session_id,
                             &transport,
                             &closed,
+                            &dialog_open,
+                            &generation,
                             &mut downloads,
                             cdp_event,
                         )
@@ -408,6 +414,18 @@ impl BrowserSession {
 
     pub(crate) fn deltas_map(&self) -> &Arc<RwLock<HashMap<TargetId, SnapshotDelta>>> {
         &self.deltas
+    }
+
+    pub(crate) async fn evaluate_in(
+        &self,
+        session: &CdpSessionId,
+        expression: &str,
+    ) -> Result<Value, BrowserRuntimeError> {
+        self.evaluate(session, expression).await
+    }
+
+    pub(crate) fn dialog_open(&self) -> bool {
+        self.dialog_open_flag.load(Ordering::SeqCst)
     }
 
     pub(crate) async fn tab_ids_pub(&self) -> Vec<TabId> {
@@ -512,7 +530,8 @@ impl BrowserSession {
 
     // -- navigation / observation / execution ---------------------------
 
-    /// Navigate the active tab and wait for load. Bumps the generation.
+    /// Navigate the active tab and wait for load. The main-frame navigation
+    /// event advances the generation once the document actually changes.
     pub async fn navigate(&self, url: &str) -> Result<(), BrowserRuntimeError> {
         let tab = self
             .active_tab()
@@ -543,7 +562,6 @@ impl BrowserSession {
                 reason: e.to_string(),
             });
         }
-        self.generation.fetch_add(1, Ordering::SeqCst);
         {
             let mut tabs = self.tabs.write().await;
             if let Some(t) = tabs.get_mut(&target) {
@@ -635,6 +653,17 @@ impl BrowserSession {
             .await
             .get(&target)?
             .lookup_alias(alias)
+    }
+
+    /// Perform one structured action with verification: typed intent →
+    /// state transition → proof. See `crate::act`.
+    pub async fn act(
+        &self,
+        tab: &TabId,
+        action: browser_agent_executor::BrowserAction,
+        options: browser_agent_executor::ActOptions,
+    ) -> browser_agent_executor::ActionOutcome {
+        crate::act::act_on(self, tab, action, options).await
     }
 
     /// Evaluate a JS expression in a tab; returns the parsed value.
@@ -986,6 +1015,8 @@ async fn pump_one(
     _session_id: &str,
     transport: &Arc<PersistentTransport>,
     closed: &Arc<AtomicBool>,
+    dialog_open: &Arc<AtomicBool>,
+    generation: &Arc<AtomicU64>,
     downloads: &mut HashMap<String, (TabId, String)>,
     event: CdpEvent,
 ) {
@@ -1068,7 +1099,10 @@ async fn pump_one(
         CdpEvent::FrameNavigated { session, frame } => {
             // Main frame (no parent) navigations update the tab URL and
             // complete the navigation lifecycle for external navigations.
+            // They also bump the generation: refs from before any navigation
+            // (including click-triggered ones) are stale by definition.
             if frame.parent_id.is_none() {
+                generation.fetch_add(1, Ordering::SeqCst);
                 let target = tabs.read().await.target_for_session(&session).cloned();
                 if let Some(target) = target {
                     let tab_id = TabId::from(target.as_str().to_string());
@@ -1097,6 +1131,7 @@ async fn pump_one(
             message,
             ..
         } => {
+            dialog_open.store(true, Ordering::SeqCst);
             let target = tabs.read().await.target_for_session(&session).cloned();
             if let Some(target) = target {
                 let tab_id = TabId::from(target.as_str().to_string());
@@ -1104,6 +1139,14 @@ async fn pump_one(
                     tab: tab_id,
                     dialog_type,
                     message,
+                });
+            }
+        }
+        CdpEvent::DialogClosed { session } => {
+            dialog_open.store(false, Ordering::SeqCst);
+            if let Some(target) = tabs.read().await.target_for_session(&session).cloned() {
+                let _ = event_tx.send(BrowserEvent::DialogClosed {
+                    tab: TabId::from(target.as_str().to_string()),
                 });
             }
         }

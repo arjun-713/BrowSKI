@@ -77,9 +77,10 @@ fn opt(s: &Option<String>, max: usize) -> String {
     s.as_deref().map(|v| norm(v, max)).unwrap_or_default()
 }
 
-/// Stable fingerprint: every signal EXCEPT backend id and geometry (both
-/// volatile across renders). Two elements with equal fingerprints are the
-/// same control for level-3 reacquisition.
+/// Stable fingerprint: every signal EXCEPT backend id, geometry (both
+/// volatile across renders), and raw text (content churns inside anonymous
+/// containers; text still participates in *scoring*). Two elements with
+/// equal fingerprints are the same control for level-3 reacquisition.
 pub fn fingerprint(signals: &FingerprintSignals) -> String {
     let mut attrs = signals.stable_attrs.clone();
     attrs.sort();
@@ -89,10 +90,9 @@ pub fn fingerprint(signals: &FingerprintSignals) -> String {
         .collect::<Vec<_>>()
         .join(";");
     let canonical = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         norm(&signals.role, 40),
         opt(&signals.name, 80),
-        opt(&signals.text, 120),
         opt(&signals.label, 80),
         opt(&signals.input_name, 60),
         opt(&signals.placeholder, 80),
@@ -199,6 +199,28 @@ mod tests {
         b.geometry = "800x600@5,5".into();
         assert_eq!(fingerprint(&a), fingerprint(&b));
         assert_eq!(score(&a, &b), SCORE_EXACT);
+    }
+
+    #[test]
+    fn text_churn_does_not_break_identity() {
+        // Anonymous containers change text constantly; identity must not.
+        let a = FingerprintSignals {
+            role: "generic".into(),
+            ancestry: "main".into(),
+            frame_path: vec!["main".into()],
+            text: Some("Count: 0".into()),
+            ..Default::default()
+        };
+        let mut b = a.clone();
+        b.text = Some("Count: 1".into());
+        assert_eq!(fingerprint(&a), fingerprint(&b));
+        // ...but text still separates genuinely different nodes in scoring.
+        let mut c = a.clone();
+        c.text = Some("Something entirely different here".into());
+        c.name = Some("x".into());
+        let mut d = a.clone();
+        d.name = Some("y".into());
+        assert!(score(&c, &d) < score(&a, &b));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SPA routes</title></head>
+<body>
+<h1 id="heading">Landing</h1>
+<button id="to-a">Section A</button>
+<button id="to-b">Section B</button>
+<script>
+  function go(name, hash) {
+    history.pushState({}, '', hash);
+    document.getElementById('heading').textContent = name;
+  }
+  document.getElementById('to-a').addEventListener('click', () => go('Alpha', '#/a'));
+  document.getElementById('to-b').addEventListener('click', () => go('Beta', '#/b'));
+</script>
+</body>
+</html>

@@ -33,7 +33,10 @@ fn default_click_count() -> u32 {
 
 impl Default for ClickOptions {
     fn default() -> Self {
-        Self { button: MouseButton::Left, click_count: 1 }
+        Self {
+            button: MouseButton::Left,
+            click_count: 1,
+        }
     }
 }
 
@@ -132,10 +135,19 @@ pub enum BrowserAction {
         #[serde(default)]
         expected_effect: ExpectedEffect,
     },
-    /// Test/utility wait (not a browser interaction).
-    Wait {
-        ms: u64,
+    NewTab {
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        expected_effect: ExpectedEffect,
     },
+    HandleDialog {
+        accept: bool,
+        #[serde(default)]
+        expected_effect: ExpectedEffect,
+    },
+    /// Test/utility wait (not a browser interaction).
+    Wait { ms: u64 },
 }
 
 fn default_true() -> bool {
@@ -159,6 +171,8 @@ impl BrowserAction {
             BrowserAction::Reload { .. } => "reload",
             BrowserAction::ActivateTab { .. } => "activate_tab",
             BrowserAction::CloseTab { .. } => "close_tab",
+            BrowserAction::NewTab { .. } => "new_tab",
+            BrowserAction::HandleDialog { .. } => "handle_dialog",
             BrowserAction::Wait { .. } => "wait",
         }
     }
@@ -179,19 +193,51 @@ impl BrowserAction {
 
     pub fn expected_effect(&self) -> ExpectedEffect {
         match self {
-            BrowserAction::Click { expected_effect, .. }
-            | BrowserAction::Type { expected_effect, .. }
-            | BrowserAction::Select { expected_effect, .. }
-            | BrowserAction::Check { expected_effect, .. }
-            | BrowserAction::Press { expected_effect, .. }
-            | BrowserAction::Scroll { expected_effect, .. }
-            | BrowserAction::Hover { expected_effect, .. }
-            | BrowserAction::Navigate { expected_effect, .. }
-            | BrowserAction::Back { expected_effect, .. }
-            | BrowserAction::Forward { expected_effect, .. }
-            | BrowserAction::Reload { expected_effect, .. }
-            | BrowserAction::ActivateTab { expected_effect, .. }
-            | BrowserAction::CloseTab { expected_effect, .. } => expected_effect.clone(),
+            BrowserAction::Click {
+                expected_effect, ..
+            }
+            | BrowserAction::Type {
+                expected_effect, ..
+            }
+            | BrowserAction::Select {
+                expected_effect, ..
+            }
+            | BrowserAction::Check {
+                expected_effect, ..
+            }
+            | BrowserAction::Press {
+                expected_effect, ..
+            }
+            | BrowserAction::Scroll {
+                expected_effect, ..
+            }
+            | BrowserAction::Hover {
+                expected_effect, ..
+            }
+            | BrowserAction::Navigate {
+                expected_effect, ..
+            }
+            | BrowserAction::Back {
+                expected_effect, ..
+            }
+            | BrowserAction::Forward {
+                expected_effect, ..
+            }
+            | BrowserAction::Reload {
+                expected_effect, ..
+            }
+            | BrowserAction::ActivateTab {
+                expected_effect, ..
+            }
+            | BrowserAction::CloseTab {
+                expected_effect, ..
+            }
+            | BrowserAction::NewTab {
+                expected_effect, ..
+            }
+            | BrowserAction::HandleDialog {
+                expected_effect, ..
+            } => expected_effect.clone(),
             BrowserAction::Wait { .. } => ExpectedEffect::None,
         }
     }
@@ -218,7 +264,7 @@ mod tests {
 
     #[test]
     fn action_serde_tagged() {
-        let v = serde_json::to_value(&click()).unwrap();
+        let v = serde_json::to_value(click()).unwrap();
         assert_eq!(v["type"], "click");
         assert_eq!(v["target"]["ref"], "@x");
     }

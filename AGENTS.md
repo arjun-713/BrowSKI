@@ -87,7 +87,9 @@ Do not create directories with no expected ownership or purpose.
 
 - No language or major dependency without a written benefit (performance,
   reliability, ecosystem, integration, speed, deployment). Record in an ADR.
-- Do NOT introduce LangChain / LangGraph / CrewAI into the core architecture.
+- LangGraph is allowed in Python orchestration as specified by the active
+  BROWSKI architecture plan. Never add it to the Rust browser core. Do not add
+  LangChain or CrewAI without an architecture decision.
 - Do NOT add Redis, Postgres, vector DBs, Kubernetes, Docker Compose,
   microservices, auth systems, or cloud infra without a benchmark-backed need.
 - Keep new dependencies minimal (“no 30 dependencies for later”).
@@ -156,7 +158,9 @@ architectural options. Read ADR-001 and ADR-002 first.
 - Do not treat a successful click call as verified success.
 - Do not duplicate browser state models in multiple languages (one mirror only).
 - Do not change a shared contract without an ADR if migration is non-trivial.
-- Do not introduce LangChain/LangGraph/CrewAI into core architecture.
+- Do not put LangGraph, LangChain, or CrewAI in the Rust browser core. LangGraph
+  orchestration belongs to Python and follows the active BROWSKI architecture
+  plan.
 - Do not create another browser abstraction without proving the current one inadequate.
 - Do not add a new language without justification.
 - Do not touch the CDP socket outside `crates/cdp/src/transport.rs` — only

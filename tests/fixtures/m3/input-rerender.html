@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Mutating input</title></head>
+<body>
+<h1>Framework churn</h1>
+<label for="stable">Stable input</label>
+<input id="stable" value="">
+<label for="churn">Churning input</label>
+<input id="churn" value="">
+<script>
+  // Every keystroke mutates the node (attributes), node identity survives.
+  document.getElementById('churn').addEventListener('input', e => {
+    e.target.setAttribute('data-tick', String(Date.now()));
+  });
+</script>
+</body>
+</html>

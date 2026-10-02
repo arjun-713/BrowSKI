@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dead button</title></head>
+<body>
+<h1>No handler</h1>
+<button id="dead">Does nothing</button>
+<button id="live">Says hi</button>
+<p id="out"></p>
+<script>
+  document.getElementById('live').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'hi';
+  });
+</script>
+</body>
+</html>

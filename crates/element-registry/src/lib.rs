@@ -155,6 +155,13 @@ impl ElementRegistry {
         })
     }
 
+    /// Look up an entry by numeric id (target resolution).
+    pub fn lookup_id(&self, id: u64) -> Option<ElementRef> {
+        self.entries
+            .get(&id)
+            .map(|e| ElementRef::new(id, e.alias.as_str(), e.generation))
+    }
+
     /// True if the ref was bound in the current generation.
     pub fn is_fresh(&self, reference: &ElementRef) -> bool {
         self.entries

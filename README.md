@@ -1,8 +1,10 @@
-# browser-agent
+# BROWSKI Rust Browser Foundation
 
-A general-purpose open-source browser agent: install the package, provide an
-API key or a local model, give a natural-language browser task, and the agent
-completes it autonomously.
+BROWSKI is an open-source autonomous browser-agent runtime. This repository
+contains its Rust browser foundation: persistent Chromium control, semantic
+observation, stable element identity, typed actions, and deterministic
+verification. The Python orchestration and model-provider layers are separate
+milestones and are not implemented here yet.
 
 ```python
 from browser_agent import BrowserSession
@@ -13,28 +15,23 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status: scaffold (v0.1).** The cross-language runtime works — Rust drives
-> a live Chromium, Python orchestrates through PyO3 bindings — but there is
-> **no autonomous agent loop yet**. No benchmark claims, no production-readiness
-> claims. See [Roadmap](docs/development/roadmap.md).
+> **Status:** M0–M3 browser foundation implemented. The full Rust workspace
+> tests pass, including the local Chromium M1/M2 suites and 22 M3 action tests.
+> There is no autonomous agent loop in this repository yet. See the
+> [roadmap](docs/development/roadmap.md) for the current milestone sequence.
 
 ## What "browser agent" means here
 
-A program that takes a task like *"find AI internships in Bengaluru with
-stipend above ₹20k and open the best five"* and carries it out in a real
-browser: navigating, reading pages, filling forms (without submitting unless
-asked), extracting structured data, opening tabs — verifying each step and
-recovering from failures, over short and long horizons.
+The planned runtime takes natural-language tasks and executes browser work
+through LangGraph orchestration, bounded Laya/Jev decisions, and GPT-6 Luna
+reasoning. This Rust repository supplies the browser-facing foundation; it
+does not yet complete natural-language tasks autonomously.
 
 ## Why this project exists
 
-Existing systems (Browser Use, Stagehand, and others — see
-[competitor notes](docs/research/competitor-notes.md)) each make sharp
-tradeoffs: single-language runtimes, baked-in providers, vision-only
-grounding, or closed cores. This project aims for an independent,
-provider-agnostic, self-hostable runtime that competes on the metric that
-matters — **end-to-end task completion** — while staying open and
-benchmark-driven from day one.
+The design keeps browser state, element identity, execution, and deterministic
+verification in Rust. Agent orchestration and model decisions will remain in
+the Python layer. Architecture claims are gated on reproducible benchmarks.
 
 ## High-level architecture
 
@@ -124,11 +121,11 @@ measuring it.
 
 ## Roadmap
 
-0. scaffold + research → 1. browser runtime → 2. observation + element
-identity → 3. executor + verification → 4. first autonomous loop → 5. memory
-+ progress → 6. recovery → 7. vision/code escape hatch → 8. provider
-hardening → 9. benchmarks → 10. privacy/extension/procedural memory.
-Each phase has a measurable gate: [roadmap](docs/development/roadmap.md).
+M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
+and M3 executor + verification are implemented in the Rust foundation. Next
+are M4 LangGraph runtime, M5 Laya/Jev decisions, M6 adaptive Luna reasoning,
+and M7 memory/progress/recovery. See the
+[roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security
 

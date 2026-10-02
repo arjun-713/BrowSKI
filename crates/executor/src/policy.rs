@@ -30,8 +30,9 @@ pub struct ActOptions {
     pub settle_timeout: Duration,
     #[serde(default = "default_verify")]
     pub verify_timeout: Duration,
-    /// Allow the DOM-method fallback (e.g. `el.click()`) when trusted input
-    /// cannot proceed. Default false: tests prove the trusted path first.
+    /// Allow a documented DOM fallback (for example, `el.click()` or the
+    /// native value setter for a controlled input) when trusted input cannot
+    /// proceed. Default false: the CDP input path is preferred.
     #[serde(default)]
     pub allow_dom_fallback: bool,
     #[serde(default = "default_attempts")]
@@ -74,9 +75,15 @@ mod tests {
 
     #[test]
     fn attempts_are_clamped() {
-        let opts = ActOptions { max_attempts: 99, ..Default::default() };
+        let opts = ActOptions {
+            max_attempts: 99,
+            ..Default::default()
+        };
         assert_eq!(opts.bounded_attempts(), MAX_ACTION_ATTEMPTS);
-        let opts = ActOptions { max_attempts: 0, ..Default::default() };
+        let opts = ActOptions {
+            max_attempts: 0,
+            ..Default::default()
+        };
         assert_eq!(opts.bounded_attempts(), 1);
     }
 }

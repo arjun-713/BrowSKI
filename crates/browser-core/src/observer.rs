@@ -57,6 +57,7 @@ struct AxInfo {
     checked: Option<bool>,
     expanded: Option<bool>,
     pressed: Option<bool>,
+    selected: Option<bool>,
     readonly: bool,
     required: bool,
     level: Option<u32>,
@@ -99,7 +100,6 @@ fn parse_ax_node(node: &Value) -> (Option<i64>, AxInfo) {
             .and_then(Value::as_bool)
             .unwrap_or(false)
     };
-    // Tristate-or-boolean value: string "true"/"false" or raw boolean.
     let tri = |name: &str| -> Option<bool> {
         props.iter().find(|(n, _)| *n == name).and_then(|(_, v)| {
             v.get("value")
@@ -135,6 +135,7 @@ fn parse_ax_node(node: &Value) -> (Option<i64>, AxInfo) {
         required: flag("required"),
         level,
         modal: flag("modal"),
+        selected: tri("selected"),
     };
     (backend, info)
 }
@@ -682,6 +683,13 @@ fn value_for(raw: &RawNode, ax: &AxInfo) -> Option<String> {
             return Some(truncate(v));
         }
     }
+    if raw
+        .attrs
+        .get("contenteditable")
+        .is_some_and(|value| value != "false")
+    {
+        return (!raw.text.is_empty()).then(|| truncate(&raw.text));
+    }
     match raw.tag.as_str() {
         "input" => match raw.attrs.get("type").map(String::as_str) {
             Some("checkbox") | Some("radio") => None, // state flags carry this
@@ -718,8 +726,18 @@ fn states_for(raw: &RawNode, ax: &AxInfo, role: &str) -> Vec<String> {
     if ax.required || raw.attrs.contains_key("required") {
         states.push("required".to_string());
     }
-    if ax.checked == Some(true) || raw.attrs.contains_key("checked") {
+    // checked/selected: the content attribute does NOT reflect live toggles
+    // (unlike `disabled`), so live AX state wins whenever present and the
+    // attribute is only a fallback for backends that omit the property.
+    let checked_state = match ax.checked {
+        Some(b) => b,
+        None => raw.attrs.contains_key("checked"),
+    };
+    if checked_state {
         states.push("checked".to_string());
+    }
+    if ax.selected == Some(true) {
+        states.push("selected".to_string());
     }
     if ax.expanded == Some(true) {
         states.push("expanded".to_string());
@@ -1522,7 +1540,11 @@ fn parse_scroll(res: Result<Value, browser_agent_cdp::CdpError>) -> (i64, i64) {
 }
 
 /// Bounded descendant-backend set for hit-test tolerance.
-fn subtree_backends(children: &HashMap<i64, Vec<i64>>, root: i64, cap: usize) -> HashSet<i64> {
+pub(crate) fn subtree_backends(
+    children: &HashMap<i64, Vec<i64>>,
+    root: i64,
+    cap: usize,
+) -> HashSet<i64> {
     let mut out = HashSet::new();
     let mut stack = vec![root];
     while let Some(current) = stack.pop() {
@@ -1541,7 +1563,7 @@ fn subtree_backends(children: &HashMap<i64, Vec<i64>>, root: i64, cap: usize) ->
 
 /// JS contains-check fallback: does the viewport point hit the node or a
 /// descendant? Resolves the backend to an object id first.
-async fn hit_test_contains(
+pub(crate) async fn hit_test_contains(
     transport: &PersistentTransport,
     session: &CdpSessionId,
     backend: i64,

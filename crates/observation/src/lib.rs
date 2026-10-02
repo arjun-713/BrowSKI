@@ -27,7 +27,7 @@ pub use ids::{
     BackendNodeId, BrowserSessionId, CdpSessionId, ExecutionContextId, FrameId, TabId, TargetId,
 };
 pub use model::{
-    stable_hash_hex, BBox, DialogSummary, FormSummary, ScrollState, SemanticElement, SemanticKind,
-    SemanticSnapshot, TextBlock, TextKind, Viewport, VisibilityClass,
+    opt_str, stable_hash_hex, BBox, DialogSummary, FormSummary, ScrollState, SemanticElement,
+    SemanticKind, SemanticSnapshot, TextBlock, TextKind, Viewport, VisibilityClass,
 };
 pub use prune::{prune, render_text, AgentObservation, PrunedElement, MAX_MODEL_ELEMENTS};

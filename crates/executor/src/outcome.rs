@@ -83,7 +83,10 @@ mod tests {
         };
         let mut outcome = ActionOutcome {
             action,
-            execution: Ok(ExecutionEvidence { method: "cdp-input".into(), detail: String::new() }),
+            execution: Ok(ExecutionEvidence {
+                method: "cdp-input".into(),
+                detail: String::new(),
+            }),
             verification: VerificationResult::uncertain("e", "o"),
             before_generation: 1,
             after_generation: 1,

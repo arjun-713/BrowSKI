@@ -13,6 +13,7 @@
 //! detected, and the [`TabRegistry`](model::TabRegistry) is rebuilt from
 //! transport events rather than cached forever.
 
+pub mod act;
 pub mod error;
 pub mod events;
 pub mod model;
@@ -28,3 +29,25 @@ pub use browser_agent_observation::{
     AgentObservation, SemanticElement, SemanticSnapshot, SnapshotDelta, TabId, TargetId,
     VisibilityClass,
 };
+// Executor surface re-exported for agent-layer consumers (single hop).
+pub use browser_agent_executor::{
+    ActOptions, ActionOutcome, BrowserAction, ExecutionFailure, ExecutionFailureKind,
+};
+pub use browser_agent_verification::{SideEffects, VerificationResult};
+
+/// Test/support helper: default side effects (no events observed).
+pub fn verification_side_effects() -> SideEffects {
+    SideEffects::default()
+}
+
+/// Test/support helper: pure verification entry point.
+pub fn verify_for_test(
+    expected: &browser_agent_verification::ExpectedEffect,
+    action_type: &str,
+    before: &SemanticSnapshot,
+    after: &SemanticSnapshot,
+    delta: &SnapshotDelta,
+    side: &SideEffects,
+) -> VerificationResult {
+    browser_agent_verification::verify_expected(expected, action_type, before, after, delta, side)
+}

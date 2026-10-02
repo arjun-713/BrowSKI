@@ -13,7 +13,7 @@
 
 use crate::model::SemanticSnapshot;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// One changed element: ref + human-readable field deltas.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,12 +55,16 @@ fn summarize_opt(v: &Option<String>) -> &str {
     v.as_deref().unwrap_or("")
 }
 
+fn truncate80(s: &str) -> String {
+    s.chars().take(80).collect()
+}
+
 /// Compute the delta from `before` to `after` (same tab).
 ///
-/// Elements match by fingerprint (stable across alias/doc-order churn), with
-/// registry id as the tiebreak. Same fingerprint + different ref/frame =
-/// `moved`. Same fingerprint + different value/state/text/visibility =
-/// `changed`.
+/// Elements match by **registry id** (stable identity); fingerprints back
+/// the reacquisition layer, not the diff. Same id + different ref/frame =
+/// `moved`. Same id + different value/state/text/visibility = `changed`.
+/// Deterministic: outputs sort by reference.
 pub fn diff_snapshots(before: &SemanticSnapshot, after: &SemanticSnapshot) -> SnapshotDelta {
     let mut delta = SnapshotDelta {
         navigation_changed: before.url != after.url,
@@ -68,37 +72,30 @@ pub fn diff_snapshots(before: &SemanticSnapshot, after: &SemanticSnapshot) -> Sn
         ..Default::default()
     };
 
-    // Index by fingerprint; fingerprints are near-unique, collisions fall
-    // back to registry id comparison below.
-    let mut old_by_fp: HashMap<&str, Vec<usize>> = HashMap::new();
+    // Match by registry id (stable identity); fingerprints back the
+    // reacquisition layer, not the diff.
+    let mut old_by_id: HashMap<u64, usize> = HashMap::new();
     for (i, el) in before.elements.iter().enumerate() {
-        old_by_fp
-            .entry(el.fingerprint.as_str())
-            .or_default()
-            .push(i);
+        old_by_id.insert(el.id, i);
     }
-    let mut new_by_fp: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut new_by_id: HashMap<u64, usize> = HashMap::new();
     for (i, el) in after.elements.iter().enumerate() {
-        new_by_fp
-            .entry(el.fingerprint.as_str())
-            .or_default()
-            .push(i);
+        new_by_id.insert(el.id, i);
     }
 
-    let mut matched_old: HashSet<usize> = HashSet::new();
-    let mut matched_new: HashSet<usize> = HashSet::new();
+    // Deterministic union order: before-order, then new-only in after-order.
+    let mut order: Vec<u64> = before.elements.iter().map(|e| e.id).collect();
+    for el in &after.elements {
+        if !old_by_id.contains_key(&el.id) {
+            order.push(el.id);
+        }
+    }
 
-    // Greedy 1:1 matching on identical fingerprints (doc-order aligned).
-    let mut fps: Vec<&str> = old_by_fp.keys().copied().collect();
-    fps.sort_unstable();
-    for fp in fps {
-        if let Some(new_idxs) = new_by_fp.get(fp) {
-            let old_idxs = &old_by_fp[fp];
-            for (o, n) in old_idxs.iter().zip(new_idxs.iter()) {
-                matched_old.insert(*o);
-                matched_new.insert(*n);
-                let old_el = &before.elements[*o];
-                let new_el = &after.elements[*n];
+    for id in order {
+        match (old_by_id.get(&id), new_by_id.get(&id)) {
+            (Some(&o), Some(&n)) => {
+                let old_el = &before.elements[o];
+                let new_el = &after.elements[n];
                 let mut fields = Vec::new();
                 if summarize_opt(&old_el.value) != summarize_opt(&new_el.value) {
                     fields.push(format!(
@@ -111,7 +108,11 @@ pub fn diff_snapshots(before: &SemanticSnapshot, after: &SemanticSnapshot) -> Sn
                     fields.push(format!("state: {:?} → {:?}", old_el.state, new_el.state));
                 }
                 if summarize_opt(&old_el.text) != summarize_opt(&new_el.text) {
-                    fields.push("text changed".to_string());
+                    fields.push(format!(
+                        "text: {:?} → {:?}",
+                        truncate80(summarize_opt(&old_el.text)),
+                        truncate80(summarize_opt(&new_el.text))
+                    ));
                 }
                 if old_el.visibility != new_el.visibility
                     || old_el.interactable != new_el.interactable
@@ -131,17 +132,9 @@ pub fn diff_snapshots(before: &SemanticSnapshot, after: &SemanticSnapshot) -> Sn
                     delta.moved.push(new_el.reference.clone());
                 }
             }
-        }
-    }
-
-    for (i, el) in after.elements.iter().enumerate() {
-        if !matched_new.contains(&i) {
-            delta.added.push(el.reference.clone());
-        }
-    }
-    for (i, el) in before.elements.iter().enumerate() {
-        if !matched_old.contains(&i) {
-            delta.removed.push(el.reference.clone());
+            (None, Some(&n)) => delta.added.push(after.elements[n].reference.clone()),
+            (Some(&o), None) => delta.removed.push(before.elements[o].reference.clone()),
+            (None, None) => unreachable!("union member missing from both sides"),
         }
     }
 
@@ -181,8 +174,12 @@ mod tests {
     use crate::model::{BBox, SemanticElement, SemanticKind, VisibilityClass};
 
     fn el(reference: &str, fp: &str, value: Option<&str>) -> SemanticElement {
+        el_id(reference, fp, value, 1)
+    }
+
+    fn el_id(reference: &str, fp: &str, value: Option<&str>, id: u64) -> SemanticElement {
         SemanticElement {
-            id: 1,
+            id,
             reference: reference.into(),
             generation: 1,
             role: "textbox".into(),
@@ -232,8 +229,8 @@ mod tests {
 
     #[test]
     fn detects_added_removed_and_navigation() {
-        let before = snap("https://x/a", vec![el("@gone", "fp-gone", None)]);
-        let after = snap("https://x/b", vec![el("@fresh", "fp-fresh", None)]);
+        let before = snap("https://x/a", vec![el_id("@gone", "fp-gone", None, 1)]);
+        let after = snap("https://x/b", vec![el_id("@fresh", "fp-fresh", None, 2)]);
         let d = diff_snapshots(&before, &after);
         assert_eq!(d.added, vec!["@fresh"]);
         assert_eq!(d.removed, vec!["@gone"]);

@@ -30,6 +30,11 @@ pub fn stable_hash_hex(s: &str) -> String {
     format!("{h:x}")
 }
 
+/// `Option<String>` as a comparable `&str` (empty for missing).
+pub fn opt_str(v: &Option<String>) -> &str {
+    v.as_deref().unwrap_or("")
+}
+
 /// Bounding box in CSS pixels, relative to the main-frame viewport.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BBox {

@@ -39,6 +39,9 @@ pub enum BrowserEvent {
         dialog_type: String,
         message: String,
     },
+    DialogClosed {
+        tab: TabId,
+    },
     DownloadStarted {
         tab: TabId,
         filename: String,
@@ -65,6 +68,7 @@ impl BrowserEvent {
             BrowserEvent::TargetCreated { .. } => "target_created",
             BrowserEvent::TargetDestroyed { .. } => "target_destroyed",
             BrowserEvent::DialogOpened { .. } => "dialog_opened",
+            BrowserEvent::DialogClosed { .. } => "dialog_closed",
             BrowserEvent::DownloadStarted { .. } => "download_started",
             BrowserEvent::DownloadCompleted { .. } => "download_completed",
             BrowserEvent::PageCrashed { .. } => "page_crashed",

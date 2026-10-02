@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Delayed overlay</title>
+<style>#veil { position: fixed; inset: 0; background: transparent; z-index: 50; }</style>
+</head>
+<body>
+<h1>Transient veil</h1>
+<button id="go">Go now</button>
+<p id="out"></p>
+<div id="veil"></div>
+<script>
+  const ms = Number(new URLSearchParams(location.search).get('ms') || '800');
+  setTimeout(() => document.getElementById('veil').remove(), ms);
+  document.getElementById('go').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'went';
+  });
+</script>
+</body>
+</html>

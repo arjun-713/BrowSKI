@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Controlled input</title></head>
+<body>
+<h1>Controlled</h1>
+<label for="nick">Nickname</label>
+<input id="nick" value="">
+<p>Mirror: <span id="mirror"></span></p>
+<button id="rerender">Re-render (keep state)</button>
+<script>
+  const state = { nick: '' };
+  const input = document.getElementById('nick');
+  // Controlled: DOM value is re-asserted from JS state on every render.
+  function render() { input.value = state.nick; }
+  input.addEventListener('input', e => {
+    state.nick = e.target.value;
+    document.getElementById('mirror').textContent = state.nick;
+  });
+  input.addEventListener('change', e => { state.nick = e.target.value; render(); });
+  document.getElementById('rerender').addEventListener('click', render);
+</script>
+</body>
+</html>

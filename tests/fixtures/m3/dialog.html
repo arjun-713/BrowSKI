@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dialog demo</title></head>
+<body>
+<h1>Dialogs</h1>
+<button id="alert-btn">Raise alert</button>
+<button id="other">Other action</button>
+<p id="out"></p>
+<script>
+  document.getElementById('alert-btn').addEventListener('click', () => {
+    setTimeout(() => alert('boom'), 300);
+  });
+  document.getElementById('other').addEventListener('click', () => {
+    document.getElementById('out').textContent = 'other clicked';
+  });
+</script>
+</body>
+</html>

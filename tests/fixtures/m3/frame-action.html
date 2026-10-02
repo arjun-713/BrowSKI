@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Frame action</title></head>
+<body>
+<h1>Host</h1>
+<iframe name="panel" title="panel" srcdoc="<!doctype html><html><body><button id='fbump'>Bump</button><p>Frame count: <span id='fcount'>0</span></p><script>let n=0;document.getElementById('fbump').addEventListener('click',()=>{n+=1;document.getElementById('fcount').textContent=String(n);});</script></body></html>"></iframe>
+</body>
+</html>

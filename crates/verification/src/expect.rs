@@ -15,13 +15,29 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "expect", rename_all = "snake_case")]
 pub enum EffectExpectation {
     UrlChanged,
-    UrlIs { url: String },
-    ElementAppeared { reference: String },
-    ElementDisappeared { reference: String },
-    ValueIs { target: ElementRef, value: String },
-    CheckedIs { target: ElementRef, checked: bool },
-    StateContains { target: ElementRef, state: String },
+    UrlIs {
+        url: String,
+    },
+    ElementAppeared {
+        reference: String,
+    },
+    ElementDisappeared {
+        reference: String,
+    },
+    ValueIs {
+        target: ElementRef,
+        value: String,
+    },
+    CheckedIs {
+        target: ElementRef,
+        checked: bool,
+    },
+    StateContains {
+        target: ElementRef,
+        state: String,
+    },
     DialogOpened,
+    DialogClosed,
     NewTabOpened,
     /// Any observable state change (delta non-empty). Weak on its own —
     /// prefer specific expectations where the test knows them.
@@ -52,9 +68,9 @@ pub fn default_effect_for(action_type: &str) -> ExpectedEffect {
             EffectExpectation::NewTabOpened,
             EffectExpectation::AnyElementChanged,
         ]),
-        "press" | "hover" => {
-            ExpectedEffect::AnyOf(vec![EffectExpectation::AnyElementChanged])
-        }
+        "press" | "hover" => ExpectedEffect::AnyOf(vec![EffectExpectation::AnyElementChanged]),
+        "new_tab" => ExpectedEffect::AnyOf(vec![EffectExpectation::NewTabOpened]),
+        "handle_dialog" => ExpectedEffect::AnyOf(vec![EffectExpectation::DialogClosed]),
         // Type/select/check/scroll/navigate verify directly from read-back
         // and carry their own checks; Unspecified lets the caller decide.
         _ => ExpectedEffect::Unspecified,
@@ -69,6 +85,8 @@ pub struct SideEffects {
     pub url_changed: bool,
     #[serde(default)]
     pub dialog_opened: bool,
+    #[serde(default)]
+    pub dialog_closed: bool,
     #[serde(default)]
     pub new_tab_opened: bool,
     #[serde(default)]
@@ -153,9 +171,7 @@ pub fn check_expectation(
                 Some(el) if el.state.iter().any(|s| s == state) => {
                     ExpectationVerdict::Met(format!("{target} has state {state}"))
                 }
-                Some(_) => {
-                    ExpectationVerdict::Unmet(format!("{target} lacks state {state}"))
-                }
+                Some(_) => ExpectationVerdict::Unmet(format!("{target} lacks state {state}")),
                 None => ExpectationVerdict::Uncertain(format!("{target} not in snapshot")),
             }
         }
@@ -166,6 +182,13 @@ pub fn check_expectation(
                 ExpectationVerdict::Unmet("no dialog observed".into())
             }
         }
+        EffectExpectation::DialogClosed => {
+            if side.dialog_closed {
+                ExpectationVerdict::Met("dialog closed".into())
+            } else {
+                ExpectationVerdict::Unmet("dialog did not close".into())
+            }
+        }
         EffectExpectation::NewTabOpened => {
             if side.new_tab_opened {
                 ExpectationVerdict::Met("new tab observed".into())
@@ -174,7 +197,20 @@ pub fn check_expectation(
             }
         }
         EffectExpectation::AnyElementChanged => {
-            if !delta.is_empty() {
+            // Focus-only movement is mechanical, not task progress: a click
+            // that merely focuses its target is NO_EFFECT, not success.
+            let substantive = !delta.added.is_empty()
+                || !delta.removed.is_empty()
+                || !delta.moved.is_empty()
+                || delta.changed.iter().any(|c| {
+                    let old_el = before.elements.iter().find(|e| e.reference == c.reference);
+                    let new_el = after.elements.iter().find(|e| e.reference == c.reference);
+                    match (old_el, new_el) {
+                        (Some(o), Some(n)) => substantive_change(o, n),
+                        _ => true,
+                    }
+                });
+            if substantive {
                 ExpectationVerdict::Met(format!(
                     "state changed (+{}/-{}/~{})",
                     delta.added.len(),
@@ -182,7 +218,9 @@ pub fn check_expectation(
                     delta.changed.len()
                 ))
             } else {
-                ExpectationVerdict::Unmet("no state change".into())
+                ExpectationVerdict::Unmet(
+                    "no substantive state change (focus moved at most)".into(),
+                )
             }
         }
     }
@@ -190,6 +228,34 @@ pub fn check_expectation(
 
 fn normalize_url(u: &str) -> String {
     u.trim_end_matches('/').to_lowercase()
+}
+
+/// True if anything changed apart from focus movement.
+fn substantive_change(
+    old_el: &browser_agent_observation::SemanticElement,
+    new_el: &browser_agent_observation::SemanticElement,
+) -> bool {
+    if browser_agent_observation::opt_str(&old_el.value)
+        != browser_agent_observation::opt_str(&new_el.value)
+    {
+        return true;
+    }
+    if browser_agent_observation::opt_str(&old_el.text)
+        != browser_agent_observation::opt_str(&new_el.text)
+    {
+        return true;
+    }
+    if old_el.visibility != new_el.visibility || old_el.interactable != new_el.interactable {
+        return true;
+    }
+    let without_focus = |states: &[String]| {
+        states
+            .iter()
+            .filter(|s| s.as_str() != "focused")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    without_focus(&old_el.state) != without_focus(&new_el.state)
 }
 
 /// Verify a declared effect: Success if any expectation is met, Failure if
@@ -209,18 +275,19 @@ pub fn verify_expected(
         other => other.clone(),
     };
     match effective {
-        ExpectedEffect::None => crate::VerificationResult::success("no postcondition", "declared none")
-            .with_check("none"),
+        ExpectedEffect::None => {
+            crate::VerificationResult::success("no postcondition", "declared none")
+                .with_check("none")
+        }
         ExpectedEffect::Unspecified => crate::VerificationResult::uncertain(
             "no expectations",
             "no declared or default expectations apply",
         )
         .with_check("unspecified"),
-        ExpectedEffect::AnyOf(list) if list.is_empty() => crate::VerificationResult::uncertain(
-            "empty expectations",
-            "no expectations to check",
-        )
-        .with_check("empty"),
+        ExpectedEffect::AnyOf(list) if list.is_empty() => {
+            crate::VerificationResult::uncertain("empty expectations", "no expectations to check")
+                .with_check("empty")
+        }
         ExpectedEffect::AnyOf(list) => {
             let mut unmets = Vec::new();
             let mut uncertains = Vec::new();
@@ -268,6 +335,7 @@ fn expectation_name(exp: &EffectExpectation) -> &'static str {
         EffectExpectation::CheckedIs { .. } => "checked-is",
         EffectExpectation::StateContains { .. } => "state-contains",
         EffectExpectation::DialogOpened => "dialog-opened",
+        EffectExpectation::DialogClosed => "dialog-closed",
         EffectExpectation::NewTabOpened => "new-tab-opened",
         EffectExpectation::AnyElementChanged => "any-element-changed",
     }
@@ -321,7 +389,10 @@ mod tests {
         let delta = browser_agent_observation::diff_snapshots(&before, &after);
         let side = SideEffects::default();
         let met = check_expectation(
-            &EffectExpectation::ValueIs { target: target(1, "@u"), value: "mallik".into() },
+            &EffectExpectation::ValueIs {
+                target: target(1, "@u"),
+                value: "mallik".into(),
+            },
             &before,
             &after,
             &delta,
@@ -329,7 +400,10 @@ mod tests {
         );
         assert!(matches!(met, ExpectationVerdict::Met(_)));
         let unmet = check_expectation(
-            &EffectExpectation::ValueIs { target: target(1, "@u"), value: "other".into() },
+            &EffectExpectation::ValueIs {
+                target: target(1, "@u"),
+                value: "other".into(),
+            },
             &before,
             &after,
             &delta,
@@ -342,7 +416,10 @@ mod tests {
     fn missing_target_is_uncertain_not_failure() {
         let s = snap("https://x/", vec![]);
         let v = check_expectation(
-            &EffectExpectation::ValueIs { target: target(9, "@gone"), value: "x".into() },
+            &EffectExpectation::ValueIs {
+                target: target(9, "@gone"),
+                value: "x".into(),
+            },
             &s,
             &s,
             &SnapshotDelta::default(),
@@ -357,7 +434,10 @@ mod tests {
         let r = verify_expected(
             &ExpectedEffect::AnyOf(vec![
                 EffectExpectation::UrlChanged,
-                EffectExpectation::ValueIs { target: target(9, "@gone"), value: "x".into() },
+                EffectExpectation::ValueIs {
+                    target: target(9, "@gone"),
+                    value: "x".into(),
+                },
             ]),
             "click",
             &s,
