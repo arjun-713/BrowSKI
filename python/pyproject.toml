@@ -24,7 +24,6 @@ dependencies = [
 
 [project.optional-dependencies]
 llm = ["litellm>=1.0"]
-decisions-local = ["laya>=0.1"]
 decisions-cloud = ["typesafe-sdk>=0.1"]
 test = ["pytest>=8.0", "pytest-asyncio>=0.23", "hypothesis>=6.0", "anyio[trio]>=4.0"]
 dev = ["browser-agent[llm,test]", "ruff>=0.4", "pyright>=1.1", "maturin>=1.0"]

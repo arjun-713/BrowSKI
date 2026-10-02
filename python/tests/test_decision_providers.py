@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -15,8 +16,11 @@ from browser_agent.decisions import (
     DecisionKind,
     DecisionProvider,
     DecisionProviderName,
+    DecisionProviderProtocolError,
+    DecisionProviderTimeout,
     DecisionQuestion,
     DecisionResult,
+    DecisionTelemetryEvent,
     JevProvider,
     LayaProvider,
     create_decision_provider,
@@ -130,6 +134,7 @@ async def test_laya_maps_all_typed_questions_and_uses_its_calibration() -> None:
     assert result.answers["score"].value == 2.0
     assert result.answers["noul"].value == 0.9
     assert model.calls[0][1]["choice"]["type"] == "choice"
+    assert model.calls[0][1]["choice"]["criteria"] == {"safe": "safe", "stop": "stop"}
     assert model.calls[0][1]["score"]["criteria"] == ("low", "mid", "high")
 
 
@@ -169,6 +174,7 @@ async def test_jev_maps_choice_score_noul_with_official_question_shapes(
     assert result.answers["score"].value == 1.5
     assert result.answers["noul"].value == 0.8
     assert result.answers["noul"].accepted is True
+    assert isinstance(result.answers["choice"].raw, dict)
     sent_questions = client.calls[0][1]
     assert sent_questions["choice"].criteria == {"safe": None, "stop": None}
     assert sent_questions["score"].criteria == ["low", "mid", "high"]
@@ -231,7 +237,87 @@ async def test_adaptive_falls_back_when_laya_raises() -> None:
         "state", {"route": DecisionQuestion(DecisionKind.CHOICE, "Choose", {"a": None, "b": None})}
     )
     assert result.provider == "jev"
+    assert result.fallback_from == "laya"
+    assert result.fallback_reason == "laya_error:RuntimeError"
     assert (laya.calls, jev.calls) == (1, 1)
+
+
+async def test_adaptive_emits_fallback_event() -> None:
+    events: list[DecisionTelemetryEvent] = []
+    laya = FixedProvider("laya", False, "local")
+    jev = FixedProvider("jev", True, "cloud")
+    adaptive = AdaptiveDecisionProvider(laya, jev, telemetry=events.append)
+
+    result = await adaptive.evaluate(
+        "state", {"route": DecisionQuestion(DecisionKind.CHOICE, "Choose", {"a": None, "b": None})}
+    )
+
+    assert result.fallback_from == "laya"
+    assert events[0].outcome == "jev_selected"
+    assert events[0].fallback_from == "laya"
+
+
+async def test_laya_uses_local_http_contract_and_reports_health() -> None:
+    calls: list[tuple[str, str, Any, float, Any]] = []
+
+    def transport(method: str, url: str, payload: Any, timeout: float, headers: Any) -> Any:
+        calls.append((method, url, payload, timeout, headers))
+        if method == "GET":
+            return {"status": "ok"}
+        return {"model": "laya-cpu", "answers": {"done": {"noul": 0.9, "confidence": 0.9}}}
+
+    provider = LayaProvider(endpoint_url="http://127.0.0.1:9010/", transport=transport)
+    health = await provider.health_check()
+    result = await provider.evaluate(
+        "visible page state", {"done": DecisionQuestion(DecisionKind.NOUL, "Is the form saved?")}
+    )
+
+    assert health.available is True
+    assert calls[0][0:2] == ("GET", "http://127.0.0.1:9010/health")
+    assert calls[1][0:2] == ("POST", "http://127.0.0.1:9010/v1/systemone")
+    assert calls[1][2]["state"] == "visible page state"
+    assert calls[1][2]["questions"]["done"]["type"] == "noul"
+    assert calls[1][3] == 5.0
+    assert result.model == "laya-cpu"
+    assert result.answers["done"].value == 0.9
+
+
+async def test_laya_absent_local_service_is_explicit_and_health_is_nonfatal() -> None:
+    def unavailable(*args: Any) -> Any:
+        _ = args
+        raise OSError("connection refused")
+
+    provider = LayaProvider(transport=unavailable)
+    health = await provider.health_check()
+    assert health.available is False
+    assert health.detail == "OSError"
+    with pytest.raises(DecisionProviderProtocolError, match="Laya decision failed with OSError"):
+        await provider.evaluate("state", {"done": DecisionQuestion(DecisionKind.NOUL, "Done?")})
+
+
+async def test_laya_timeout_is_mapped_to_typed_error() -> None:
+    def timed_out(*args: Any) -> Any:
+        _ = args
+        raise TimeoutError("transport timeout")
+
+    provider = LayaProvider(transport=timed_out)
+    with pytest.raises(DecisionProviderTimeout):
+        await provider.evaluate("state", {"done": DecisionQuestion(DecisionKind.NOUL, "Done?")})
+
+
+async def test_jev_timeout_is_mapped_to_typed_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fake_typesafe(monkeypatch)
+
+    class SlowClient:
+        async def system_one(self, *, state: Any, questions: Any) -> Any:
+            _ = state, questions
+            await asyncio.sleep(0.05)
+
+    provider = JevProvider(client=SlowClient(), timeout_ms=1)
+    with pytest.raises(DecisionProviderTimeout):
+        await provider.evaluate(
+            "state", {"done": DecisionQuestion(DecisionKind.NOUL, "Is it done?")}
+        )
 
 
 def test_default_config_selects_local_laya_and_supports_all_switches() -> None:

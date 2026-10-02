@@ -13,8 +13,12 @@ from browser_agent.decisions.base import DecisionKind
 class CalibrationPolicy:
     """Temperature and minimum confidence fitted for one provider and task set."""
 
-    temperatures: Mapping[DecisionKind, float] = field(default_factory=dict)
-    minimum_confidence: Mapping[DecisionKind, float] = field(default_factory=dict)
+    temperatures: Mapping[DecisionKind, float] = field(
+        default_factory=lambda: dict[DecisionKind, float]()
+    )
+    minimum_confidence: Mapping[DecisionKind, float] = field(
+        default_factory=lambda: dict[DecisionKind, float]()
+    )
     calibration_id: str | None = None
 
     def __post_init__(self) -> None:

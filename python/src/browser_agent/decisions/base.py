@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
+
+import structlog
 
 
 class DecisionKind(StrEnum):
@@ -38,11 +40,11 @@ class DecisionQuestion:
 class DecisionAnswer:
     kind: DecisionKind
     value: str | float | bool
-    probabilities: Mapping[str, float] = field(default_factory=dict)
+    probabilities: Mapping[str, float] = field(default_factory=lambda: dict[str, float]())
     confidence_raw: float | None = None
     confidence_calibrated: float | None = None
     accepted: bool | None = None
-    raw: Any = None
+    raw: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,65 @@ class DecisionResult:
     model: str | None
     answers: Mapping[str, DecisionAnswer]
     calibration_id: str | None = None
+    fallback_from: str | None = None
+    fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DecisionTelemetryEvent:
+    provider: str
+    operation: str
+    outcome: str
+    elapsed_ms: float
+    question_kinds: tuple[str, ...] = ()
+    error_type: str | None = None
+    fallback_from: str | None = None
+
+
+DecisionTelemetry = Callable[[DecisionTelemetryEvent], None]
+
+
+@dataclass(frozen=True)
+class ProviderHealth:
+    provider: str
+    available: bool
+    endpoint: str | None = None
+    detail: str | None = None
+
+
+class DecisionProviderError(RuntimeError):
+    """Base for provider failures safe to expose to the agent runtime."""
+
+
+class DecisionProviderUnavailable(DecisionProviderError):
+    """Provider endpoint or local runtime is unavailable."""
+
+
+class DecisionProviderTimeout(DecisionProviderError):
+    """Provider call exceeded its configured time budget."""
+
+
+class DecisionProviderProtocolError(DecisionProviderError):
+    """Provider response did not match the typed decision contract."""
+
+
+_logger: Any = structlog.get_logger("browser_agent.decisions")
+
+
+def emit_telemetry(callback: DecisionTelemetry | None, event: DecisionTelemetryEvent) -> None:
+    """Emit provider and timing metadata without browser state or answer values."""
+    _logger.info(
+        "decision_provider_event",
+        provider=event.provider,
+        operation=event.operation,
+        outcome=event.outcome,
+        elapsed_ms=round(event.elapsed_ms, 3),
+        question_kinds=event.question_kinds,
+        error_type=event.error_type,
+        fallback_from=event.fallback_from,
+    )
+    if callback is not None:
+        callback(event)
 
 
 @dataclass(frozen=True)

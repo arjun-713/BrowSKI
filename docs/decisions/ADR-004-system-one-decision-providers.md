@@ -28,8 +28,10 @@ must not be treated as interchangeable.
 
 ## Consequences
 
-Laya and TypeSafe SDK dependencies are optional extras. Fake-backed tests can
-validate contracts without model downloads, credentials, or network access.
+The Laya model service is a separate local process; BROWSKI does not load model
+weights during browser decisions. The TypeSafe SDK is an optional extra.
+Fake-backed tests can validate contracts without model downloads, credentials,
+or network access.
 Those tests do not establish live performance, model accuracy, or calibrated
 thresholds. Those claims require a held-out benchmark in a later evaluation
 pass.
@@ -40,6 +42,7 @@ this decision-provider contract; no Luna, Sol, or Astra route is added here.
 ## References
 
 - [System One decision routing](../architecture/decision-routing.md)
-- [Architecture plan](../../ARCHITECTURE_PLAN.md)
+- Architecture authority: `ARCHITECTURE_PLAN.md` in the separate
+  Agent-Browser-Benchmark checkout.
 - [Laya project](https://github.com/NandhaKishorM/laya)
 - [TypeSafe Python SDK](https://docs.typesafe.ai/sdk/python)

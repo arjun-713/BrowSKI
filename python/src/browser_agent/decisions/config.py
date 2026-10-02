@@ -24,8 +24,11 @@ class DecisionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: DecisionProviderName = DecisionProviderName.LAYA
-    laya_model_id: str = "convaiinnovations/laya"
-    laya_subfolder: str = "typed-decisions"
+    laya_endpoint: str = "http://127.0.0.1:8000"
+    laya_timeout_ms: int = Field(default=5_000, gt=0)
+    laya_health_timeout_ms: int = Field(default=1_000, gt=0)
+    jev_timeout_ms: int = Field(default=10_000, gt=0)
+    fallback_to_jev: bool = True
     calibration: ProviderCalibration = Field(default_factory=ProviderCalibration)
 
 
@@ -37,13 +40,15 @@ def create_decision_provider(
 ) -> DecisionProvider:
     laya = LayaProvider(
         model=laya_model,
-        model_id=config.laya_model_id,
-        subfolder=config.laya_subfolder,
+        endpoint_url=config.laya_endpoint,
+        timeout_ms=config.laya_timeout_ms,
+        health_timeout_ms=config.laya_health_timeout_ms,
         calibration=config.calibration.laya,
         calibration_id=config.calibration.laya.calibration_id,
     )
     jev = JevProvider(
         client=jev_client,
+        timeout_ms=config.jev_timeout_ms,
         calibration=config.calibration.jev,
         calibration_id=config.calibration.jev.calibration_id,
     )
@@ -51,4 +56,4 @@ def create_decision_provider(
         return laya
     if config.provider == DecisionProviderName.JEV:
         return jev
-    return AdaptiveDecisionProvider(laya, jev)
+    return AdaptiveDecisionProvider(laya, jev, fallback_to_jev=config.fallback_to_jev)

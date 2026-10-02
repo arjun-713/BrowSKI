@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 from browser_agent.decisions.base import DecisionAnswer, DecisionKind, DecisionQuestion
 from browser_agent.decisions.calibration import CalibrationPolicy
@@ -11,8 +11,32 @@ from browser_agent.decisions.calibration import CalibrationPolicy
 
 def get_value(value: Any, name: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
-        return value.get(name, default)
+        return cast(Mapping[str, Any], value).get(name, default)
     return getattr(value, name, default)
+
+
+def _plain_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[Any, Any], value)
+        return {str(key): _plain_value(item) for key, item in mapping.items()}
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        dumped = dump(mode="json")
+        if isinstance(dumped, Mapping):
+            mapping = cast(Mapping[Any, Any], dumped)
+            return {str(key): _plain_value(item) for key, item in mapping.items()}
+    return {"value": str(value)}
+
+
+def _plain_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[Any, Any], value)
+        return {str(key): _plain_value(item) for key, item in mapping.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_value(item) for item in cast(Sequence[Any], value)]
+    return _plain_mapping(value)
 
 
 def normalize_answer(
@@ -21,8 +45,10 @@ def normalize_answer(
     question: DecisionQuestion,
     policy: CalibrationPolicy,
 ) -> DecisionAnswer:
-    probabilities = get_value(answer, "probabilities", {}) or {}
-    probabilities = {str(key): float(value) for key, value in probabilities.items()}
+    raw_probabilities: Any = get_value(answer, "probabilities", {}) or {}
+    probabilities: dict[str, float] = {
+        str(key): float(value) for key, value in cast(Mapping[Any, Any], raw_probabilities).items()
+    }
     calibrated: dict[str, float] = {}
     value: str | float | bool
 
@@ -72,5 +98,5 @@ def normalize_answer(
         confidence_raw=confidence_raw,
         confidence_calibrated=confidence_calibrated,
         accepted=accepted,
-        raw=answer,
+        raw=_plain_mapping(answer),
     )

@@ -5,8 +5,9 @@ It is separate from the generative System Two provider planned for M6.
 
 ## Providers
 
-- `LayaProvider` is the default. It loads the typed-decisions checkpoint on
-  CPU and maps its `choice`, `score`, and `noul` answers into BROWSKI types.
+- `LayaProvider` is the default. It calls a separately managed local Laya
+  service, configured by endpoint and timeout. BROWSKI does not download model
+  weights or start a model server as a side effect of a decision call.
 - `JevProvider` is optional. It uses TypeSafe's Python SDK and requires the
   user's TypeSafe API key when called.
 - `AdaptiveDecisionProvider` tries Laya first and uses Jev when Laya fails or
@@ -38,9 +39,14 @@ provider = create_decision_provider(DecisionConfig(provider="laya"))
 ```
 
 `provider` accepts `laya` (default), `jev`, or `adaptive`. `DecisionConfig`
-also accepts separate `calibration.laya` and `calibration.jev` mappings. The
-Laya and Jev dependencies remain optional: install the `decisions-local` or
-`decisions-cloud` extra from `python/` as needed.
+also accepts separate `calibration.laya` and `calibration.jev` mappings, plus
+`laya_endpoint`, `laya_timeout_ms`, `laya_health_timeout_ms`,
+`jev_timeout_ms`, and `fallback_to_jev`. Install the `decisions-cloud` extra
+from `python/` to use Jev. Laya runs as a separate local service; for example,
+install Laya's `serve` extra and start it with `LAYA_HOST=127.0.0.1
+LAYA_DEVICE=cpu laya-serve`. The default endpoint is
+`http://127.0.0.1:8000`. Health checks report an unavailable service without
+starting it or downloading weights.
 
 Provider policies can be supplied as configuration data:
 
@@ -69,8 +75,9 @@ held-out data before enabling confidence-based automatic acceptance.
 
 ## Implementation status
 
-Adapters, typed mappings, adaptive fallback, and fake-client contract tests
-are implemented. The pretrained Laya checkpoint has not been downloaded or
+Adapters, typed mappings, bounded candidate selection, health checks, timeout
+and error mapping, fallback telemetry, and fake-client contract tests are
+implemented. The pretrained Laya checkpoint has not been downloaded or
 evaluated as part of the M5 gate. No real Jev API call has been made. The
 default thresholds are unset until BROWSKI has a held-out calibration corpus.
 

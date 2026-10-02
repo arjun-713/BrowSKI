@@ -16,9 +16,11 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M5 foundations and decision-provider adapters implemented.
-> Laya is loaded locally on CPU by default; Jev is optional and requires a
-> TypeSafe API key. Adapter contract tests use fakes. Live model quality,
+> **Status:** M0–M4 runtime foundations and M5 decision-provider contracts are
+> implemented; the task-oriented CLI still awaits M6. Laya is the default
+> local CPU provider, served separately at `http://127.0.0.1:8000`; Jev is
+> optional and requires a TypeSafe API key.
+> Adapter contract tests use fakes. Live model quality,
 > calibration thresholds, latency, and cloud integration have not been
 > measured. GPT-6 Luna is the planned System Two reasoning provider and is not
 > implemented. The low-level `AgentRuntime` constructor still uses an
@@ -27,15 +29,23 @@ async with BrowserSession.launch() as browser:
 > until the reasoning provider is integrated.
 > See the [roadmap](docs/development/roadmap.md) for milestone gates.
 
-Install one or both optional System One providers from `python/`:
+Install Jev's optional SDK from `python/` when cloud decisions are enabled:
 
 ```sh
-uv sync --extra decisions-local   # Laya and its CPU-capable runtime
-uv sync --extra decisions-cloud   # TypeSafe SDK for Jev
+uv sync --extra decisions-cloud
+```
+
+Run Laya separately with its local service setup, for example:
+
+```sh
+pip install "laya[serve]"
+LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu laya-serve
 ```
 
 `DecisionConfig` selects `laya` by default and also accepts `jev` or `adaptive`.
-Provider-specific calibration and thresholds are configured independently.
+Provider-specific calibration, thresholds, timeouts, and the Laya endpoint are
+configured independently. BROWSKI does not start Laya or download its weights
+when a task runs.
 
 ## What "browser agent" means here
 
@@ -139,9 +149,9 @@ measuring it.
 ## Roadmap
 
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-M3 executor + verification, M4 LangGraph runtime, and M5 decision-provider
-adapters are implemented. Next are M6 adaptive Luna reasoning and M7
-memory/progress/recovery. See the
+M3 executor + verification, the M4 LangGraph runtime core, and M5
+decision-provider contracts are implemented. Next gates are M6 adaptive Luna
+reasoning and M7 memory/progress/recovery. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

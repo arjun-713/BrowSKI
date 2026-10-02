@@ -106,9 +106,16 @@ default thresholds remain unset pending held-out BROWSKI task data. Tests use
 fake model and SDK clients, so they prove adapter contracts but do not measure
 live model quality, calibration, CPU latency, or Jev API behavior.
 
-Gate: fake-backed provider contracts, bounds, mapping, config selection, and
-adaptive routing pass; Rust remains provider-independent. Live provider and
-benchmark validation remains outstanding.
+The Laya adapter calls an explicitly managed local service on CPU by default;
+it does not download weights in the browser-agent process. The finite candidate
+builder offers only bounded semantic actions or planner escalation, then binds
+the selected candidate through Rust-owned semantic references. Provider health,
+timeouts, typed errors, and fallback telemetry are explicit.
+
+Gate passed: fake-backed provider contracts, candidate bounds and binding,
+health and timeout handling, provider-specific acceptance, and observable
+adaptive routing. Optional live checks remain opt-in; live quality and
+benchmark validation are not established by contract tests.
 
 ## M6. GPT-6 Luna + adaptive reasoning
 
