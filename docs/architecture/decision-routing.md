@@ -42,11 +42,28 @@ provider = create_decision_provider(DecisionConfig(provider="laya"))
 also accepts separate `calibration.laya` and `calibration.jev` mappings, plus
 `laya_endpoint`, `laya_timeout_ms`, `laya_health_timeout_ms`,
 `jev_timeout_ms`, and `fallback_to_jev`. Install the `decisions-cloud` extra
-from `python/` to use Jev. Laya runs as a separate local service; for example,
-install Laya's `serve` extra and start it with `LAYA_HOST=127.0.0.1
-LAYA_DEVICE=cpu laya-serve`. The default endpoint is
-`http://127.0.0.1:8000`. Health checks report an unavailable service without
-starting it or downloading weights.
+from `python/` to use Jev. Laya runs as a separately installed service. For a
+CPU-only local setup, use a separate environment and the upstream server
+settings:
+
+```sh
+python3 -m venv .venv-laya
+.venv-laya/bin/python -m pip install "laya[serve]"
+LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu LAYA_MODELS=english \
+  LAYA_PRELOAD=1 LAYA_THREADS=4 .venv-laya/bin/laya-serve
+```
+
+The service listens on `127.0.0.1:8000`, matching BROWSKI's default Laya
+endpoint. The first service start downloads the selected checkpoint if it is
+not already cached. `LAYA_DEVICE`, `LAYA_MODELS`, `LAYA_PRELOAD`, and
+`LAYA_THREADS` are upstream Laya service settings; they are not BROWSKI
+configuration. BROWSKI does not install Laya, download weights, or start the
+service. Set a different client URL through `DecisionConfig(laya_endpoint=...)`.
+See the upstream [Laya HTTP server configuration](https://github.com/NandhaKishorM/laya/blob/main/docs/http-api.md).
+`BROWSKI_LIVE_LAYA` and `BROWSKI_LAYA_ENDPOINT` are used only by the opt-in live
+contract test, not by the regular task CLI. The adapter contract tests use a
+fake transport; live CPU inference has not been run or verified in this
+checkout.
 
 Provider policies can be supplied as configuration data:
 

@@ -20,9 +20,10 @@ async with BrowserSession.launch() as browser:
 > includes a GPT-6 Luna Responses adapter, deterministic reasoning-effort gate,
 > hybrid decision agent, and task CLI; its integration gates are still being
 > validated. Fake-backed tests do not establish live provider quality,
-> calibration, latency, or cloud reliability. Laya runs as a separately
-> managed local CPU service at `http://127.0.0.1:8000`; Jev is optional and
-> requires a TypeSafe API key. See the
+> calibration, latency, or cloud reliability. Laya is the default and runs as a
+> separately managed local CPU service at `http://127.0.0.1:8000`; live CPU
+> inference has not been verified in this checkout. Jev is optional and requires
+> a TypeSafe API key. See the
 > [roadmap](docs/development/roadmap.md) for measured status.
 
 Install Jev's optional SDK from `python/` when cloud decisions are enabled:
@@ -31,17 +32,29 @@ Install Jev's optional SDK from `python/` when cloud decisions are enabled:
 uv sync --extra decisions-cloud
 ```
 
-Run Laya separately with its local service setup, for example:
+Run Laya separately in its own Python environment. The upstream CPU setup is:
 
 ```sh
-pip install "laya[serve]"
-LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu laya-serve
+python3 -m venv .venv-laya
+.venv-laya/bin/python -m pip install "laya[serve]"
+LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu LAYA_MODELS=english \
+  LAYA_PRELOAD=1 LAYA_THREADS=4 .venv-laya/bin/laya-serve
 ```
 
-`DecisionConfig` selects `laya` by default and also accepts `jev` or `adaptive`.
-Provider-specific calibration, thresholds, timeouts, and the Laya endpoint are
-configured independently. BROWSKI does not start Laya or download its weights
-when a task runs.
+The first service start downloads the selected checkpoint if it is not already
+cached. These commands follow the [upstream Laya HTTP server
+setup](https://github.com/NandhaKishorM/laya/blob/main/docs/http-api.md); CPU
+thread count should match the host. `DecisionConfig` selects `laya` by default
+and also accepts `jev` or `adaptive`. Its `laya_endpoint` setting changes the
+client URL; the CLI defaults to `http://127.0.0.1:8000`. Provider calibration,
+thresholds, and timeouts are configured independently. BROWSKI does not install
+Laya, download weights, or start its service when a task runs.
+
+The `BROWSKI_LIVE_LAYA` and `BROWSKI_LAYA_ENDPOINT` environment variables are
+read only by the opt-in live provider contract test; they do not configure the
+normal CLI. Set them only when deliberately running that test against a local
+service. The local HTTP adapter has fake-backed contract coverage; live CPU
+inference has not been run or verified in this checkout.
 
 Run a task with the local Laya service and optional Luna escalation:
 
