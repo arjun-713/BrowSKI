@@ -6,10 +6,11 @@ an ADR (see “When to write an ADR”).
 
 ## 1. Project mission
 
-Build a general-purpose open-source browser agent that completes short and
-long-running browser tasks reliably, using any supported LLM provider (API key
-or local model). Product experience: install package → provide key/model →
-state a natural-language task → agent completes it autonomously.
+Build BROWSKI, an open-source browser agent runtime for reliable short and
+long-running browser tasks. Laya is the default local System One provider;
+TypeSafe Jev is the optional cloud fallback/comparison provider. GPT-6 Luna is
+the only generative reasoning model in the baseline. API credentials are only
+needed when an optional cloud provider is selected.
 
 Primary metric: **end-to-end task completion**. Everything else (steps,
 tokens, latency, cost, recovery rate) is secondary but measured — see
@@ -32,7 +33,8 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 13. Raw historical context must not grow without bound.
 14. Prefer deterministic browser operations once intent is known.
 15. LLMs resolve ambiguity, not mechanical reasoning.
-16. Models/providers are replaceable (`providers/base.py` is the domain API).
+16. Decision and reasoning providers are replaceable through the shared
+    `DecisionProvider` and `ReasoningProvider` domain interfaces.
 17. The browser core must not know which LLM provider is used.
 18. Browser infrastructure and reasoning stay separate (Rust ≠ Python).
 19. Benchmarks exist from the beginning.
@@ -43,7 +45,7 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 | Language | Owns | Must never own |
 |---|---|---|
 | Rust (`crates/`) | CDP, browser events, DOM/AX state, element identity, diffing, action execution, verification primitives, low-level recovery, perf-sensitive infra | LLM calls, prompts, provider logic, planning, memory |
-| Python (`python/`) | Agent loop, planning, orchestration, memory, task state, high-level recovery, provider abstraction, eval/benchmarks | CDP transport, DOM collection internals, raw browser process management |
+| Python (`python/`) | Agent loop, planning, orchestration, memory, task state, high-level recovery, decision/reasoning adapters, eval/benchmarks | CDP transport, DOM collection internals, raw browser process management |
 | TypeScript (`web/`) | Extension, trace viewer, browser-facing UI/SDK | Agent internals, browser automation core |
 | Bun | Dev scripts/tooling where measurably faster | The browser core |
 | Go | Nothing yet; allowed later for isolated high-throughput services with benchmarks | Anything without a benchmark-backed justification |
@@ -65,8 +67,8 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/telemetry/` — `TraceEvent` envelope, timing, traces.
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
 - `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
-- `python/src/browser_agent/providers/` — OUR interface (`base.py`); LiteLLM is one adapter.
-- `python/src/browser_agent/decisions/` — bounded System One contract, Laya/Jev adapters, calibration, and routing.
+- `python/src/browser_agent/decisions/` — bounded `DecisionProvider` contract, Laya/Jev adapters, calibration, and routing.
+- `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
 - `benchmarks/`, `tests/`, `examples/`, `docs/`, `scripts/` — as named.
 

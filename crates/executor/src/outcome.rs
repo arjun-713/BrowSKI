@@ -58,6 +58,22 @@ pub struct ActionOutcome {
     /// Total perform attempts (bounded by [`crate::policy::MAX_ACTION_ATTEMPTS`]).
     pub attempts: u32,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub timings: ActionTimings,
+}
+
+/// Non-overlapping phases measured by the deterministic browser action path.
+/// Each value is elapsed wall time in milliseconds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionTimings {
+    pub pre_observation_ms: u64,
+    pub target_resolution_ms: u64,
+    pub action_execution_ms: u64,
+    pub mechanical_recovery_ms: u64,
+    pub settle_ms: u64,
+    pub post_observation_ms: u64,
+    pub delta_ms: u64,
+    pub verification_ms: u64,
 }
 
 impl ActionOutcome {
@@ -94,6 +110,7 @@ mod tests {
             repairs: vec![],
             attempts: 1,
             elapsed_ms: 5,
+            timings: ActionTimings::default(),
         };
         assert!(!outcome.succeeded());
         outcome.verification = VerificationResult::success("e", "o");
@@ -101,5 +118,35 @@ mod tests {
         let json = serde_json::to_string(&outcome).unwrap();
         let back: ActionOutcome = serde_json::from_str(&json).unwrap();
         assert_eq!(back.attempts, 1);
+        assert_eq!(back.timings, ActionTimings::default());
+    }
+
+    #[test]
+    fn missing_timing_fields_deserialize_as_zero_for_older_outcomes() {
+        let action = BrowserAction::Click {
+            target: ElementRef::new(1, "@x", 1),
+            options: ClickOptions::default(),
+            expected_effect: ExpectedEffect::None,
+        };
+        let outcome = ActionOutcome {
+            action,
+            execution: Ok(ExecutionEvidence {
+                method: "cdp-input".into(),
+                detail: String::new(),
+            }),
+            verification: VerificationResult::success("e", "o"),
+            before_generation: 1,
+            after_generation: 1,
+            delta: SnapshotDelta::default(),
+            repairs: vec![],
+            attempts: 1,
+            elapsed_ms: 5,
+            timings: ActionTimings::default(),
+        };
+        let mut value = serde_json::to_value(outcome).unwrap();
+        value.as_object_mut().unwrap().remove("timings");
+
+        let back: ActionOutcome = serde_json::from_value(value).unwrap();
+        assert_eq!(back.timings, ActionTimings::default());
     }
 }

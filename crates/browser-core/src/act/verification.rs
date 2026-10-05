@@ -4,7 +4,9 @@ use crate::observer::observe_full;
 use crate::session::BrowserSession;
 use browser_agent_cdp::TabId;
 use browser_agent_element_registry::ElementRef;
-use browser_agent_executor::{ActionOutcome, BrowserAction, ExecutionResult, MechanicalRepair};
+use browser_agent_executor::{
+    ActionOutcome, ActionTimings, BrowserAction, ExecutionResult, MechanicalRepair,
+};
 use browser_agent_observation::{SemanticSnapshot, SnapshotDelta};
 use browser_agent_verification::{
     verify_expected, EffectExpectation, ExpectedEffect, SideEffects, VerificationResult,
@@ -29,15 +31,18 @@ pub(super) async fn finish(
     repairs: Vec<MechanicalRepair>,
     attempts: u32,
     start: Instant,
+    mut timings: ActionTimings,
 ) -> ActionOutcome {
     // Settle: bounded stability wait (NOT a fixed sleep, NOT network idle —
     // persistent polling would make network-idle useless on modern apps).
     // Dialog-aware: evaluates hang while a JS dialog is open, so bail out
     // early and skip post-state capture entirely (verify from events).
     let dialog_fast_path = session.dialog_open();
+    let settle_start = Instant::now();
     if !dialog_fast_path {
         settle(session, tab).await;
     }
+    timings.settle_ms = settle_start.elapsed().as_millis() as u64;
 
     // Drain side-effect evidence.
     let mut side = SideEffects {
@@ -64,6 +69,7 @@ pub(super) async fn finish(
     }
 
     let active_tab_closed = !session.tabs().await.iter().any(|info| &info.id == tab);
+    let post_observation_start = Instant::now();
     let after = if active_tab_closed || session.dialog_open() {
         // A modal dialog blocks page evaluation: post-state is unavailable
         // by construction; a closed tab is also no longer observable. Verify
@@ -86,15 +92,21 @@ pub(super) async fn finish(
                     repairs,
                     attempts,
                     elapsed_ms: start.elapsed().as_millis() as u64,
+                    timings,
                 };
             }
         }
     };
+    timings.post_observation_ms = post_observation_start.elapsed().as_millis() as u64;
     if before.url != after.url {
         side.url_changed = true;
     }
+    let delta_start = Instant::now();
     let delta = session.observe_delta(tab).await.unwrap_or_default();
+    timings.delta_ms = delta_start.elapsed().as_millis() as u64;
+    let verification_start = Instant::now();
     let verification = verify_for(session, tab, &action, &before, &after, &delta, &side).await;
+    timings.verification_ms = verification_start.elapsed().as_millis() as u64;
 
     ActionOutcome {
         action,
@@ -106,6 +118,7 @@ pub(super) async fn finish(
         repairs,
         attempts,
         elapsed_ms: start.elapsed().as_millis() as u64,
+        timings,
     }
 }
 

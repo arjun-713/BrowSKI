@@ -39,6 +39,7 @@ out/
 # Generated benchmark artifacts (keep dir via .gitkeep)
 benchmarks/reports/*
 !benchmarks/reports/.gitkeep
+!benchmarks/reports/*.md
 
 # Browser profiles
 .browser-data/

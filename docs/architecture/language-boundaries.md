@@ -14,10 +14,10 @@ compile-time properties.
 
 Planning, LLM orchestration, working memory, task state, high-level
 recovery/replanning, provider abstraction, evaluation, benchmarking,
-experimentation. Reasons: the LLM ecosystem lives here (LiteLLM, eval
-harnesses like BrowserGym/AgentLab), Pydantic v2 gives us the schema layer,
-and iteration speed on prompts/planners/policies dominates — these change
-weekly, the browser core should change quarterly.
+experimentation. Reasons: Python supports the graph orchestration, typed
+schemas, and provider SDK adapters used by the agent. Iteration speed on
+prompts, planners, and policies matters, while the browser core should change
+only when browser mechanics or measured performance require it.
 
 ## Why TypeScript (browser-facing)
 

@@ -68,11 +68,18 @@ and deterministic postcondition verification. Outcomes include structured
 failures and evidence. Coverage includes forms, navigation/history, tabs,
 dialogs, hover, scrolling, native selects, and stale/ambiguous targets.
 
-Validation on 2026-10-02: `cargo fmt --all -- --check`,
-`cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` passed. The M3 integration suite has 22 tests; the
-workspace run also passed 15 M2 integration tests, 12 runtime stress tests,
-and browser smoke tests. This gate does not claim Python agent integration.
+Validation on 2026-10-06: the M3 integration suite passed 24 tests, including
+verified textarea typing and refusal after a target disappears. The suite now
+fails immediately if Chrome or Chromium is unavailable, so a missing browser
+cannot look like a passing browser gate. Full workspace quality-gate status is
+reported with the current M3–M7 validation run. This gate does not claim Python
+agent integration.
+
+The opt-in local action-latency harness now reports external observation,
+pre-action observation, target resolution, action execution, mechanical
+recovery, settling, post-action observation, delta, verification, and total
+latency separately. The first 40-sample result is recorded in
+[`benchmarks/reports/action-latency-2026-10-06.md`](../../benchmarks/reports/action-latency-2026-10-06.md).
 
 ## M4. LangGraph agent runtime (DONE)
 
@@ -82,19 +89,25 @@ typed action/outcome API as JSON; Python validates action contracts before
 crossing that boundary. A deterministic fake agent navigates a local form,
 checks a control, and stops only after inspecting the verified result.
 `AgentRuntime.open_sqlite` scopes an async SQLite checkpointer to a runtime
-context. Tests verify both runtime resume after reopening the database and
-checkpoint recovery from a separate process. In-memory saver injection remains
-available for lightweight tests. No Laya, Jev, or Luna model is used by M4.
+context. Tests verify runtime resume after reopening the database and recovery
+from a separate process. Checkpoints store bounded task state and a compact
+snapshot summary; full semantic snapshots remain in the live runtime cache.
+In-memory saver injection remains available for lightweight tests. No Laya,
+Jev, or Luna model is used by M4.
 
 Validation on 2026-10-02: 13 Python tests passed before durable checkpointing;
 the SQLite cross-process and runtime-reconstruction checks are part of the
 current full Python suite. Ruff format/check and strict Pyright passed. The
 Rust/Python extension build included the new action binding.
 
-The `agent task "task"` CLI now runs the graph with an optional starting URL,
-provider selection, and SQLite checkpoint database. Resuming a saved task
-still requires a live browser session; cross-process browser-session recovery
-is not claimed.
+The installed `browski run "task"` command runs the graph with an optional
+starting URL, provider selection, and SQLite checkpoint database. `browski
+task` remains an equivalent spelling, and `agent` remains a compatibility
+entry point. The `resume` command reopens the saved graph thread and supports
+explicit approval or denial of a pending high-risk action. A process restart
+starts a fresh browser session and re-observes before acting; restoring or
+attaching to the previous Chromium process and page-local state is not
+supported by the current binding.
 
 ## M5. System One decisions (DONE)
 
@@ -117,7 +130,7 @@ health and timeout handling, provider-specific acceptance, and observable
 adaptive routing. Optional live checks remain opt-in; live quality and
 benchmark validation are not established by contract tests.
 
-## M6. GPT-6 Luna + adaptive reasoning (IMPLEMENTED; GATES IN VALIDATION)
+## M6. GPT-6 Luna + adaptive reasoning (DONE; live API unverified)
 
 Added the only generative reasoning provider in the baseline and a
 deterministic `ComplexityGate`. The OpenAI adapter uses the Responses API with
@@ -133,15 +146,17 @@ only bounded semantic candidates to Laya/Jev, escalates abstentions and
 unsupported planning to structured Luna decisions, and binds model actions to
 current interactable semantic refs. A short milestone plan carries visible
 evidence phrases that the graph checks against later browser observations.
-Normal reasoning uses low effort; high effort is selected only when the
-recovery ladder's deterministic gate promotes a failed normal replan or other
-complex state. There is no xhigh route. Progress after a complex decision
-resets the per-streak escalation counters.
+`BROWSKI_LUNA_MODEL` can override the model identifier; the default remains
+`gpt-6-luna`. Normal reasoning uses low effort; high effort is selected only
+when the recovery ladder's deterministic gate promotes a failed normal replan
+or other complex state. There is no xhigh route. Progress after a complex
+decision resets the per-streak escalation counters.
 
 Fake-backed adapter and agent tests do not establish live API availability,
-model quality, or task success. The live OpenAI test is opt-in and requires
-`BROWSKI_LIVE_OPENAI=1` plus an API key. The integrated graph workflows and
-quality gates remain to be reported below after the current validation pass.
+model quality, or task success. Focused checks passed for model configuration,
+per-call effort reset, adapter contracts, and deterministic escalation. The
+live OpenAI test is opt-in and requires `BROWSKI_LIVE_OPENAI=1` plus an API key;
+no live request was made for this validation run.
 
 ## M7. Memory, progress, and recovery (CORE IMPLEMENTED)
 
@@ -153,12 +168,20 @@ are bounded by stagnation and recovery budgets. Completion claims require a
 verified action plus configured task evidence and required milestones.
 
 High-risk actions suspend the graph for explicit approval. Confirmation and
-action-history summaries omit typed values and URL data. Local tests cover a
-10-action task, recovery bounds, completion refusal, and approval/denial.
+action-history summaries omit typed values and URL data. Local tests cover an
+11-step long-horizon task, recovery bounds, completion refusal, and
+approval/denial.
 
 The recovery policy routes through System One, one normal Luna replan, the
 ComplexityGate, and at most one high-reasoning replan. Unavailable reasoning
 does not run and recovery asks the user or stops within its configured bounds.
+
+Provider telemetry records bounded provider/model labels, operation and
+outcome, fallback routing, and provider-reported token counts when available;
+it does not estimate cost. Luna reasoning events include run and step IDs.
+Laya/Jev decision calls do not yet receive those IDs, so their provider events
+are not correlated to a run or step. No live provider response was used to
+verify token-usage reporting.
 
 ### Local graph/checkpoint microbenchmark (2026-10-05)
 
@@ -172,11 +195,14 @@ langgraph-checkpoint-sqlite 3.1.1, Fedora 44 x86_64. These local microbenchmarks
 exclude CDP, actions, verification, providers, and recovery; they are not
 end-to-end browser-task latency measurements.
 
-M3 action and separate verification latency remain unmeasured. The local
-browser E2E runs were correctness checks, not a timing study. The current
-`ActionOutcome.elapsed_ms` combines action, settling, post-action observation,
-and verification, so it cannot provide separate action and verification
-timings.
+The graph/checkpoint microbenchmark above measures orchestration and saver
+overhead with fake agents and observations. The separate local browser study
+now measures a small deterministic action path; see the report linked in M3.
+Its 404 ms median settle phase dominates the 427 ms total median on a
+single-checkbox data page. Historical M1 and M2 figures use different
+operations and fixtures, so they are context only and do not establish a
+before/after comparison. Live provider latency and end-to-end task latency
+remain unmeasured.
 
 ## M8. Vision fallback (future)
 

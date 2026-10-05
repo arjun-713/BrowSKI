@@ -4,6 +4,7 @@ from importlib import import_module
 from importlib.metadata import distribution
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from browser_agent.cli.main import app
@@ -20,7 +21,7 @@ def test_resume_cli_exposes_sqlite_and_confirmation_options() -> None:
     assert "--deny" in result.stdout
 
 
-def test_run_cli_routes_to_autonomous_task_command(monkeypatch) -> None:
+def test_run_cli_routes_to_autonomous_task_command(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, object] = {}
 
     def fake_task(**options: object) -> None:

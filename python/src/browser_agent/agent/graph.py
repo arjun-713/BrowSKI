@@ -74,7 +74,7 @@ def build_agent_graph(
     snapshot_cache: dict[str, tuple[SemanticSnapshot | None, SemanticSnapshot | None]] = {}
 
     def cache_key(state: AgentState) -> str:
-        task_state = cast(dict[str, Any], state["task_state"])
+        task_state = state["task_state"]
         run_id = task_state.get("run_id")
         return str(run_id or "default")
 
@@ -690,10 +690,11 @@ def _bounded_action_timings(value: Any) -> dict[str, int]:
     )
     if not isinstance(value, dict):
         return {}
+    timing_values = cast(dict[str, Any], value)
     return {
         name: bounded
         for name in fields
-        if (bounded := _nonnegative_int(value.get(name))) is not None
+        if (bounded := _nonnegative_int(timing_values.get(name))) is not None
     }
 
 

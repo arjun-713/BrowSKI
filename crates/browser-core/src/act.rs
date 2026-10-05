@@ -20,7 +20,7 @@ mod verification;
 use browser_agent_cdp::{CdpSessionId, TabId, TargetId};
 use browser_agent_element_registry::ElementRef;
 use browser_agent_executor::{
-    ActOptions, ActionOutcome, BrowserAction, ExecutionEvidence, ExecutionFailure,
+    ActOptions, ActionOutcome, ActionTimings, BrowserAction, ExecutionEvidence, ExecutionFailure,
     ExecutionFailureKind, ExecutionResult, MechanicalRepair,
 };
 use browser_agent_observation::{BackendNodeId, SemanticElement, SemanticSnapshot, SnapshotDelta};
@@ -50,9 +50,12 @@ pub(crate) async fn act_on(
     let start = Instant::now();
     let before_generation = session.generation();
     let max_attempts = options.bounded_attempts();
+    let mut timings = ActionTimings::default();
 
     if let BrowserAction::Wait { ms } = &action {
+        let action_start = Instant::now();
         tokio::time::sleep(Duration::from_millis(*ms)).await;
+        timings.action_execution_ms = action_start.elapsed().as_millis() as u64;
         return ActionOutcome {
             action: action.clone(),
             execution: Ok(ExecutionEvidence {
@@ -67,6 +70,7 @@ pub(crate) async fn act_on(
             repairs: vec![],
             attempts: 1,
             elapsed_ms: start.elapsed().as_millis() as u64,
+            timings,
         };
     }
 
@@ -84,6 +88,7 @@ pub(crate) async fn act_on(
             .cloned()
             .unwrap_or_else(|| SemanticSnapshot::minimal(String::new(), None, before_generation));
         let decision = if *accept { "accepted" } else { "dismissed" };
+        let action_start = Instant::now();
         let execution = session
             .handle_dialog(tab, *accept)
             .await
@@ -98,6 +103,7 @@ pub(crate) async fn act_on(
                     format!("handle dialog failed: {e}"),
                 )
             });
+        timings.action_execution_ms = action_start.elapsed().as_millis() as u64;
         return verification::finish(
             session,
             tab,
@@ -110,6 +116,7 @@ pub(crate) async fn act_on(
             vec![],
             1,
             start,
+            timings,
         )
         .await;
     }
@@ -118,24 +125,30 @@ pub(crate) async fn act_on(
     let tabs_before = session.tabs().await.len();
 
     // Pre-state (also refreshes the registry).
+    let observe_start = Instant::now();
     let before = match observe_full(session, tab).await {
         Ok(s) => s,
         Err(e) => {
+            timings.pre_observation_ms = observe_start.elapsed().as_millis() as u64;
             return terminal_outcome(
                 session,
                 action,
                 before_generation,
                 observe_failure(e, None),
                 start,
+                timings,
             )
-            .await
+            .await;
         }
     };
+    timings.pre_observation_ms = observe_start.elapsed().as_millis() as u64;
 
     // Resolve + gate.
+    let resolve_start = Instant::now();
     let mut resolved = match resolve_target(session, tab, action.target(), &before).await {
         Ok(r) => r,
         Err(f) => {
+            timings.target_resolution_ms = resolve_start.elapsed().as_millis() as u64;
             return verification::finish(
                 session,
                 tab,
@@ -148,17 +161,22 @@ pub(crate) async fn act_on(
                 vec![],
                 1,
                 start,
+                timings,
             )
-            .await
+            .await;
         }
     };
+    timings.target_resolution_ms = resolve_start.elapsed().as_millis() as u64;
 
     // Attempts with bounded mechanical repairs.
     let mut repairs: Vec<MechanicalRepair> = vec![];
     let mut attempts = 0u32;
     let execution: ExecutionResult = loop {
         attempts += 1;
-        match input::perform(session, tab, &action, resolved.as_ref(), &options).await {
+        let action_start = Instant::now();
+        let result = input::perform(session, tab, &action, resolved.as_ref(), &options).await;
+        timings.action_execution_ms += action_start.elapsed().as_millis() as u64;
+        match result {
             Ok(evidence) => break Ok(evidence),
             Err(failure) => {
                 let terminal = failure.kind == ExecutionFailureKind::ConnectionLost
@@ -167,7 +185,11 @@ pub(crate) async fn act_on(
                 if terminal {
                     break Err(failure);
                 }
-                match apply_repair(session, tab, &action, &failure, resolved.as_ref()).await {
+                let recovery_start = Instant::now();
+                let repair_result =
+                    apply_repair(session, tab, &action, &failure, resolved.as_ref()).await;
+                timings.mechanical_recovery_ms += recovery_start.elapsed().as_millis() as u64;
+                match repair_result {
                     Ok((repair, fresh)) => {
                         repairs.push(repair);
                         resolved = fresh;
@@ -191,6 +213,7 @@ pub(crate) async fn act_on(
         repairs,
         attempts,
         start,
+        timings,
     )
     .await
 }
@@ -506,6 +529,7 @@ async fn terminal_outcome(
     before_generation: u64,
     failure: ExecutionFailure,
     start: Instant,
+    timings: ActionTimings,
 ) -> ActionOutcome {
     ActionOutcome {
         action,
@@ -517,5 +541,6 @@ async fn terminal_outcome(
         repairs: vec![],
         attempts: 0,
         elapsed_ms: start.elapsed().as_millis() as u64,
+        timings,
     }
 }

@@ -15,7 +15,9 @@ pub mod policy;
 
 pub use action::{BrowserAction, ClickOptions, MouseButton, SelectBy};
 pub use failure::{ExecutionFailure, ExecutionFailureKind};
-pub use outcome::{ActionOutcome, ExecutionEvidence, ExecutionResult, MechanicalRepair};
+pub use outcome::{
+    ActionOutcome, ActionTimings, ExecutionEvidence, ExecutionResult, MechanicalRepair,
+};
 pub use policy::{
     ActOptions, DEFAULT_ACTION_COMMAND_TIMEOUT, DEFAULT_SETTLE_TIMEOUT, DEFAULT_VERIFY_TIMEOUT,
     MAX_ACTION_ATTEMPTS,
