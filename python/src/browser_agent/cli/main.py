@@ -86,11 +86,70 @@ def task(
 
 
 @app.command()
-def resume(run_id: str = typer.Argument(...)) -> None:  # pragma: no cover
-    rprint(
-        f"[yellow]resume {run_id}[/yellow]: use AgentRuntime.resume(run_id); "
-        "the CLI command is not wired yet."
+def resume(
+    run_id: str = typer.Argument(..., help="Checkpoint thread id printed by `agent task`."),
+    url: str | None = typer.Option(
+        None,
+        help="Optional page to open in the resumed browser session.",
+    ),
+    headless: bool = typer.Option(True, help="Run Chromium headless."),
+    provider: str = typer.Option("laya", help="System One provider: laya, jev, or adaptive."),
+    checkpoint_db: str = typer.Option(
+        "browski-checkpoints.sqlite",
+        help="SQLite checkpoint database used by the original task.",
+    ),
+    approve: bool = typer.Option(False, "--approve", help="Approve a pending high-risk action."),
+    deny: bool = typer.Option(False, "--deny", help="Deny a pending high-risk action."),
+) -> None:
+    """Resume a SQLite-backed task in a newly launched browser session."""
+    if approve and deny:
+        raise typer.BadParameter("choose at most one of --approve and --deny")
+
+    from browser_agent import BrowserSession
+    from browser_agent.agent import AgentRuntime, LunaDecisionAgent
+    from browser_agent.decisions import (
+        DecisionConfig,
+        DecisionProviderName,
+        create_decision_provider,
     )
+    from browser_agent.reasoning import OpenAILunaProvider
+
+    try:
+        selected_provider = DecisionProviderName(provider)
+    except ValueError as exc:
+        raise typer.BadParameter("choose laya, jev, or adaptive") from exc
+
+    async def _resume_task() -> None:
+        decisions = create_decision_provider(DecisionConfig(provider=selected_provider))
+        agent = LunaDecisionAgent(decisions, OpenAILunaProvider())
+        async with BrowserSession.launch(headless=headless) as browser:
+            if url:
+                await browser.navigate(url)
+            async with AgentRuntime.open_sqlite(
+                agent,
+                browser,
+                database=checkpoint_db,
+                decision_provider=decisions,
+            ) as runtime:
+                if approve or deny:
+                    result = await runtime.resume_with_confirmation(run_id, approved=approve)
+                else:
+                    result = await runtime.resume(run_id)
+        rprint(
+            json.dumps(
+                {
+                    "run_id": result.run_id,
+                    "status": result.status,
+                    "done": result.done,
+                    "steps_taken": result.steps_taken,
+                    "result_summary": result.result_summary,
+                    "recovery_history": result.recovery_history,
+                },
+                indent=2,
+            )
+        )
+
+    asyncio.run(_resume_task())
 
 
 @app.command()

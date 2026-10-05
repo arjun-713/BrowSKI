@@ -22,7 +22,7 @@ from browser_agent._types import (
     WorkingMemory,
 )
 from browser_agent.agent.safety import ActionRiskPolicy, RiskCategory
-from browser_agent.agent.state import AgentState
+from browser_agent.agent.state import AgentState, SnapshotCheckpoint
 from browser_agent.decisions.base import DecisionProvider
 from browser_agent.progress.task_state import (
     ProgressTracker,
@@ -68,9 +68,50 @@ def build_agent_graph(
     session and decision agent are closure dependencies and never serialized.
     """
 
+    # Full observations are needed for semantic decisions, but they are often
+    # much larger than the bounded task state. Keep them in this runtime only;
+    # SQLite checkpoints carry a compact summary and resume by re-observing.
+    snapshot_cache: dict[str, tuple[SemanticSnapshot | None, SemanticSnapshot | None]] = {}
+
+    def cache_key(state: AgentState) -> str:
+        task_state = cast(dict[str, Any], state["task_state"])
+        run_id = task_state.get("run_id")
+        return str(run_id or "default")
+
+    def cached_snapshot(state: AgentState, *, after: bool = False) -> SemanticSnapshot | None:
+        pair = snapshot_cache.get(cache_key(state), (None, None))
+        return pair[1 if after else 0]
+
+    def save_snapshot(
+        state: AgentState,
+        snapshot: SemanticSnapshot,
+        *,
+        after: bool = False,
+    ) -> None:
+        key = cache_key(state)
+        if key not in snapshot_cache and len(snapshot_cache) >= 4:
+            snapshot_cache.pop(next(iter(snapshot_cache)))
+        before, previous_after = snapshot_cache.get(key, (None, None))
+        snapshot_cache[key] = (before, snapshot) if after else (snapshot, previous_after)
+
+    async def current_snapshot(state: AgentState) -> SemanticSnapshot:
+        snapshot = cached_snapshot(state)
+        if snapshot is None:
+            snapshot = await browser.observe()
+            save_snapshot(state, snapshot)
+        return snapshot
+
+    async def current_after_snapshot(state: AgentState) -> SemanticSnapshot:
+        snapshot = cached_snapshot(state, after=True)
+        if snapshot is None:
+            snapshot = await browser.observe()
+            save_snapshot(state, snapshot, after=True)
+        return snapshot
+
     async def observe_node(state: AgentState) -> dict[str, Any]:
         snapshot = await browser.observe()
-        return {"snapshot": snapshot.model_dump(mode="json")}
+        save_snapshot(state, snapshot)
+        return {"snapshot": _snapshot_checkpoint(snapshot)}
 
     async def decide_node(state: AgentState) -> dict[str, Any]:
         task_state = TaskState.model_validate(state["task_state"])
@@ -94,13 +135,16 @@ def build_agent_graph(
                 ),
             }
 
-        snapshot_data = state["snapshot"]
-        if snapshot_data is None:
+        if state["snapshot"] is None:
             return {"status": "failed", "result_summary": "Observation is missing."}
+
+        # On process-restart resume, the live cache is empty. Re-observe the
+        # current browser instead of rebuilding a full snapshot from checkpoint data.
+        snapshot = await current_snapshot(state)
 
         task_state.llm_calls += 1
         decision = await agent.decide(
-            SemanticSnapshot.model_validate(snapshot_data),
+            snapshot,
             task_state.model_copy(deep=True),
             memory.model_copy(deep=True),
         )
@@ -137,7 +181,6 @@ def build_agent_graph(
             memory.current_subgoal = task_state.current_subgoal
             memory.next_milestone = task_state.next_milestone
 
-        snapshot = SemanticSnapshot.model_validate(snapshot_data)
         previous_outcome = state["outcome"]
         previous_verification = (
             cast(dict[str, Any], previous_outcome.get("verification", {}))
@@ -178,7 +221,7 @@ def build_agent_graph(
             verified = verification.get("status") == "SUCCESS"
             task_state.done = check_completion(
                 task_state,
-                SemanticSnapshot.model_validate(snapshot_data),
+                snapshot,
                 verified_action=verified,
             )
             if task_state.done:
@@ -226,7 +269,6 @@ def build_agent_graph(
                 "pending_confirmation": False,
                 "risk_assessment": None,
             }
-        snapshot = SemanticSnapshot.model_validate(snapshot_data)
         risk = ActionRiskPolicy().assess(decision.action, snapshot)
         needs_confirmation = limits.confirm_high_risk and risk.category == RiskCategory.HIGH
         return {
@@ -264,22 +306,32 @@ def build_agent_graph(
 
     async def execute_node(state: AgentState) -> dict[str, Any]:
         decision_data = state["decision"]
-        snapshot_data = state["snapshot"]
-        if decision_data is None or snapshot_data is None:
+        if decision_data is None or state["snapshot"] is None:
             return {"status": "failed", "result_summary": "Action input is missing."}
 
         decision = AgentDecision.model_validate(decision_data)
-        snapshot = SemanticSnapshot.model_validate(snapshot_data)
+        if cached_snapshot(state) is None:
+            # A process restart loses the live browser observation cache. Never
+            # execute a previously grounded target against an unknown session.
+            fresh_snapshot = await browser.observe()
+            save_snapshot(state, fresh_snapshot)
+            return {
+                "snapshot": _snapshot_checkpoint(fresh_snapshot),
+                "decision": None,
+                "result_summary": "Browser session changed; refreshing the decision before acting.",
+            }
+        snapshot = await current_snapshot(state)
         if decision.action is None:
             return {"status": "failed", "result_summary": "Decision has no action."}
         if snapshot.active_tab is None:
             return {"status": "failed", "result_summary": "No active browser tab was observed."}
 
         outcome = await browser.act(decision.action, snapshot.active_tab)
-        after_snapshot = await browser.observe()
+        observed_after = await browser.observe()
+        save_snapshot(state, observed_after, after=True)
         return {
             "outcome": outcome,
-            "after_snapshot": after_snapshot.model_dump(mode="json"),
+            "after_snapshot": _snapshot_checkpoint(observed_after),
         }
 
     async def verify_node(state: AgentState) -> dict[str, Any]:
@@ -292,14 +344,12 @@ def build_agent_graph(
         mechanically_executed = isinstance(execution, dict) and "Ok" in execution
         verified = verification.get("status") == "SUCCESS"
         before_data = state["snapshot"]
-        after_data = state["after_snapshot"]
         if before_data is None:
             return {"status": "failed", "result_summary": "Pre-action snapshot is missing."}
-        if after_data is None:
-            after_snapshot = await browser.observe()
-            after_data = after_snapshot.model_dump(mode="json")
-        before_snapshot = SemanticSnapshot.model_validate(before_data)
-        after_snapshot = SemanticSnapshot.model_validate(after_data)
+        before_snapshot = cached_snapshot(state) or _snapshot_from_checkpoint(before_data)
+        after_snapshot_value = await current_after_snapshot(state)
+        after_data = _snapshot_checkpoint(after_snapshot_value)
+        after_snapshot = after_snapshot_value
         raw_delta = verification.get("state_delta")
         delta = SnapshotDelta.model_validate(raw_delta) if isinstance(raw_delta, dict) else None
         progress = ProgressTracker().compare(
@@ -311,9 +361,21 @@ def build_agent_graph(
         decision_data = state["decision"]
         action_data = decision_data.get("action") if decision_data is not None else None
         action_signature = action_audit_signature(action_data)
+        event_task = TaskState.model_validate(state["task_state"])
+        observation_size = {
+            "before_elements": before_data["element_count"],
+            "after_elements": after_data["element_count"],
+        }
         event: dict[str, Any] = {
+            "run_id": event_task.run_id,
+            "step_number": event_task.steps_taken + 1,
             "action": action_audit_summary(action_data),
             "action_signature": action_signature,
+            "elapsed_ms": _nonnegative_int(outcome.get("elapsed_ms")),
+            "timings": _bounded_action_timings(outcome.get("timings")),
+            "before_generation": _nonnegative_int(outcome.get("before_generation")),
+            "after_generation": _nonnegative_int(outcome.get("after_generation")),
+            "observation_size": observation_size,
             "risk_assessment": state["risk_assessment"],
             "verification": verification,
             "verification_status": str(verification.get("status", "UNKNOWN")),
@@ -321,7 +383,6 @@ def build_agent_graph(
             "after_fingerprint": after_snapshot.page_fingerprint,
             "progressed": progress.progressed,
             "progress_signals": [signal.value for signal in progress.signals],
-            "after_generation": outcome.get("after_generation"),
             "reasoning_effort": (
                 decision_data.get("reasoning_effort") if decision_data is not None else None
             ),
@@ -539,6 +600,9 @@ def build_agent_graph(
     def route_verification(state: AgentState) -> str:
         return "observe" if state["status"] == "running" else END
 
+    def route_execution(state: AgentState) -> str:
+        return "decide" if state["decision"] is None else "verify"
+
     # LangGraph currently ships partial typing for its graph builder API.
     graph_builder = cast(Any, StateGraph)
     builder = graph_builder(AgentState)
@@ -555,7 +619,11 @@ def build_agent_graph(
         route_safety,
         {"execute": "execute", END: END},
     )
-    builder.add_edge("execute", "verify")
+    builder.add_conditional_edges(
+        "execute",
+        route_execution,
+        {"decide": "decide", "verify": "verify"},
+    )
     builder.add_conditional_edges("verify", route_verification)
     return builder.compile(
         checkpointer=checkpointer,
@@ -569,6 +637,57 @@ def _visible_text(snapshot: SemanticSnapshot) -> str:
     for element in snapshot.elements:
         parts.extend((element.accessible_name or "", element.text or ""))
     return "\n".join(parts)
+
+
+def _snapshot_checkpoint(snapshot: SemanticSnapshot) -> SnapshotCheckpoint:
+    """Return bounded location metadata without persisting page content."""
+    return {
+        "url": snapshot.url[:2_000],
+        "title": snapshot.title[:500] if snapshot.title is not None else None,
+        "active_tab": snapshot.active_tab,
+        "page_fingerprint": snapshot.page_fingerprint,
+        "state_generation": snapshot.state_generation,
+        "element_count": len(snapshot.elements),
+    }
+
+
+def _snapshot_from_checkpoint(summary: SnapshotCheckpoint) -> SemanticSnapshot:
+    """Build a metadata-only baseline after a process restart."""
+    active_tab = summary["active_tab"]
+    return SemanticSnapshot(
+        url=summary["url"],
+        title=summary["title"],
+        tabs=[active_tab] if active_tab else [],
+        active_tab=active_tab,
+        page_fingerprint=summary["page_fingerprint"],
+        state_generation=summary["state_generation"],
+    )
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _bounded_action_timings(value: Any) -> dict[str, int]:
+    fields = (
+        "pre_observation_ms",
+        "target_resolution_ms",
+        "action_execution_ms",
+        "mechanical_recovery_ms",
+        "settle_ms",
+        "post_observation_ms",
+        "delta_ms",
+        "verification_ms",
+    )
+    if not isinstance(value, dict):
+        return {}
+    return {
+        name: bounded
+        for name in fields
+        if (bounded := _nonnegative_int(value.get(name))) is not None
+    }
 
 
 def action_audit_summary(action: Any) -> dict[str, str]:

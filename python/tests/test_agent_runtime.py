@@ -204,6 +204,34 @@ async def test_long_horizon_counts_text_only_changes_as_progress() -> None:
     assert completed.steps_taken == 11
     assert completed.stagnant_steps == 0
     assert len(state.values["action_history"]) <= 5
+    snapshot_checkpoint = state.values["snapshot"]
+    assert snapshot_checkpoint is not None
+    assert set(snapshot_checkpoint) == {
+        "url",
+        "title",
+        "active_tab",
+        "page_fingerprint",
+        "state_generation",
+        "element_count",
+    }
+    assert "elements" not in snapshot_checkpoint
+    last_event = state.values["action_history"][-1]
+    assert last_event["run_id"] == "long-horizon"
+    assert last_event["step_number"] == completed.steps_taken
+    assert last_event["observation_size"]["before_elements"] >= 0
+    assert last_event["observation_size"]["after_elements"] >= 0
+    assert set(last_event["timings"]).issubset(
+        {
+            "pre_observation_ms",
+            "target_resolution_ms",
+            "action_execution_ms",
+            "mechanical_recovery_ms",
+            "settle_ms",
+            "post_observation_ms",
+            "delta_ms",
+            "verification_ms",
+        }
+    )
 
 
 async def test_graph_checkpoint_resumes_with_same_thread_state(tmp_path: Path) -> None:
