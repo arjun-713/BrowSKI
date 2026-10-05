@@ -24,6 +24,7 @@ from browser_agent.reasoning.openai_adapter import (
     ReasoningProviderRequestError,
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
+    ReasoningTelemetryEvent,
 )
 
 
@@ -98,6 +99,33 @@ async def test_luna_adapter_uses_bounded_structured_responses_request() -> None:
     assert call["max_output_tokens"] == 640
     assert call["timeout"] == 30.0
     assert "Continue through the form" in str(call["input"])
+
+
+async def test_luna_emits_correlated_token_usage_without_context_content() -> None:
+    events: list[ReasoningTelemetryEvent] = []
+    context = make_context().model_copy(
+        update={"task": TaskState(task="Private browser goal", run_id="run-luna-1", steps_taken=6)}
+    )
+    response = SimpleNamespace(
+        output_parsed=make_decision(),
+        usage=SimpleNamespace(input_tokens=256, output_tokens=43),
+    )
+    provider = OpenAILunaProvider(FakeClient(FakeResponses(response)), telemetry=events.append)
+
+    await provider.reason(context, effort=ReasoningEffort.HIGH)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.provider == "openai"
+    assert event.operation == "reason"
+    assert event.outcome == "success"
+    assert event.model == DEFAULT_LUNA_MODEL
+    assert event.effort == "high"
+    assert event.run_id == "run-luna-1"
+    assert event.step == 6
+    assert event.input_tokens == 256
+    assert event.output_tokens == 43
+    assert not hasattr(event, "task")
 
 
 async def test_luna_adapter_applies_high_effort_then_returns_to_low() -> None:

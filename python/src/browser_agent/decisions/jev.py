@@ -19,7 +19,10 @@ from browser_agent.decisions.base import (
     DecisionResult,
     DecisionTelemetry,
     DecisionTelemetryEvent,
+    correlation_fields,
     emit_telemetry,
+    response_model_name,
+    response_usage_counts,
 )
 from browser_agent.decisions.calibration import CalibrationPolicy
 
@@ -98,21 +101,21 @@ class JevProvider(DecisionProvider):
                 normalized[name] = normalize_answer(question.kind, raw, question, self.calibration)
         except TimeoutError as exc:
             error = DecisionProviderTimeout("Jev request exceeded its configured timeout.")
-            self._emit_call(questions, started, "timeout", error)
+            self._emit_call(questions, started, "timeout", error, state=state)
             raise error from exc
         except DecisionProviderError as exc:
-            self._emit_call(questions, started, "error", exc)
+            self._emit_call(questions, started, "error", exc, state=state)
             raise
         except (KeyError, AttributeError, TypeError) as exc:
             error = DecisionProviderProtocolError("Jev response omitted typed answers.")
-            self._emit_call(questions, started, "error", error)
+            self._emit_call(questions, started, "error", error, state=state)
             raise error from exc
         except Exception as exc:
             error = DecisionProviderUnavailable(f"Jev request failed with {type(exc).__name__}.")
-            self._emit_call(questions, started, "error", error)
+            self._emit_call(questions, started, "error", error, state=state)
             raise error from exc
 
-        self._emit_call(questions, started, "success")
+        self._emit_call(questions, started, "success", response=response, state=state)
         return DecisionResult(
             provider=self.name,
             model=str(get_value(response, "model", "jev-latest")),
@@ -135,7 +138,11 @@ class JevProvider(DecisionProvider):
         started: float,
         outcome: str,
         error: DecisionProviderError | None = None,
+        *,
+        response: object | None = None,
+        state: str | Mapping[str, Any],
     ) -> None:
+        input_tokens, output_tokens = response_usage_counts(response)
         emit_telemetry(
             self.telemetry,
             DecisionTelemetryEvent(
@@ -143,7 +150,11 @@ class JevProvider(DecisionProvider):
                 operation="evaluate",
                 outcome=outcome,
                 elapsed_ms=(time.perf_counter() - started) * 1000,
+                model=response_model_name(response, "jev-latest"),
                 question_kinds=tuple(sorted({q.kind.value for q in questions.values()})),
                 error_type=None if error is None else type(error).__name__,
+                **correlation_fields(state),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             ),
         )

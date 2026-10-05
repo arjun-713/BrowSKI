@@ -24,7 +24,10 @@ from browser_agent.decisions.base import (
     DecisionTelemetry,
     DecisionTelemetryEvent,
     ProviderHealth,
+    correlation_fields,
     emit_telemetry,
+    response_model_name,
+    response_usage_counts,
 )
 from browser_agent.decisions.calibration import CalibrationPolicy
 
@@ -214,19 +217,19 @@ class LayaProvider(DecisionProvider):
                 raise DecisionProviderProtocolError("Laya response omitted a requested answer.")
         except TimeoutError as exc:
             error = DecisionProviderTimeout("Laya decision exceeded its configured timeout.")
-            self._emit_call(questions, started, "timeout", error)
+            self._emit_call(questions, started, "timeout", error, state=state)
             raise error from exc
         except DecisionProviderError as exc:
-            self._emit_call(questions, started, "error", exc)
+            self._emit_call(questions, started, "error", exc, state=state)
             raise
         except Exception as exc:
             error = DecisionProviderProtocolError(
                 f"Laya decision failed with {type(exc).__name__}."
             )
-            self._emit_call(questions, started, "error", error)
+            self._emit_call(questions, started, "error", error, state=state)
             raise error from exc
 
-        self._emit_call(questions, started, "success")
+        self._emit_call(questions, started, "success", response=response, state=state)
         return DecisionResult(
             provider=self.name,
             model=str(get_value(response, "model", "laya-local")),
@@ -240,7 +243,11 @@ class LayaProvider(DecisionProvider):
         started: float,
         outcome: str,
         error: DecisionProviderError | None = None,
+        *,
+        response: object | None = None,
+        state: str | Mapping[str, Any],
     ) -> None:
+        input_tokens, output_tokens = response_usage_counts(response)
         emit_telemetry(
             self.telemetry,
             DecisionTelemetryEvent(
@@ -248,9 +255,13 @@ class LayaProvider(DecisionProvider):
                 operation="evaluate",
                 outcome=outcome,
                 elapsed_ms=(time.perf_counter() - started) * 1000,
+                model=response_model_name(response, "laya-local"),
                 question_kinds=tuple(
                     sorted({question.kind.value for question in questions.values()})
                 ),
                 error_type=None if error is None else type(error).__name__,
+                **correlation_fields(state),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             ),
         )

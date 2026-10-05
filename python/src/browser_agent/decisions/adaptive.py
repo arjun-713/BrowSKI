@@ -13,6 +13,7 @@ from browser_agent.decisions.base import (
     DecisionResult,
     DecisionTelemetry,
     DecisionTelemetryEvent,
+    correlation_fields,
     emit_telemetry,
 )
 
@@ -51,6 +52,9 @@ class AdaptiveDecisionProvider(DecisionProvider):
                         "disabled",
                         (time.perf_counter() - started) * 1000,
                         error_type=type(exc).__name__,
+                        fallback_to="jev",
+                        fallback_reason=f"laya_error:{type(exc).__name__}",
+                        **correlation_fields(state),
                     ),
                 )
                 raise
@@ -75,16 +79,38 @@ class AdaptiveDecisionProvider(DecisionProvider):
         reason: str,
         started: float,
     ) -> DecisionResult:
+        try:
+            result = await self.jev.evaluate(state, questions)
+        except Exception as exc:
+            emit_telemetry(
+                self.telemetry,
+                DecisionTelemetryEvent(
+                    provider=self.name,
+                    operation="fallback",
+                    outcome="failed",
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                    question_kinds=tuple(sorted({q.kind.value for q in questions.values()})),
+                    error_type=type(exc).__name__,
+                    fallback_from="laya",
+                    fallback_to="jev",
+                    fallback_reason=reason,
+                    **correlation_fields(state),
+                ),
+            )
+            raise
         emit_telemetry(
             self.telemetry,
             DecisionTelemetryEvent(
                 provider=self.name,
                 operation="fallback",
-                outcome="jev_selected",
+                outcome="succeeded",
                 elapsed_ms=(time.perf_counter() - started) * 1000,
+                model=result.model,
                 question_kinds=tuple(sorted({q.kind.value for q in questions.values()})),
                 fallback_from="laya",
+                fallback_to="jev",
+                fallback_reason=reason,
+                **correlation_fields(state),
             ),
         )
-        result = await self.jev.evaluate(state, questions)
         return replace(result, fallback_from="laya", fallback_reason=reason)

@@ -253,8 +253,60 @@ async def test_adaptive_emits_fallback_event() -> None:
     )
 
     assert result.fallback_from == "laya"
-    assert events[0].outcome == "jev_selected"
+    assert events[0].outcome == "succeeded"
     assert events[0].fallback_from == "laya"
+    assert events[0].fallback_to == "jev"
+
+
+async def test_provider_telemetry_includes_safe_correlation_and_reported_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_typesafe(monkeypatch)
+    response = SimpleNamespace(
+        model="jev-latest",
+        choices={"route": SimpleNamespace(choice="safe", confidence=0.9)},
+        scores={},
+        nouls={},
+        usage=SimpleNamespace(input_tokens=123, output_tokens=7),
+    )
+    events: list[DecisionTelemetryEvent] = []
+    provider = JevProvider(client=FakeJevClient(response), telemetry=events.append)
+    question = {
+        "route": DecisionQuestion(DecisionKind.CHOICE, "Pick", {"safe": None, "stop": None})
+    }
+
+    await provider.evaluate(
+        {"run_id": "run-123\nignored", "steps_taken": 4, "page": "private page text"}, question
+    )
+
+    event = events[0]
+    assert event.provider == "jev"
+    assert event.operation == "evaluate"
+    assert event.outcome == "success"
+    assert event.model == "jev-latest"
+    assert event.run_id == "run-123ignored"
+    assert event.step == 4
+    assert event.input_tokens == 123
+    assert event.output_tokens == 7
+
+
+async def test_laya_telemetry_reads_only_provider_reported_token_counts() -> None:
+    class UsageModel:
+        def predict(self, state: Any, questions: Any) -> dict[str, Any]:
+            _ = state, questions
+            return {
+                "answers": {"decision": {"noul": 0.95}},
+                "usage": {"input_tokens": 31, "output_tokens": 4},
+            }
+
+    events: list[DecisionTelemetryEvent] = []
+    provider = LayaProvider(UsageModel(), telemetry=events.append)
+    await provider.probability("bounded state", "Is the expected result visible?")
+
+    assert events[0].provider == "laya"
+    assert events[0].model == "laya-local"
+    assert events[0].input_tokens == 31
+    assert events[0].output_tokens == 4
 
 
 async def test_laya_uses_local_http_contract_and_reports_health() -> None:

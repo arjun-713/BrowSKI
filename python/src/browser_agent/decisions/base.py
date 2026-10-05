@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import structlog
 
@@ -63,12 +63,24 @@ class DecisionTelemetryEvent:
     operation: str
     outcome: str
     elapsed_ms: float
+    model: str | None = None
     question_kinds: tuple[str, ...] = ()
     error_type: str | None = None
     fallback_from: str | None = None
+    fallback_to: str | None = None
+    fallback_reason: str | None = None
+    run_id: str | None = None
+    step: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 DecisionTelemetry = Callable[[DecisionTelemetryEvent], None]
+
+
+class TelemetryCorrelation(TypedDict):
+    run_id: str | None
+    step: int | None
 
 
 @dataclass(frozen=True)
@@ -105,13 +117,68 @@ def emit_telemetry(callback: DecisionTelemetry | None, event: DecisionTelemetryE
         provider=event.provider,
         operation=event.operation,
         outcome=event.outcome,
+        model=event.model,
         elapsed_ms=round(event.elapsed_ms, 3),
         question_kinds=event.question_kinds,
         error_type=event.error_type,
         fallback_from=event.fallback_from,
+        fallback_to=event.fallback_to,
+        fallback_reason=event.fallback_reason,
+        run_id=event.run_id,
+        step=event.step,
+        input_tokens=event.input_tokens,
+        output_tokens=event.output_tokens,
     )
     if callback is not None:
         callback(event)
+
+
+def correlation_fields(state: str | Mapping[str, Any]) -> TelemetryCorrelation:
+    """Extract bounded, non-content correlation values from an existing state map."""
+    if not isinstance(state, Mapping):
+        return {"run_id": None, "step": None}
+    raw_run_id = state.get("run_id")
+    run_id = None
+    if isinstance(raw_run_id, str):
+        safe = "".join(char for char in raw_run_id[:128] if char.isalnum() or char in "-_.:")
+        run_id = safe or None
+    raw_step = state.get("steps_taken")
+    step = (
+        raw_step
+        if isinstance(raw_step, int) and not isinstance(raw_step, bool) and raw_step >= 0
+        else None
+    )
+    return {"run_id": run_id, "step": step}
+
+
+def response_usage_counts(response: object) -> tuple[int | None, int | None]:
+    """Read only provider-reported token counts; never estimate tokens or cost."""
+    usage = _get_value(response, "usage")
+    if usage is None:
+        return None, None
+    input_tokens = _valid_token_count(_get_value(usage, "input_tokens"))
+    output_tokens = _valid_token_count(_get_value(usage, "output_tokens"))
+    return input_tokens, output_tokens
+
+
+def response_model_name(response: object, default: str) -> str:
+    """Read a short provider model label while excluding arbitrary response content."""
+    raw = _get_value(response, "model") if response is not None else None
+    if not isinstance(raw, str) or not raw:
+        return default
+    return "".join(char for char in raw[:128] if char.isalnum() or char in "-_.:") or default
+
+
+def _get_value(value: object, name: str) -> object | None:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, Any], value).get(name)
+    return getattr(value, name, None)
+
+
+def _valid_token_count(value: object | None) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 2**63 - 1:
+        return value
+    return None
 
 
 @dataclass(frozen=True)
