@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import pytest
+
 from browser_agent._types import (
     SemanticElement,
     SemanticKind,
@@ -109,6 +111,23 @@ def next_click() -> ReasoningDecision:
         summary="Continue the application form.",
         action=ReasoningAction(type="click", target_ref="@continue"),
     )
+
+
+def test_luna_model_uses_environment_override_and_explicit_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BROWSKI_LUNA_MODEL", "configured-luna-model")
+    provider = FakeReasoningProvider(next_click())
+
+    configured = LunaDecisionAgent(FakeDecisionProvider("c03"), provider)
+    explicit = LunaDecisionAgent(
+        FakeDecisionProvider("c03"),
+        provider,
+        model="explicit-luna-model",
+    )
+
+    assert configured.model == "configured-luna-model"
+    assert explicit.model == "explicit-luna-model"
 
 
 async def test_system_one_abstention_escalates_to_luna_with_low_effort() -> None:

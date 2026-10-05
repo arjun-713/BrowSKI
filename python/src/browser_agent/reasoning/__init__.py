@@ -18,12 +18,15 @@ from browser_agent.reasoning.contracts import (
     ReasoningPurpose,
 )
 from browser_agent.reasoning.openai_adapter import (
+    DEFAULT_LUNA_MODEL,
+    LUNA_MODEL_ENV,
     OpenAILunaProvider,
     ReasoningProviderError,
     ReasoningProviderProtocolError,
     ReasoningProviderRequestError,
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
+    configured_luna_model,
 )
 
 __all__ = [
@@ -33,6 +36,8 @@ __all__ = [
     "ComplexityResult",
     "ComplexitySignals",
     "ComplexityThresholds",
+    "DEFAULT_LUNA_MODEL",
+    "LUNA_MODEL_ENV",
     "OpenAILunaProvider",
     "ReasoningAction",
     "ReasoningContext",
@@ -46,4 +51,5 @@ __all__ = [
     "ReasoningProviderRequestError",
     "ReasoningProviderTimeout",
     "ReasoningProviderUnavailable",
+    "configured_luna_model",
 ]

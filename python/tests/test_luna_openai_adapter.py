@@ -100,6 +100,21 @@ async def test_luna_adapter_uses_bounded_structured_responses_request() -> None:
     assert "Continue through the form" in str(call["input"])
 
 
+async def test_luna_adapter_applies_high_effort_then_returns_to_low() -> None:
+    response = SimpleNamespace(output_parsed=make_decision())
+    responses = FakeResponses(response)
+    provider = OpenAILunaProvider(FakeClient(responses))
+
+    await provider.reason(make_context(), effort=ReasoningEffort.HIGH)
+    await provider.reason(make_context(), effort=ReasoningEffort.LOW)
+
+    assert [call["reasoning"] for call in responses.calls] == [
+        {"effort": "high"},
+        {"effort": "low"},
+    ]
+    assert all(call["model"] == DEFAULT_LUNA_MODEL for call in responses.calls)
+
+
 async def test_luna_adapter_rejects_semantic_refs_missing_from_sent_observation() -> None:
     bad_decision = ReasoningDecision(
         outcome=ReasoningOutcome.NEXT_ACTION,

@@ -15,6 +15,15 @@ from browser_agent.reasoning.contracts import (
 )
 
 DEFAULT_LUNA_MODEL = "gpt-6-luna"
+LUNA_MODEL_ENV = "BROWSKI_LUNA_MODEL"
+
+
+def configured_luna_model() -> str:
+    """Return the configured GPT model ID, defaulting to GPT-6 Luna."""
+    configured = os.environ.get(LUNA_MODEL_ENV, "").strip()
+    return configured or DEFAULT_LUNA_MODEL
+
+
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_OUTPUT_TOKENS = 2_048
 MAX_CONTEXT_CHARACTERS = 32_000
@@ -165,6 +174,8 @@ class OpenAILunaProvider:
 
 __all__ = [
     "DEFAULT_LUNA_MODEL",
+    "LUNA_MODEL_ENV",
+    "configured_luna_model",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DEFAULT_TIMEOUT_SECONDS",
     "MAX_CONTEXT_CHARACTERS",

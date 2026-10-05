@@ -37,6 +37,7 @@ from browser_agent.reasoning import (
     ReasoningOutcome,
     ReasoningProvider,
     ReasoningPurpose,
+    configured_luna_model,
 )
 
 _logger: Any = structlog.get_logger("browser_agent.agent.luna")
@@ -50,13 +51,13 @@ class LunaDecisionAgent(Agent):
         decision_provider: DecisionProvider,
         reasoning_provider: ReasoningProvider | None,
         *,
-        model: str = "gpt-6-luna",
+        model: str | None = None,
         candidate_policy: CandidatePolicy | None = None,
         complexity_gate: ComplexityGate | None = None,
     ) -> None:
         self.decision_provider = decision_provider
         self.reasoning_provider = reasoning_provider
-        self.model = model
+        self.model = configured_luna_model() if model is None else model
         self.candidate_policy = candidate_policy or CandidatePolicy()
         self.complexity_gate = complexity_gate or ComplexityGate()
 
