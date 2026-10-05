@@ -15,12 +15,15 @@ use std::time::{Duration, Instant};
 
 static M3_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn require_chrome() -> bool {
-    if browser_agent_cdp::find_chrome_binary().is_none() {
-        eprintln!("SKIP: no Chrome/Chromium binary found");
-        return false;
-    }
-    true
+fn require_chrome() {
+    let chrome = browser_agent_cdp::find_chrome_binary().unwrap_or_else(|| {
+        panic!("M3 browser tests require Chrome or Chromium; set CHROME_PATH to its binary")
+    });
+    assert!(
+        chrome.is_file(),
+        "browser binary is not a file: {}",
+        chrome.display()
+    );
 }
 
 fn fixture_dir() -> PathBuf {
@@ -79,11 +82,11 @@ async fn fixture_server() -> String {
     base
 }
 
-async fn launch() -> Option<BrowserSession> {
-    if !require_chrome() {
-        return None;
-    }
-    Some(BrowserSession::launch().await.expect("launch"))
+async fn launch() -> BrowserSession {
+    require_chrome();
+    BrowserSession::launch()
+        .await
+        .expect("launch browser session")
 }
 
 /// Resolve an alias to a full ref via the latest snapshot.
@@ -121,9 +124,7 @@ fn succeeded(outcome: &ActionOutcome) -> bool {
 #[tokio::test]
 async fn m3_native_click() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-success.html"))
@@ -160,9 +161,7 @@ async fn m3_native_click() {
 #[tokio::test]
 async fn m3_controlled_input_typing() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/input-controlled-react.html"))
@@ -218,9 +217,7 @@ async fn m3_controlled_input_typing() {
 #[tokio::test]
 async fn m3_native_select() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/native-select.html"))
@@ -255,9 +252,7 @@ async fn m3_native_select() {
 #[tokio::test]
 async fn m3_checkbox_radio() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/checkbox-radio.html"))
@@ -287,9 +282,7 @@ async fn m3_checkbox_radio() {
 #[tokio::test]
 async fn m3_spa_transition() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/spa-route.html"))
@@ -317,9 +310,7 @@ async fn m3_spa_transition() {
 #[tokio::test]
 async fn m3_full_navigation() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/navigation-button.html"))
@@ -352,9 +343,7 @@ async fn m3_full_navigation() {
 #[tokio::test]
 async fn m3_navigation_history_actions() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     let tab = session.active_tab().await.expect("active").id;
     let start_url = format!("{base}/navigation-button.html");
@@ -435,9 +424,7 @@ async fn m3_navigation_history_actions() {
 #[tokio::test]
 async fn m3_keyboard_hover_and_scroll() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-success.html"))
@@ -497,9 +484,7 @@ async fn m3_keyboard_hover_and_scroll() {
 #[tokio::test]
 async fn m3_new_tab_detection() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/opens-new-tab.html"))
@@ -537,9 +522,7 @@ async fn m3_new_tab_detection() {
 #[tokio::test]
 async fn m3_new_tab_action() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-success.html"))
@@ -599,9 +582,7 @@ async fn m3_new_tab_action() {
 #[tokio::test]
 async fn m3_close_tab_action() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-success.html"))
@@ -629,9 +610,7 @@ async fn m3_close_tab_action() {
 #[tokio::test]
 async fn m3_dialog_detection() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/dialog.html"))
@@ -683,9 +662,7 @@ async fn m3_dialog_detection() {
 #[tokio::test]
 async fn m3_stale_and_ambiguous_rejected() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     // Stale: bind on one page, navigate away (alias gone), act with old ref.
     session
@@ -749,13 +726,110 @@ async fn m3_stale_and_ambiguous_rejected() {
     session.close().await.expect("close");
 }
 
+#[tokio::test]
+async fn m3_target_disappears_before_action_is_refused() {
+    let _guard = M3_LOCK.lock().await;
+    let session = launch().await;
+    let base = fixture_server().await;
+    session
+        .navigate(&format!("{base}/target-disappears.html"))
+        .await
+        .expect("navigate to disappearing-target fixture");
+    let tab = session.active_tab().await.expect("active tab").id;
+
+    let target = rref(&session, &tab, "@target_action").await;
+    let remove_target = rref(&session, &tab, "@remove_target").await;
+    let remove_outcome = session
+        .act(
+            &tab,
+            click(
+                remove_target,
+                ExpectedEffect::AnyOf(vec![EffectExpectation::AnyElementChanged]),
+            ),
+            ActOptions::default(),
+        )
+        .await;
+    assert!(succeeded(&remove_outcome));
+
+    let outcome = session
+        .act(
+            &tab,
+            click(
+                target,
+                ExpectedEffect::AnyOf(vec![EffectExpectation::AnyElementChanged]),
+            ),
+            ActOptions::default(),
+        )
+        .await;
+    assert!(!outcome.succeeded());
+    assert!(
+        matches!(
+            outcome.execution,
+            Err(ref failure)
+                if matches!(
+                    failure.kind,
+                    ExecutionFailureKind::StaleTarget
+                        | ExecutionFailureKind::TargetNotFound
+                )
+        ),
+        "execution: {:?}",
+        outcome.execution
+    );
+
+    session.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn m3_textarea_typing_is_verified() {
+    let _guard = M3_LOCK.lock().await;
+    let session = launch().await;
+    let base = fixture_server().await;
+    session
+        .navigate(&format!("{base}/textarea.html"))
+        .await
+        .expect("navigate to textarea fixture");
+    let tab = session.active_tab().await.expect("active tab").id;
+    let snapshot = session.observe_tab(&tab).await.expect("observe textarea");
+    let observed = snapshot
+        .by_ref("@biography")
+        .expect("biography textarea appears in semantic observation");
+    assert_eq!(observed.role, "textbox");
+    assert_eq!(observed.accessible_name.as_deref(), Some("Biography"));
+    assert_eq!(observed.value.as_deref(), Some("Draft"));
+    assert!(observed.interactable, "observed textarea: {observed:?}");
+    let target = ElementRef::new(observed.id, "@biography", observed.generation);
+
+    let outcome = session
+        .act(
+            &tab,
+            BrowserAction::Type {
+                target,
+                text: "Browser agent notes".into(),
+                clear: true,
+                submit: false,
+                expected_effect: ExpectedEffect::Unspecified,
+            },
+            ActOptions::default(),
+        )
+        .await;
+    assert!(succeeded(&outcome));
+    assert_eq!(outcome.verification.check, "value-is");
+
+    let value = session
+        .execute(&tab, "document.getElementById('bio').value")
+        .await
+        .expect("read textarea value");
+    assert_eq!(value.as_str(), Some("Browser agent notes"));
+
+    session.close().await.expect("close");
+}
+
 /// Gate: occluded target not falsely successful 100% (+ recovery by caller).
+
 #[tokio::test]
 async fn m3_occluded_not_successful() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/overlay-intercept.html"))
@@ -819,9 +893,7 @@ async fn m3_occluded_not_successful() {
 #[tokio::test]
 async fn m3_no_effect_classified() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-no-effect.html"))
@@ -854,9 +926,7 @@ async fn m3_no_effect_classified() {
 #[tokio::test]
 async fn m3_infinite_spinner_does_not_block_settling() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/infinite-spinner.html"))
@@ -885,9 +955,7 @@ async fn m3_infinite_spinner_does_not_block_settling() {
 #[tokio::test]
 async fn m3_bounded_retries() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     // Transient veil (800ms): mechanical retries ride it out.
     session
@@ -942,9 +1010,7 @@ async fn m3_bounded_retries() {
 #[tokio::test]
 async fn m3_usable_after_failure() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     // Validation blocks the submit: classified failure, not a hang.
     session
@@ -1051,9 +1117,7 @@ async fn m3_usable_after_failure() {
 #[tokio::test]
 async fn m3_verification_deterministic() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/click-success.html"))
@@ -1101,9 +1165,7 @@ async fn m3_verification_deterministic() {
 #[tokio::test]
 async fn m3_end_to_end_form_flow() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/form-flow.html"))
@@ -1211,9 +1273,7 @@ async fn m3_end_to_end_form_flow() {
 #[tokio::test]
 async fn m3_custom_controls_and_frames() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
 
     // Custom dropdown: open, choose Mango by label.
@@ -1283,9 +1343,7 @@ async fn m3_custom_controls_and_frames() {
 #[tokio::test]
 async fn m3_disabled_is_terminal_fast() {
     let _guard = M3_LOCK.lock().await;
-    let Some(session) = launch().await else {
-        return;
-    };
+    let session = launch().await;
     let base = fixture_server().await;
     session
         .navigate(&format!("{base}/button-disabled-then-enabled.html"))
