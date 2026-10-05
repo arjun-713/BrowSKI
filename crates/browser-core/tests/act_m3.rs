@@ -169,12 +169,13 @@ async fn m3_controlled_input_typing() {
         .expect("nav");
     let tab = session.active_tab().await.expect("active").id;
     let target = rref(&session, &tab, "@nickname").await;
+    let secret = "private-value-marker";
     let outcome = session
         .act(
             &tab,
             BrowserAction::Type {
                 target,
-                text: "mallik".into(),
+                text: secret.into(),
                 clear: true,
                 submit: false,
                 expected_effect: ExpectedEffect::Unspecified,
@@ -184,12 +185,16 @@ async fn m3_controlled_input_typing() {
         .await;
     assert!(succeeded(&outcome));
     assert_eq!(outcome.verification.check, "value-is");
+    let execution_detail = serde_json::to_string(&outcome.execution).expect("serialize execution");
+    assert!(!execution_detail.contains(secret));
+    assert!(!outcome.verification.expected.contains(secret));
+    assert!(!outcome.verification.observed.contains(secret));
     // Framework mirror synced (input event dispatched, not just property set).
     let mirror = session
         .execute(&tab, "document.getElementById('mirror').textContent")
         .await
         .expect("read mirror");
-    assert_eq!(mirror.as_str(), Some("mallik"), "mirror: {mirror}");
+    assert_eq!(mirror.as_str(), Some(secret), "mirror: {mirror}");
     // Churn-tolerant input on the same page still works afterwards.
     session
         .navigate(&format!("{base}/input-rerender.html"))

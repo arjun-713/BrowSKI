@@ -359,13 +359,13 @@ async fn perform_type(
     match observed {
         Some(v) if clear && v == text => Ok(ExecutionEvidence {
             method: "cdp-input".into(),
-            detail: format!("value == {text:?}"),
+            detail: "target value matched requested text".into(),
         }),
         Some(v) if !clear && v.ends_with(text) => Ok(ExecutionEvidence {
             method: "cdp-input".into(),
-            detail: format!("value ends with {text:?}"),
+            detail: "target value ends with requested text".into(),
         }),
-        Some(v) if options.allow_dom_fallback => {
+        Some(_) if options.allow_dom_fallback => {
             // Controlled inputs (React): set through the native setter and
             // dispatch input+change so framework state syncs.
             js_set_value(session, &r.session, r.backend, text).await?;
@@ -381,20 +381,20 @@ async fn perform_type(
             if (clear && v2 == text) || (!clear && v2.ends_with(text)) {
                 Ok(ExecutionEvidence {
                     method: "dom-method".into(),
-                    detail: format!("native setter; value == {v2:?}"),
+                    detail: "native setter; target value matched requested text".into(),
                 })
             } else {
                 Err(ExecutionFailure::new(
                     ExecutionFailureKind::InteractionRejected,
                     Some(r.reference.to_string()),
-                    format!("value read-back mismatch: {v:?} then {v2:?}, expected {text:?}"),
+                    "controlled input value did not match requested text after fallback",
                 ))
             }
         }
-        other => Err(ExecutionFailure::new(
+        _ => Err(ExecutionFailure::new(
             ExecutionFailureKind::InteractionRejected,
             Some(r.reference.to_string()),
-            format!("value read-back mismatch: {other:?}, expected {text:?}"),
+            "target value did not match requested text",
         )),
     }
 }

@@ -141,13 +141,9 @@ pub fn check_expectation(
         EffectExpectation::ValueIs { target, value } => {
             match after.elements.iter().find(|e| e.id == target.id) {
                 Some(el) if el.value.as_deref().unwrap_or("") == value => {
-                    ExpectationVerdict::Met(format!("{} == {value:?}", target))
+                    ExpectationVerdict::Met(format!("{target} value matched"))
                 }
-                Some(el) => ExpectationVerdict::Unmet(format!(
-                    "{} == {:?}, expected {value:?}",
-                    target,
-                    el.value.as_deref().unwrap_or("")
-                )),
+                Some(_) => ExpectationVerdict::Unmet(format!("{target} value did not match")),
                 None => ExpectationVerdict::Uncertain(format!("{target} not in snapshot")),
             }
         }
@@ -385,13 +381,14 @@ mod tests {
     #[test]
     fn value_is_proven_or_disproven() {
         let before = snap("https://x/", vec![el("@u", 1, Some(""))]);
-        let after = snap("https://x/", vec![el("@u", 1, Some("mallik"))]);
+        let secret = "private-value-marker";
+        let after = snap("https://x/", vec![el("@u", 1, Some(secret))]);
         let delta = browser_agent_observation::diff_snapshots(&before, &after);
         let side = SideEffects::default();
         let met = check_expectation(
             &EffectExpectation::ValueIs {
                 target: target(1, "@u"),
-                value: "mallik".into(),
+                value: secret.into(),
             },
             &before,
             &after,
@@ -399,10 +396,11 @@ mod tests {
             &side,
         );
         assert!(matches!(met, ExpectationVerdict::Met(_)));
+        assert!(!format!("{met:?}").contains(secret));
         let unmet = check_expectation(
             &EffectExpectation::ValueIs {
                 target: target(1, "@u"),
-                value: "other".into(),
+                value: "different-private-marker".into(),
             },
             &before,
             &after,
@@ -410,6 +408,8 @@ mod tests {
             &side,
         );
         assert!(matches!(unmet, ExpectationVerdict::Unmet(_)));
+        assert!(!format!("{unmet:?}").contains(secret));
+        assert!(!format!("{unmet:?}").contains("different-private-marker"));
     }
 
     #[test]

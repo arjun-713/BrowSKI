@@ -283,14 +283,14 @@ async fn verify_select(
             };
             if ok {
                 VerificationResult::success(
-                    format!("select == {value:?}"),
-                    format!("value={selected_value:?} label={selected_label:?}"),
+                    format!("{target} selection matched"),
+                    "selected option matched the requested selection",
                 )
                 .with_check("select-value")
             } else {
                 VerificationResult::failure(
-                    format!("select == {value:?}"),
-                    format!("value={selected_value:?} label={selected_label:?}"),
+                    format!("{target} selection matched"),
+                    "selected option did not match the requested selection",
                 )
                 .with_check("wrong-effect")
             }

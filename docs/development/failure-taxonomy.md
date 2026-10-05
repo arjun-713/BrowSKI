@@ -16,7 +16,7 @@ Python agent for replan/alternate-strategy/escalate decisions.
 | NAVIGATION | Navigation never reached the expected URL/state | browser-core (Rust) |
 | FRAME | Frame detached, missing, or cross-origin blocked | browser-core (Rust) |
 | TAB | Tab target gone, crashed, or un-attachable | browser-core (Rust) |
-| UPLOAD | File upload failed | executor (Rust, later) |
+| UPLOAD | File upload failed | Deferred; M3 has no authorized file-path capability or file-chooser contract |
 | DOWNLOAD | Download failed / unreachable | executor (Rust, later) |
 | AUTH | Login/session/auth wall encountered | agent (Python, escalate to user) |
 | TIMEOUT | Bounded wait exceeded | whoever set the bound |
