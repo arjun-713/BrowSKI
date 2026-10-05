@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, TypedDict
@@ -20,26 +21,34 @@ class WorkerState(TypedDict):
     count: int
 
 
-class ResumeFormAgent(Agent):
+class ResumeProgressAgent(Agent):
+    def __init__(self, *, stop_after_two_steps: bool = False) -> None:
+        self.stop_after_two_steps = stop_after_two_steps
+
     async def decide(
         self,
         snapshot: SemanticSnapshot,
         task: TaskState,
         memory: WorkingMemory,
     ) -> AgentDecision:
-        _ = task, memory
-        checkbox = next(element for element in snapshot.elements if element.role == "checkbox")
-        if "checked" in checkbox.state:
-            return AgentDecision(done=True, result_summary="Terms accepted.")
+        _ = memory
+        if self.stop_after_two_steps and task.steps_taken >= 2:
+            # Simulate abrupt process loss after verified steps; skip cleanup intentionally.
+            os._exit(73)
+        if task.steps_taken >= 4:
+            return AgentDecision(done=True, result_summary="Four verified clicks completed.")
+
+        button = next(
+            element for element in snapshot.elements if element.accessible_name == "Increment"
+        )
         return AgentDecision(
             action=BrowserAction(
-                type="check",
+                type="click",
                 target=ElementRef(
-                    id=checkbox.id,
-                    ref=checkbox.ref,
-                    generation=checkbox.generation,
+                    id=button.id,
+                    ref=button.ref,
+                    generation=button.generation,
                 ),
-                checked=True,
             )
         )
 
@@ -48,16 +57,30 @@ async def run_runtime(database: Path, phase: str, fixture: Path) -> None:
     async with BrowserSession.launch() as browser:
         await browser.navigate(fixture.as_uri())
         async with AgentRuntime.open_sqlite(
-            ResumeFormAgent(),
+            ResumeProgressAgent(stop_after_two_steps=phase == "runtime-write"),
             browser,
             database,
-            interrupt_before=("decide",) if phase == "runtime-write" else (),
         ) as runtime:
             if phase == "runtime-write":
-                result = await runtime.run("Accept the signup terms.", run_id="runtime-restart")
+                result = await runtime.run(
+                    "Complete four counter actions.", run_id="runtime-restart"
+                )
             else:
                 result = await runtime.resume("runtime-restart")
-        print(json.dumps({"run_id": result.run_id, "status": result.status, "done": result.done}))
+            graph_state = await runtime.graph.aget_state(
+                {"configurable": {"thread_id": "runtime-restart"}}
+            )
+        print(
+            json.dumps(
+                {
+                    "run_id": result.run_id,
+                    "status": result.status,
+                    "done": result.done,
+                    "steps_taken": result.steps_taken,
+                    "history_events": len(graph_state.values["action_history"]),
+                }
+            )
+        )
 
 
 def build_graph(checkpointer: AsyncSqliteSaver, *, pause_before_advance: bool) -> Any:

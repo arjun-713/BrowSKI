@@ -43,7 +43,7 @@ def test_agent_runtime_resumes_after_process_exit(tmp_path: Path) -> None:
     database = tmp_path / "agent-runtime-checkpoints.sqlite"
     worker = Path(__file__).parent / "helpers" / "sqlite_checkpoint_worker.py"
     source_root = str(Path(__file__).resolve().parents[1] / "src")
-    fixture = Path(__file__).resolve().parents[2] / "tests/fixtures/m3/form-flow.html"
+    fixture = Path(__file__).resolve().parents[2] / "tests/fixtures/m3/click-success.html"
     environment = os.environ.copy()
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = (
@@ -54,11 +54,12 @@ def test_agent_runtime_resumes_after_process_exit(tmp_path: Path) -> None:
 
     paused = subprocess.run(
         [sys.executable, str(worker), str(database), "runtime-write", str(fixture)],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env=environment,
     )
+    assert paused.returncode == 73
     resumed = subprocess.run(
         [sys.executable, str(worker), str(database), "runtime-resume", str(fixture)],
         check=True,
@@ -67,13 +68,10 @@ def test_agent_runtime_resumes_after_process_exit(tmp_path: Path) -> None:
         env=environment,
     )
 
-    assert json.loads(paused.stdout) == {
-        "run_id": "runtime-restart",
-        "status": "running",
-        "done": False,
-    }
     assert json.loads(resumed.stdout) == {
         "run_id": "runtime-restart",
         "status": "completed",
         "done": True,
+        "steps_taken": 4,
+        "history_events": 4,
     }
