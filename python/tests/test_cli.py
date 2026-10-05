@@ -1,6 +1,8 @@
 """CLI wiring contracts that do not require a browser or provider credentials."""
 
 from importlib import import_module
+from importlib.metadata import distribution
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -55,3 +57,26 @@ def test_observe_cli_preserves_the_browser_observation_slice() -> None:
 
     assert result.exit_code == 0
     assert "URL to navigate to and observe" in result.stdout
+
+
+def test_browski_and_agent_console_scripts_are_installed_aliases() -> None:
+    entry_points = {
+        entry.name: entry.value
+        for entry in distribution("browser-agent").entry_points
+        if entry.group == "console_scripts"
+    }
+
+    assert entry_points["browski"] == "browser_agent.cli:main"
+    assert entry_points["agent"] == "browser_agent.cli:main"
+
+
+def test_project_declares_browski_as_the_primary_console_script() -> None:
+    import tomllib
+
+    project_file = Path(__file__).parents[1] / "pyproject.toml"
+    project = tomllib.loads(project_file.read_text(encoding="utf-8"))
+
+    assert project["project"]["scripts"] == {
+        "browski": "browser_agent.cli:main",
+        "agent": "browser_agent.cli:main",
+    }

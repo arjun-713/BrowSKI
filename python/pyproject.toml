@@ -35,6 +35,7 @@ dev = [
 ]
 
 [project.scripts]
+browski = "browser_agent.cli:main"
 agent = "browser_agent.cli:main"
 
 [tool.maturin]

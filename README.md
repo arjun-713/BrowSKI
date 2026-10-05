@@ -61,14 +61,15 @@ Run a task with the local Laya service and optional Luna escalation:
 ```sh
 cd python
 uv sync --extra dev
-OPENAI_API_KEY=... uv run agent task "Complete the application form" \
-  --url http://127.0.0.1:8080/form --provider laya
+OPENAI_API_KEY=... uv run browski run "Complete the application form" \
+  --start-url http://127.0.0.1:8080/form --provider laya
 ```
 
 The OpenAI key is used only if the bounded System One provider escalates to
 Luna. `--provider` accepts `laya` (default), `jev`, or `adaptive`. The task
 command writes LangGraph checkpoints to `browski-checkpoints.sqlite` by
-default. Use `--help` for options.
+default. The `agent` console command remains available as a compatibility
+alias. Use `browski --help` for options.
 
 ## Why this project exists
 
