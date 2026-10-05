@@ -29,7 +29,7 @@ class AgentConfig:
     max_stagnant_steps: int = 5
     max_history_events: int = 50
     max_recovery_actions: int = 4
-    max_replans: int = 2
+    max_replans: int = 1
     confirm_high_risk: bool = True
 
     def __post_init__(self) -> None:

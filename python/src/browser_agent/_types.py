@@ -348,12 +348,14 @@ class TaskState(BaseModel):
     milestone_evidence: dict[str, str] = Field(
         default_factory=lambda: dict[str, str](),
     )
+    plan_initialized: bool = False
     required_evidence: list[str] = Field(default_factory=list[str], max_length=30)
     deterministic_evidence: list[str] = Field(default_factory=list[str], max_length=30)
     failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
     steps_taken: int = Field(default=0, ge=0)
     llm_calls: int = Field(default=0, ge=0)
     recovery_count: int = Field(default=0, ge=0)
+    recovery_streak: int = Field(default=0, ge=0)
     replan_count: int = Field(default=0, ge=0)
     stagnant_steps: int = Field(default=0, ge=0)
     recovery_history: list[dict[str, Any]] = Field(
@@ -456,6 +458,14 @@ class AgentDecision(BaseModel):
     done: bool = False
     completed_milestone: str | None = None
     result_summary: str | None = None
+    milestones: list[str] = Field(default_factory=list[str], max_length=10)
+    milestone_evidence: dict[str, str] = Field(default_factory=dict[str, str], max_length=10)
+    plan_initialized: bool | None = None
+    current_subgoal: str | None = Field(default=None, max_length=500)
+    next_milestone: str | None = Field(default=None, max_length=500)
+    ask_user: list[str] = Field(default_factory=list[str], max_length=10)
+    reasoning_effort: str | None = None
+    replace_plan: bool = False
 
 
 class TraceEvent(BaseModel):

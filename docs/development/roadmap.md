@@ -74,7 +74,7 @@ Validation on 2026-10-02: `cargo fmt --all -- --check`,
 workspace run also passed 15 M2 integration tests, 12 runtime stress tests,
 and browser smoke tests. This gate does not claim Python agent integration.
 
-## M4. LangGraph agent runtime (IN PROGRESS)
+## M4. LangGraph agent runtime (DONE)
 
 Implemented typed `AgentState`, observe/decide/execute/verify nodes, bounded
 step and decision counts, and a LangGraph checkpointer. PyO3 exposes the Rust
@@ -91,10 +91,10 @@ the SQLite cross-process and runtime-reconstruction checks are part of the
 current full Python suite. Ruff format/check and strict Pyright passed. The
 Rust/Python extension build included the new action binding.
 
-The task-oriented `browski run "task"` / `browski resume <run-id>` CLI is not
-yet wired to a default reasoning agent. Complete it with M6 after the
-`ReasoningProvider` is available; the existing CLI still provides the M0
-navigate-and-observe vertical slice.
+The `agent task "task"` CLI now runs the graph with an optional starting URL,
+provider selection, and SQLite checkpoint database. Resuming a saved task
+still requires a live browser session; cross-process browser-session recovery
+is not claimed.
 
 ## M5. System One decisions (DONE)
 
@@ -117,11 +117,31 @@ health and timeout handling, provider-specific acceptance, and observable
 adaptive routing. Optional live checks remain opt-in; live quality and
 benchmark validation are not established by contract tests.
 
-## M6. GPT-6 Luna + adaptive reasoning
+## M6. GPT-6 Luna + adaptive reasoning (IMPLEMENTED; GATES IN VALIDATION)
 
-Add the only generative reasoning provider in the baseline and a
-`ComplexityGate`; deep reasoning is exceptional and de-escalates after the
-difficult decision is resolved.
+Added the only generative reasoning provider in the baseline and a
+deterministic `ComplexityGate`. The OpenAI adapter uses the Responses API with
+structured output, default model `gpt-6-luna`, a context/output bound, and a
+request deadline. Install it with the `reasoning-openai` optional dependency;
+the SDK and API key are required only when Luna is called. The model identifier
+and supported reasoning-effort choices were checked against the
+[OpenAI model catalog](https://developers.openai.com/api/docs/models) and
+[structured outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+`LunaDecisionAgent` tries the configured `DecisionProvider` first. It sends
+only bounded semantic candidates to Laya/Jev, escalates abstentions and
+unsupported planning to structured Luna decisions, and binds model actions to
+current interactable semantic refs. A short milestone plan carries visible
+evidence phrases that the graph checks against later browser observations.
+Normal reasoning uses low effort; high effort is selected only when the
+recovery ladder's deterministic gate promotes a failed normal replan or other
+complex state. There is no xhigh route. Progress after a complex decision
+resets the per-streak escalation counters.
+
+Fake-backed adapter and agent tests do not establish live API availability,
+model quality, or task success. The live OpenAI test is opt-in and requires
+`BROWSKI_LIVE_OPENAI=1` plus an API key. The integrated graph workflows and
+quality gates remain to be reported below after the current validation pass.
 
 ## M7. Memory, progress, and recovery (CORE IMPLEMENTED)
 
@@ -136,10 +156,27 @@ High-risk actions suspend the graph for explicit approval. Confirmation and
 action-history summaries omit typed values and URL data. Local tests cover a
 10-action task, recovery bounds, completion refusal, and approval/denial.
 
-The recovery policy defines the System One, normal-reasoning, ComplexityGate,
-and high-reasoning rungs. Wiring those reasoning rungs to the concrete Luna
-provider remains dependent on M6; unavailable reasoning does not run and
-recovery can ask the user or stop within its configured bounds.
+The recovery policy routes through System One, one normal Luna replan, the
+ComplexityGate, and at most one high-reasoning replan. Unavailable reasoning
+does not run and recovery asks the user or stops within its configured bounds.
+
+### Local graph/checkpoint microbenchmark (2026-10-05)
+
+Using the BROWSKI graph's observe/decide/completion-check path with a fake
+browser observation and fake agent, 40 measured invocations per case after
+five warmups produced these medians (p95): no saver 1.792 ms (2.112 ms),
+in-memory saver 2.264 ms (2.810 ms), and SQLite saver 4.773 ms (5.625 ms).
+Checkpoint state reads measured 0.148 ms (0.235 ms) in memory and 0.552 ms
+(0.638 ms) with SQLite. Environment: Python 3.12.13, LangGraph 1.2.12,
+langgraph-checkpoint-sqlite 3.1.1, Fedora 44 x86_64. These local microbenchmarks
+exclude CDP, actions, verification, providers, and recovery; they are not
+end-to-end browser-task latency measurements.
+
+M3 action and separate verification latency remain unmeasured. The local
+browser E2E runs were correctness checks, not a timing study. The current
+`ActionOutcome.elapsed_ms` combines action, settling, post-action observation,
+and verification, so it cannot provide separate action and verification
+timings.
 
 ## M8. Vision fallback (future)
 

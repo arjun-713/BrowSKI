@@ -2,10 +2,10 @@
 
 Current BROWSKI architecture and implementation boundary. M0–M7 provide the
 Rust browser runtime, semantic observation, typed action execution, Python
-LangGraph orchestration, shared Laya/Jev System One adapters, durable task
-checkpoints, bounded working memory, progress tracking, recovery budgets, and
-high-risk confirmation. Live provider quality and calibration remain
-unmeasured. Concrete Luna reasoning and its recovery routing remain M6 work.
+LangGraph orchestration, shared Laya/Jev System One adapters, structured
+GPT-6 Luna escalation, durable task checkpoints, bounded working memory,
+progress tracking, recovery budgets, and high-risk confirmation. Live provider
+quality, calibration, and latency remain unmeasured.
 
 ```mermaid
 flowchart TB
@@ -19,6 +19,9 @@ flowchart TB
     Graph --> Decision[DecisionProvider interface]
     Decision --> Laya[LayaProvider\nlocal CPU default]
     Decision --> Jev[JevProvider\noptional cloud]
+    Runtime --> Gate[ComplexityGate\nlow normally; high on explicit promotion]
+    Gate --> Luna[GPT-6 Luna\nstructured System Two]
+    Luna --> Graph[LangGraph workflow\nserializable AgentState]
     Runtime --> Tools[Tool Registry]
     Tools --> Core[Rust Browser Core\nBrowserSession]
     Core --> Obs[Observation\nDOM + AX + layout]
@@ -39,9 +42,10 @@ flowchart TB
 |---|---|---|
 | Agent Runtime | Python | LangGraph observe/decide/execute/verify loop with bounded steps |
 | Working Memory | Python | Compressed history, facts, milestones, failed strategies (bounded) |
-| Planner | Python | Next-action decisions; hierarchical planning later |
+| Planner | Python | Short milestone plans and one typed next action; Luna only on bounded escalation |
 | Tool Registry | Python | Model-facing typed tools bridging into the Rust runtime |
 | Provider Layer | Python | M5 provides shared Choice/Score/Noul, verification, recovery, and progress contracts; Laya is local/default, Jev optional |
+| Reasoning Layer | Python | M6 uses structured GPT-6 Luna output and deterministic low/high effort routing |
 | Rust Browser Core | Rust | `BrowserSession`: Chromium process, tab/frame coordination, events |
 | Observation | Rust | DOM + accessibility + layout → `SemanticSnapshot` |
 | Element Registry | Rust | Stable refs (`@name`), fingerprints, reacquisition, generations |

@@ -7,7 +7,7 @@ OBSERVE → DECIDE → EXECUTE → VERIFY → REPEAT
 | Phase | Meaning |
 |---|---|
 | OBSERVE | Collect the current `SemanticSnapshot` from the Rust core. |
-| DECIDE | Injected `Agent` returns one typed `BrowserAction` or completion. |
+| DECIDE | `LunaDecisionAgent` asks the configured `DecisionProvider` to choose from a finite semantic candidate set; abstention or planning ambiguity can route to structured GPT-6 Luna reasoning. |
 | EXECUTE | Python passes the typed contract through PyO3; Rust resolves, acts, and verifies. |
 | VERIFY | The graph accepts success only when Rust reports successful execution and verification. |
 | REPEAT | Continue within configured step and decision limits. |
@@ -28,5 +28,8 @@ interrupt until the caller supplies an approval decision.
 
 Local tests cover a 10-action workflow, text-only progress, bounded recovery,
 completion evidence, and confirmation approval/denial. Luna-backed normal and
-high reasoning recovery remains tied to M6 provider integration. Checkpoints
-survive process exit, but a resumed runtime still needs a live browser session.
+high reasoning recovery use the concrete M6 provider seam and deterministic
+`ComplexityGate`. Normal reasoning uses low effort; high effort is confined to
+the high-replan rung. Structured milestone evidence must appear in a later
+semantic observation before it can count as complete. The task CLI can persist
+graph checkpoints, but a resumed runtime still needs a live browser session.

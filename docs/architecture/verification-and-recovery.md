@@ -35,12 +35,12 @@ SITE_BLOCK, MODEL_FORMAT, SAFETY, UNKNOWN`.
 - High-level (Python, `recovery/`): replan, alternate strategy, escalate to
   the user. Also bounded (`RecoveryPolicy.max_replans`).
 
-The Python recovery budget names the intended ladder: one mechanical repair,
-reobserve, bounded alternate action, System One classification, normal Luna
-replan, ComplexityGate, high Luna replan, ask the user, then terminate. Only
-available capabilities may run. Until M6 provides a Luna reasoning adapter,
-the graph does not invoke the Luna rungs and terminates or asks the user when
-the implemented recovery options are exhausted.
+The Python recovery budget names the bounded ladder: one mechanical repair,
+reobserve, bounded alternate action, System One classification, one normal Luna
+replan, ComplexityGate, at most one high Luna replan, ask the user, then
+terminate. Only available capabilities may run. The ComplexityGate runs after
+a failed normal replan and records its level and reasons in recovery history.
+High effort is temporary; successful progress clears the escalation streak.
 
 Progress records distinguish activity from meaningful change. The bounded
 stagnation detector tracks repeated state/action pairs, A–B cycles, uncertain

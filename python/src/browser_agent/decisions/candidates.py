@@ -264,6 +264,21 @@ async def select_action_candidate(
         "Return only one candidate id; do not invent browser actions.",
         options,
     )
+    if answer.accepted is not True:
+        escalation = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.kind == CandidateKind.ESCALATE_TO_PLANNER
+            ),
+            None,
+        )
+        if escalation is not None:
+            return escalation
+        raise DecisionProviderProtocolError(
+            "System One abstained but the candidate set has no planner escalation."
+        )
+
     candidate_id = str(answer.value)
     for candidate in candidates:
         if candidate.candidate_id == candidate_id:

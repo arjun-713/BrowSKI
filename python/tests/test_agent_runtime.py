@@ -170,13 +170,20 @@ class LongHorizonAgent(Agent):
 
 
 async def test_graph_executes_verified_actions_on_local_fixture() -> None:
+    task = TaskState(
+        task="Open the signup fixture and accept terms.",
+        recovery_streak=3,
+        replan_count=1,
+    )
     async with BrowserSession.launch() as browser:
         runtime = AgentRuntime(FormAgent(), browser)
-        result = await runtime.run("Open the signup fixture and accept terms.")
+        result = await runtime.run(task)
 
         assert result.done
         assert result.steps_taken == 2
         assert result.llm_calls == 3
+        assert result.recovery_streak == 0
+        assert result.replan_count == 0
         snapshot = await browser.observe()
         checkbox = next(el for el in snapshot.elements if el.role == "checkbox")
         assert "checked" in checkbox.state

@@ -104,6 +104,72 @@ def build_agent_graph(
             task_state.model_copy(deep=True),
             memory.model_copy(deep=True),
         )
+        if decision.ask_user:
+            task_state.status = "awaiting_user"
+            question_text = " ".join(decision.ask_user)[:2_000]
+            task_state.result_summary = question_text
+            return {
+                "task_state": task_state.model_dump(mode="json"),
+                "decision": decision.model_dump(mode="json", exclude_none=True),
+                "status": "awaiting_user",
+                "result_summary": question_text,
+                "pending_confirmation": False,
+                "risk_assessment": None,
+            }
+
+        if decision.plan_initialized is not None:
+            task_state.plan_initialized = decision.plan_initialized
+
+        if decision.milestones:
+            task_state.plan_initialized = True
+            if decision.replace_plan or not task_state.milestones:
+                task_state.milestones = decision.milestones[:10]
+                task_state.required_milestones = list(task_state.milestones)
+                task_state.completed = [] if decision.replace_plan else task_state.completed
+            for milestone, evidence in decision.milestone_evidence.items():
+                if milestone in task_state.milestones and evidence.strip():
+                    task_state.milestone_evidence[milestone] = evidence[:500]
+            task_state.current_subgoal = decision.current_subgoal or (
+                task_state.milestones[0] if task_state.milestones else None
+            )
+            task_state.next_milestone = decision.next_milestone
+            memory.completed_milestones = list(task_state.completed)
+            memory.current_subgoal = task_state.current_subgoal
+            memory.next_milestone = task_state.next_milestone
+
+        snapshot = SemanticSnapshot.model_validate(snapshot_data)
+        previous_outcome = state["outcome"]
+        previous_verification = (
+            cast(dict[str, Any], previous_outcome.get("verification", {}))
+            if previous_outcome
+            else {}
+        )
+        if previous_verification.get("status") == "SUCCESS":
+            visible_text = _visible_text(snapshot).casefold()
+            for milestone in task_state.required_milestones:
+                evidence = task_state.milestone_evidence.get(milestone)
+                if (
+                    milestone not in task_state.completed
+                    and evidence
+                    and evidence.casefold() in visible_text
+                ):
+                    task_state.completed.append(milestone)
+                    memory.complete_milestone(milestone)
+            remaining_milestones = [
+                milestone
+                for milestone in task_state.required_milestones
+                if milestone not in task_state.completed
+            ]
+            if task_state.current_subgoal in task_state.completed:
+                task_state.current_subgoal = (
+                    remaining_milestones[0] if remaining_milestones else None
+                )
+                task_state.next_milestone = (
+                    remaining_milestones[1] if len(remaining_milestones) > 1 else None
+                )
+                memory.current_subgoal = task_state.current_subgoal
+                memory.next_milestone = task_state.next_milestone
+
         if decision.done:
             outcome = state["outcome"]
             verification: dict[str, Any] = (
@@ -142,6 +208,16 @@ def build_agent_graph(
                 "risk_assessment": None,
             }
         if decision.action is None:
+            if decision.milestones:
+                task_state.status = "running"
+                return {
+                    "task_state": task_state.model_dump(mode="json"),
+                    "memory": memory.model_dump(mode="json"),
+                    "decision": None,
+                    "status": "running",
+                    "pending_confirmation": False,
+                    "risk_assessment": None,
+                }
             return {
                 "task_state": task_state.model_dump(mode="json"),
                 "decision": decision.model_dump(mode="json", exclude_none=True),
@@ -246,6 +322,9 @@ def build_agent_graph(
             "progressed": progress.progressed,
             "progress_signals": [signal.value for signal in progress.signals],
             "after_generation": outcome.get("after_generation"),
+            "reasoning_effort": (
+                decision_data.get("reasoning_effort") if decision_data is not None else None
+            ),
         }
         history_limit = max(0, limits.max_history_events)
         history_events = [*state["action_history"], event]
@@ -264,6 +343,7 @@ def build_agent_graph(
             task_state = TaskState.model_validate(state["task_state"])
             task_state.steps_taken += 1
             task_state.recovery_count += 1
+            task_state.recovery_streak += 1
             memory = WorkingMemory.model_validate(state["memory"])
             failed_strategy = f"{action_signature}: {verification.get('status', 'UNKNOWN')}"
             if failed_strategy not in memory.failed_strategies:
@@ -275,15 +355,29 @@ def build_agent_graph(
             failure_kind = (
                 FailureKind.EXECUTION if not mechanically_executed else FailureKind.VERIFICATION
             )
-            recovery = RecoveryPolicy().next_step(
-                RecoveryContext(
-                    failure_kind=failure_kind,
-                    alternate_action_available=True,
-                    system_one_available=decision_provider is not None,
-                    reasoning_available=False,
-                ),
-                budget,
+            recovery_policy = RecoveryPolicy()
+            recovery_context = RecoveryContext(
+                failure_kind=failure_kind,
+                alternate_action_available=True,
+                system_one_available=decision_provider is not None,
+                reasoning_available=_reasoning_available(agent),
             )
+            recovery = recovery_policy.next_step(recovery_context, budget)
+            complexity_result: Any | None = None
+            if recovery.step.value == "complexity_gate":
+                complexity_result = _complexity_result(agent, task_state, before_snapshot)
+                recovery = recovery_policy.next_step(
+                    RecoveryContext(
+                        failure_kind=failure_kind,
+                        alternate_action_available=True,
+                        system_one_available=decision_provider is not None,
+                        reasoning_available=_reasoning_available(agent),
+                        very_complex=_is_very_complex(complexity_result),
+                    ),
+                    budget,
+                )
+            if recovery.step.value in {"luna_normal_replan", "luna_high_replan"}:
+                task_state.replan_count += 1
             classification: str | None = None
             if recovery.step.value == "system_one_classification" and decision_provider:
                 try:
@@ -298,6 +392,9 @@ def build_agent_graph(
                     classification = f"provider_error:{type(exc).__name__}"
             event["recovery_kind"] = recovery.step.value
             event["recovery_classification"] = classification
+            if complexity_result is not None:
+                event["complexity_level"] = str(complexity_result.level)
+                event["complexity_reasons"] = [str(reason) for reason in complexity_result.reasons]
             detector = _stagnation_detector(history)
             task_state.stagnant_steps = detector.stagnant_steps
             recovery_events = [
@@ -308,6 +405,16 @@ def build_agent_graph(
                     "reason": recovery.reason,
                     "attempt": recovery.attempt,
                     "classification": classification,
+                    **(
+                        {
+                            "complexity_level": str(complexity_result.level),
+                            "complexity_reasons": [
+                                str(reason) for reason in complexity_result.reasons
+                            ],
+                        }
+                        if complexity_result is not None
+                        else {}
+                    ),
                 },
             ]
             recovery_history = (
@@ -321,6 +428,9 @@ def build_agent_graph(
             can_continue = (
                 (
                     recovery.step.value in {"reobserve", "alternate_bounded_action"}
+                    or recovery.step.value
+                    in {"luna_normal_replan", "complexity_gate", "luna_high_replan"}
+                    and _reasoning_available(agent)
                     or (
                         recovery.step.value == "system_one_classification"
                         and classification in {"retry", "reacquire", "replan"}
@@ -355,6 +465,9 @@ def build_agent_graph(
         task_state = TaskState.model_validate(state["task_state"])
         task_state.steps_taken += 1
         task_state.stagnant_steps = 0 if progress.progressed else task_state.stagnant_steps + 1
+        if progress.progressed:
+            task_state.recovery_streak = 0
+            task_state.replan_count = 0
         task_state.progress_signals = [signal.value for signal in progress.signals]
         memory = WorkingMemory.model_validate(state["memory"])
         action_type = "action"
@@ -385,6 +498,15 @@ def build_agent_graph(
                 if milestone not in task_state.completed:
                     task_state.completed.append(milestone)
                     memory.complete_milestone(milestone)
+                    remaining = [
+                        value
+                        for value in task_state.required_milestones
+                        if value not in task_state.completed
+                    ]
+                    task_state.current_subgoal = remaining[0] if remaining else None
+                    task_state.next_milestone = remaining[1] if len(remaining) > 1 else None
+                    memory.current_subgoal = task_state.current_subgoal
+                    memory.next_milestone = task_state.next_milestone
 
         return {
             "task_state": task_state.model_dump(mode="json"),
@@ -407,7 +529,9 @@ def build_agent_graph(
         if state["status"] != "running":
             return END
         decision = state["decision"]
-        return "safety" if decision is not None and decision.get("action") else END
+        if decision is None:
+            return "decide"
+        return "safety" if decision.get("action") else END
 
     def route_safety(state: AgentState) -> str:
         return "execute" if state["status"] == "running" else END
@@ -481,3 +605,25 @@ def _stagnation_detector(history: list[dict[str, Any]]) -> StagnationDetector:
             )
         )
     return detector
+
+
+def _reasoning_available(agent: DecisionAgent) -> bool:
+    return getattr(agent, "reasoning_provider", None) is not None
+
+
+def _complexity_result(
+    agent: DecisionAgent,
+    task_state: TaskState,
+    snapshot: SemanticSnapshot,
+) -> Any | None:
+    evaluate = getattr(agent, "complexity_for_recovery", None)
+    if not callable(evaluate):
+        return None
+    return evaluate(task_state, snapshot, normal_replan_failed=True)
+
+
+def _is_very_complex(result: Any | None) -> bool:
+    return result is not None and str(getattr(result, "level", "normal")) in {
+        "very_complex",
+        "ComplexityLevel.VERY_COMPLEX",
+    }

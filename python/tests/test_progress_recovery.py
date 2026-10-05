@@ -127,12 +127,11 @@ def test_recovery_ladder_is_explicit_and_budgeted() -> None:
         reasoning_available=True,
         very_complex=True,
     )
-    steps = [policy.next_step(context, budget).step.value for _ in range(8)]
+    steps = [policy.next_step(context, budget).step.value for _ in range(7)]
     assert steps == [
         "reobserve",
         "alternate_bounded_action",
         "system_one_classification",
-        "luna_normal_replan",
         "luna_normal_replan",
         "complexity_gate",
         "luna_high_replan",
@@ -141,6 +140,30 @@ def test_recovery_ladder_is_explicit_and_budgeted() -> None:
     terminal = policy.next_step(context, budget)
     assert terminal.step.value == "terminate"
     assert "budget exhausted" in terminal.reason
+
+
+def test_recovery_ladder_stops_after_one_normal_replan_when_gate_is_normal() -> None:
+    policy = RecoveryPolicy()
+    budget = RecoveryBudget(max_mechanical_repairs=0)
+    context = RecoveryContext(
+        failure_kind=FailureKind.VERIFICATION,
+        alternate_action_available=True,
+        system_one_available=True,
+        reasoning_available=True,
+    )
+
+    steps = [policy.next_step(context, budget).step.value for _ in range(5)]
+
+    assert steps == [
+        "reobserve",
+        "alternate_bounded_action",
+        "system_one_classification",
+        "luna_normal_replan",
+        "complexity_gate",
+    ]
+    assert policy.next_step(context, budget).step.value == "ask_user"
+    assert budget.normal_replans == 1
+    assert budget.high_replans == 0
 
 
 def test_completion_requires_verified_action_milestones_and_visible_evidence() -> None:

@@ -230,6 +230,7 @@ dev = [
     { name = "hypothesis" },
     { name = "litellm" },
     { name = "maturin" },
+    { name = "openai" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -237,6 +238,9 @@ dev = [
 ]
 llm = [
     { name = "litellm" },
+]
+reasoning-openai = [
+    { name = "openai" },
 ]
 test = [
     { name = "anyio", extra = ["trio"] },
@@ -249,12 +253,13 @@ test = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.0" },
     { name = "anyio", extras = ["trio"], marker = "extra == 'test'", specifier = ">=4.0" },
-    { name = "browser-agent", extras = ["llm", "test"], marker = "extra == 'dev'" },
+    { name = "browser-agent", extras = ["llm", "reasoning-openai", "test"], marker = "extra == 'dev'" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.0" },
     { name = "langgraph", specifier = ">=1.0,<2.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1,<4.0" },
     { name = "litellm", marker = "extra == 'llm'", specifier = ">=1.0" },
     { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'reasoning-openai'", specifier = ">=2.54,<3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
@@ -266,7 +271,7 @@ requires-dist = [
     { name = "typesafe-sdk", marker = "extra == 'decisions-cloud'", specifier = ">=0.1" },
     { name = "typing-extensions", specifier = ">=4.8" },
 ]
-provides-extras = ["llm", "decisions-cloud", "test", "dev"]
+provides-extras = ["llm", "decisions-cloud", "reasoning-openai", "test", "dev"]
 
 [[package]]
 name = "certifi"

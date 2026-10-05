@@ -21,7 +21,7 @@ class RecoveryBudget:
     max_reobservations: int = 1
     max_alternate_actions: int = 1
     max_system_one_classifications: int = 1
-    max_normal_replans: int = 2
+    max_normal_replans: int = 1
     max_complexity_checks: int = 1
     max_high_replans: int = 1
     max_user_prompts: int = 1
@@ -42,7 +42,7 @@ class RecoveryContext:
 class RecoveryPolicy:
     """Choose the next bounded rung and persist the associated budget."""
 
-    max_replans: int = 2
+    max_replans: int = 1
 
     def next_step(
         self,

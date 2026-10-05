@@ -16,18 +16,14 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M4 runtime foundations and M5 decision-provider contracts are
-> implemented; the task-oriented CLI still awaits M6. Laya is the default
-> local CPU provider, served separately at `http://127.0.0.1:8000`; Jev is
-> optional and requires a TypeSafe API key.
-> Adapter contract tests use fakes. Live model quality,
-> calibration thresholds, latency, and cloud integration have not been
-> measured. GPT-6 Luna is the planned System Two reasoning provider and is not
-> implemented. The low-level `AgentRuntime` constructor still uses an
-> in-memory saver for tests and injection; use its `open_sqlite` context
-> manager for durable task checkpoints. CLI task orchestration remains planned
-> until the reasoning provider is integrated.
-> See the [roadmap](docs/development/roadmap.md) for milestone gates.
+> **Status:** M0–M5 and the M7 memory/recovery core are implemented. M6 now
+> includes a GPT-6 Luna Responses adapter, deterministic reasoning-effort gate,
+> hybrid decision agent, and task CLI; its integration gates are still being
+> validated. Fake-backed tests do not establish live provider quality,
+> calibration, latency, or cloud reliability. Laya runs as a separately
+> managed local CPU service at `http://127.0.0.1:8000`; Jev is optional and
+> requires a TypeSafe API key. See the
+> [roadmap](docs/development/roadmap.md) for measured status.
 
 Install Jev's optional SDK from `python/` when cloud decisions are enabled:
 
@@ -47,18 +43,26 @@ Provider-specific calibration, thresholds, timeouts, and the Laya endpoint are
 configured independently. BROWSKI does not start Laya or download its weights
 when a task runs.
 
-## What "browser agent" means here
+Run a task with the local Laya service and optional Luna escalation:
 
-The planned runtime takes natural-language tasks and executes browser work
-through LangGraph orchestration, bounded Laya/Jev decisions, and GPT-6 Luna
-reasoning. This Rust repository supplies the browser-facing foundation; it
-does not yet complete natural-language tasks autonomously.
+```sh
+cd python
+uv sync --extra dev
+OPENAI_API_KEY=... uv run agent task "Complete the application form" \
+  --url http://127.0.0.1:8080/form --provider laya
+```
+
+The OpenAI key is used only if the bounded System One provider escalates to
+Luna. `--provider` accepts `laya` (default), `jev`, or `adaptive`. The task
+command writes LangGraph checkpoints to `browski-checkpoints.sqlite` by
+default. Use `--help` for options.
 
 ## Why this project exists
 
 The design keeps browser state, element identity, execution, and deterministic
-verification in Rust. Agent orchestration and model decisions will remain in
-the Python layer. Architecture claims are gated on reproducible benchmarks.
+verification in Rust. Python owns LangGraph orchestration, Laya/Jev bounded
+System One decisions, GPT-6 Luna System Two reasoning, and adaptive effort.
+Architecture claims are gated on reproducible benchmarks.
 
 ## High-level architecture
 
@@ -66,19 +70,21 @@ the Python layer. Architecture claims are gated on reproducible benchmarks.
 USER TASK
    |
    v
-PYTHON AGENT RUNTIME  (planning, memory, providers, recovery, eval)
+LANGGRAPH (Python state, bounded memory, progress, recovery)
+   |
+   +--> DecisionProvider: Laya local CPU (default) | Jev cloud (optional)
+   +--> GPT-6 Luna through ComplexityGate when planning must escalate
    |
    v
-RUST BROWSER CORE     (CDP, observation, element registry, executor,
-                        verification, low-level recovery)
+RUST BROWSER CORE (CDP, semantic observation, stable refs, executor,
+                   deterministic verification)
    |
    v
 CHROMIUM
 ```
 
-Optional/complementary: screenshot/vision as a *fallback sensor* through any
-multimodal provider (local perception and privacy filtering arrive as modular
-add-ons, not as the default pipeline).
+Optional future capability: screenshot/vision as a fallback sensor; it is not
+the primary observation path.
 
 Full picture: [system overview](docs/architecture/system-overview.md) ·
 [agent loop](docs/architecture/agent-loop.md) ·
@@ -149,9 +155,9 @@ measuring it.
 ## Roadmap
 
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-M3 executor + verification, the M4 LangGraph runtime core, and M5
-decision-provider contracts are implemented. Next gates are M6 adaptive Luna
-reasoning and M7 memory/progress/recovery. See the
+M3 executor + verification, M4 LangGraph runtime, M5 decision providers, and
+the M7 bounded memory/recovery core are implemented. M6 Luna integration is
+under validation. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

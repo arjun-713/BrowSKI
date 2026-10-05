@@ -23,8 +23,9 @@ from browser_agent.decisions import (
 class CapturingProvider(DecisionProvider):
     name = "capture"
 
-    def __init__(self, answer: str = "c01") -> None:
+    def __init__(self, answer: str = "c01", accepted: bool | None = True) -> None:
         self.answer = answer
+        self.accepted = accepted
         self.state: Any = None
         self.questions: Any = None
 
@@ -35,7 +36,11 @@ class CapturingProvider(DecisionProvider):
             provider=self.name,
             model=None,
             answers={
-                key: DecisionAnswer(kind=question.kind, value=self.answer)
+                key: DecisionAnswer(
+                    kind=question.kind,
+                    value=self.answer,
+                    accepted=self.accepted,
+                )
                 for key, question in questions.items()
             },
         )
@@ -124,3 +129,33 @@ async def test_system_one_unknown_candidate_is_rejected() -> None:
             observation=obs,
             candidates=candidates,
         )
+
+
+async def test_system_one_abstention_escalates_to_reasoning() -> None:
+    obs = observation()
+    candidates = build_action_candidates("task", "subgoal", obs, {"click", "scroll"})
+
+    selected = await select_action_candidate(
+        CapturingProvider("c01", accepted=False),
+        task="task",
+        current_subgoal="subgoal",
+        observation=obs,
+        candidates=candidates,
+    )
+
+    assert selected.kind == CandidateKind.ESCALATE_TO_PLANNER
+
+
+async def test_system_one_unconfigured_acceptance_threshold_escalates() -> None:
+    obs = observation()
+    candidates = build_action_candidates("task", "subgoal", obs, {"click", "scroll"})
+
+    selected = await select_action_candidate(
+        CapturingProvider("c01", accepted=None),
+        task="task",
+        current_subgoal="subgoal",
+        observation=obs,
+        candidates=candidates,
+    )
+
+    assert selected.kind == CandidateKind.ESCALATE_TO_PLANNER

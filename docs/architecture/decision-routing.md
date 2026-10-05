@@ -1,7 +1,7 @@
 # System One decision routing
 
 M5 adds a Python `DecisionProvider` contract for bounded browser decisions.
-It is separate from the generative System Two provider planned for M6.
+M6 adds a separate structured `ReasoningProvider` for GPT-6 Luna.
 
 ## Providers
 
@@ -80,6 +80,29 @@ and error mapping, fallback telemetry, and fake-client contract tests are
 implemented. The pretrained Laya checkpoint has not been downloaded or
 evaluated as part of the M5 gate. No real Jev API call has been made. The
 default thresholds are unset until BROWSKI has a held-out calibration corpus.
+
+## GPT-6 Luna reasoning
+
+`LunaDecisionAgent` first offers bounded semantic actions to the selected
+System One provider. Unaccepted choices route to the planner-escalation
+candidate. Luna returns structured milestone plans, one typed next action,
+bounded action candidates, interpretations, or explicit user questions. A
+model target must be a current interactable `ElementRef`; selectors and
+backend-node IDs are not part of the response contract.
+
+`OpenAILunaProvider` uses the Responses API structured-output path. The model
+defaults to `gpt-6-luna` and can be configured by the caller. The OpenAI SDK is
+an optional `reasoning-openai` extra, and credentials are read only when the
+provider is called. Requests have a character bound, output-token bound, and
+deadline. Errors are translated without returning prompts or provider payloads.
+
+`ComplexityGate` is deterministic. It routes ordinary escalation and the
+normal recovery rung to low effort. High effort is available only after the
+recovery ladder evaluates a failed normal replan or another explicit complex
+signal; successful progress resets the per-streak counters. xhigh is not
+available in this baseline. Adapter tests use an injected fake Responses
+client; live OpenAI behavior remains opt-in and unmeasured unless the live test
+is run explicitly.
 
 The adapters follow the providers' published Python APIs:
 [Laya](https://github.com/NandhaKishorM/laya) and
