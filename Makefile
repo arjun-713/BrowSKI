@@ -30,7 +30,7 @@ example:
 	cd python && uv run python ../examples/basic_agent.py
 
 benchmark-smoke:
-	@echo "Benchmark harnesses land in Milestone 9; see benchmarks/README.md."
+	cargo test -p browser-agent-core --test action_latency -- --ignored --nocapture
 
 clean:
 	cargo clean

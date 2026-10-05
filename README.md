@@ -16,15 +16,14 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M5 and the M7 memory/recovery core are implemented. M6 now
-> includes a GPT-6 Luna Responses adapter, deterministic reasoning-effort gate,
-> hybrid decision agent, and task CLI; its integration gates are still being
-> validated. Fake-backed tests do not establish live provider quality,
-> calibration, latency, or cloud reliability. Laya is the default and runs as a
-> separately managed local CPU service at `http://127.0.0.1:8000`; live CPU
-> inference has not been verified in this checkout. Jev is optional and requires
-> a TypeSafe API key. See the
-> [roadmap](docs/development/roadmap.md) for measured status.
+> **Status:** M0–M7 implementation is present. Rust and Python quality gates
+> pass, and local browser, graph-resume, decision-contract, reasoning, and
+> recovery checks cover the implemented paths. Tests use fake provider clients;
+> they do not establish live provider quality, calibration, latency, or cloud
+> reliability. Laya is the default and runs as a separately managed local CPU
+> service at `http://127.0.0.1:8000`; live CPU inference has not been verified
+> in this checkout. Jev is optional and requires a TypeSafe API key. See the
+> [roadmap](docs/development/roadmap.md) for detailed evidence and limits.
 
 Install Jev's optional SDK from `python/` when cloud decisions are enabled:
 
@@ -113,7 +112,7 @@ Each subsystem uses the best tool with a measurable reason
 | Subsystem | Language | Reason |
 |---|---|---|
 | Browser runtime, CDP, DOM/state, actions, verification | **Rust** | Performance, reliability, precise resource control |
-| Planning, LLM orchestration, memory, providers, eval | **Python** | Ecosystem (LLM libs, Pydantic, eval harnesses), experimentation speed |
+| Planning, LLM orchestration, memory, providers, eval | **Python** | LangGraph, typed schemas, provider adapters, eval tooling, experimentation speed |
 | Extension, trace viewer, browser-facing UI | **TypeScript** | It runs in the browser; nothing else does |
 | Dev scripts, UI tooling | **Bun** | Only where it measurably beats Node |
 | High-throughput services | **Go** | Only later, only with benchmarks justifying it |
@@ -169,9 +168,9 @@ measuring it.
 ## Roadmap
 
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-M3 executor + verification, M4 LangGraph runtime, M5 decision providers, and
-the M7 bounded memory/recovery core are implemented. M6 Luna integration is
-under validation. See the
+M3 executor + verification, M4 LangGraph runtime, M5 decision providers, M6
+adaptive Luna reasoning, and M7 bounded memory/recovery are implemented. Live
+provider behavior remains unverified. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

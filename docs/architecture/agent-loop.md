@@ -26,10 +26,12 @@ visible evidence; a model `done` claim alone is rejected. Repeated failures use
 explicit bounded recovery budgets. High-risk actions pause at a LangGraph
 interrupt until the caller supplies an approval decision.
 
-Local tests cover a 10-action workflow, text-only progress, bounded recovery,
+Local tests cover an 11-step long-horizon workflow, text-only progress, bounded recovery,
 completion evidence, and confirmation approval/denial. Luna-backed normal and
 high reasoning recovery use the concrete M6 provider seam and deterministic
 `ComplexityGate`. Normal reasoning uses low effort; high effort is confined to
 the high-replan rung. Structured milestone evidence must appear in a later
 semantic observation before it can count as complete. The task CLI can persist
-graph checkpoints, but a resumed runtime still needs a live browser session.
+and reopen graph checkpoints after process restart. Resume starts a fresh
+browser session and re-observes before acting; it does not attach to the prior
+Chromium process or restore page-local state.

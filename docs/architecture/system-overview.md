@@ -4,8 +4,9 @@ Current BROWSKI architecture and implementation boundary. M0–M7 provide the
 Rust browser runtime, semantic observation, typed action execution, Python
 LangGraph orchestration, shared Laya/Jev System One adapters, structured
 GPT-6 Luna escalation, durable task checkpoints, bounded working memory,
-progress tracking, recovery budgets, and high-risk confirmation. Live provider
-quality, calibration, and latency remain unmeasured.
+progress tracking, recovery budgets, and high-risk confirmation. A local Rust
+action has a small-page latency measurement; live provider quality, calibration,
+and latency remain unmeasured.
 
 ```mermaid
 flowchart TB
@@ -32,7 +33,7 @@ flowchart TB
     Core --> Chromium[(Chromium)]
     Core -.-> Vision[Screenshot / Vision fallback\nmultimodal provider]
     Runtime --> Persist[(Persistence\nSQLite)]
-    Runtime --> Telemetry[Telemetry\ntraces, tokens, cost]
+    Runtime --> Telemetry[Telemetry\ntraces, provider-reported tokens]
     Telemetry <--> Core
 ```
 
@@ -54,7 +55,7 @@ flowchart TB
 | Low-level Recovery | Rust | Stale nodes, detached frames, nav races; bounded mechanical retries |
 | Vision fallback | Python+provider | Screenshots to a multimodal model when native semantics are insufficient |
 | Checkpointing | Python | LangGraph thread checkpoints; `AgentRuntime.open_sqlite` uses the async SQLite saver and can resume after process exit |
-| Telemetry | both | Trace events, timing, tokens, cost |
+| Telemetry | both | Trace events, timing, and provider-reported token usage; cost is not estimated |
 
 ## Key invariants
 
