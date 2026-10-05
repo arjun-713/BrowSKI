@@ -89,7 +89,7 @@ class LunaDecisionAgent(Agent):
 
         last_recovery = task.recovery_history[-1] if task.recovery_history else {}
         recovery_step = str(last_recovery.get("step", ""))
-        if recovery_step in {
+        if task.recovery_streak > 0 and recovery_step in {
             "luna_normal_replan",
             "luna_high_replan",
         }:
@@ -116,6 +116,8 @@ class LunaDecisionAgent(Agent):
                 current_subgoal=task.current_subgoal or task.task,
                 observation=observation,
                 candidates=candidates,
+                run_id=task.run_id,
+                step_id=task.steps_taken + 1,
             )
         except DecisionProviderError as exc:
             _logger.warning(
@@ -327,6 +329,8 @@ class LunaDecisionAgent(Agent):
                 {
                     "task": task.user_goal or task.task,
                     "current_subgoal": task.current_subgoal,
+                    "run_id": task.run_id,
+                    "steps_taken": task.steps_taken + 1,
                     "observation": observation.model_dump(mode="json", exclude={"elements"}),
                     "candidates": options,
                 },

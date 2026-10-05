@@ -232,7 +232,7 @@ class OpenAILunaProvider:
             effort=effort.value,
             elapsed_ms=max(0.0, (time.perf_counter() - started) * 1000),
             run_id=run_id,
-            step=context.task.steps_taken,
+            step=context.task.steps_taken + 1,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             error_type=None if error is None else type(error).__name__,

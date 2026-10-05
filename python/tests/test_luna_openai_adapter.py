@@ -122,7 +122,7 @@ async def test_luna_emits_correlated_token_usage_without_context_content() -> No
     assert event.model == DEFAULT_LUNA_MODEL
     assert event.effort == "high"
     assert event.run_id == "run-luna-1"
-    assert event.step == 6
+    assert event.step == 7
     assert event.input_tokens == 256
     assert event.output_tokens == 43
     assert not hasattr(event, "task")

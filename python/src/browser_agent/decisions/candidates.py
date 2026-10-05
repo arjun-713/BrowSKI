@@ -224,6 +224,8 @@ async def select_action_candidate(
     current_subgoal: str,
     observation: AgentObservation,
     candidates: Sequence[ActionCandidate],
+    run_id: str | None = None,
+    step_id: int | None = None,
 ) -> ActionCandidate:
     """Ask System One to select only a supplied candidate identifier."""
     if not 2 <= len(candidates) <= 16:
@@ -235,6 +237,8 @@ async def select_action_candidate(
     state: dict[str, Any] = {
         "task": task,
         "current_subgoal": current_subgoal,
+        "run_id": run_id,
+        "steps_taken": step_id,
         "observation": {
             "url": observation.url,
             "title": observation.title,

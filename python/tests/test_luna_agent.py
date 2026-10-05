@@ -33,16 +33,28 @@ from browser_agent.reasoning import (
 class FakeDecisionProvider(DecisionProvider):
     name = "fake-laya"
 
-    def __init__(self, candidate_id: str, accepted: bool | None = True) -> None:
+    def __init__(
+        self,
+        candidate_id: str,
+        accepted: bool | None = True,
+        *,
+        accepted_answers: list[bool | None] | None = None,
+    ) -> None:
         self.candidate_id = candidate_id
         self.accepted = accepted
+        self.accepted_answers = accepted_answers
+        self.states: list[str | Mapping[str, Any]] = []
 
     async def evaluate(
         self,
         state: str | Mapping[str, Any],
         questions: Mapping[str, DecisionQuestion],
     ) -> DecisionResult:
-        _ = state
+        self.states.append(state)
+        accepted = self.accepted
+        if self.accepted_answers is not None:
+            answer_index = min(len(self.states) - 1, len(self.accepted_answers) - 1)
+            accepted = self.accepted_answers[answer_index]
         return DecisionResult(
             provider=self.name,
             model="fixture",
@@ -50,7 +62,7 @@ class FakeDecisionProvider(DecisionProvider):
                 name: DecisionAnswer(
                     kind=question.kind,
                     value=self.candidate_id,
-                    accepted=self.accepted,
+                    accepted=accepted,
                 )
                 for name, question in questions.items()
             },
@@ -149,6 +161,34 @@ async def test_system_one_abstention_escalates_to_luna_with_low_effort() -> None
     assert provider.calls[0][2] == ReasoningEffort.LOW
 
 
+async def test_decision_calls_include_safe_run_and_action_step_correlation() -> None:
+    decision_provider = FakeDecisionProvider(
+        "c01",
+        accepted_answers=[False, True],
+    )
+    reasoning_provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            candidate_actions=[
+                ReasoningAction(type="click", target_ref="@continue"),
+                ReasoningAction(type="press", key="ENTER"),
+            ],
+        )
+    )
+    agent = LunaDecisionAgent(decision_provider, reasoning_provider)
+
+    decision = await agent.decide(
+        snapshot(),
+        task_state(run_id="run-correlation", steps_taken=6),
+        WorkingMemory(),
+    )
+
+    assert decision.action is not None
+    assert isinstance(decision_provider.states[-1], Mapping)
+    assert decision_provider.states[-1]["run_id"] == "run-correlation"
+    assert decision_provider.states[-1]["steps_taken"] == 7
+
+
 async def test_luna_normal_replan_uses_low_effort() -> None:
     provider = FakeReasoningProvider(next_click())
     agent = LunaDecisionAgent(FakeDecisionProvider("c03"), provider)
@@ -187,6 +227,23 @@ async def test_luna_high_replan_uses_high_effort_only_after_gate() -> None:
 
     assert decision.action is not None
     assert provider.calls[0][2] == ReasoningEffort.HIGH
+
+
+async def test_progress_after_high_replan_returns_to_system_one() -> None:
+    reasoning_provider = FakeReasoningProvider(next_click())
+    decision_provider = FakeDecisionProvider("c01")
+    agent = LunaDecisionAgent(decision_provider, reasoning_provider)
+    task = task_state(
+        recovery_history=[{"step": "luna_high_replan", "reason": "complex failure"}],
+        recovery_streak=0,
+        replan_count=0,
+    )
+
+    decision = await agent.decide(snapshot(), task, WorkingMemory())
+
+    assert decision.action is not None
+    assert reasoning_provider.calls == []
+    assert len(decision_provider.states) == 1
 
 
 async def test_malformed_reasoning_decision_escalates_safely() -> None:
