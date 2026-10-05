@@ -362,6 +362,12 @@ def build_agent_graph(
         action_data = decision_data.get("action") if decision_data is not None else None
         action_signature = action_audit_signature(action_data)
         event_task = TaskState.model_validate(state["task_state"])
+        live_before_snapshot = cached_snapshot(state)
+        snapshot_bytes = (
+            len(live_before_snapshot.model_dump_json().encode("utf-8"))
+            if live_before_snapshot is not None
+            else None
+        )
         observation_size = {
             "before_elements": before_data["element_count"],
             "after_elements": after_data["element_count"],
@@ -373,6 +379,7 @@ def build_agent_graph(
             "action_signature": action_signature,
             "elapsed_ms": _nonnegative_int(outcome.get("elapsed_ms")),
             "timings": _bounded_action_timings(outcome.get("timings")),
+            "semantic_snapshot_bytes": snapshot_bytes,
             "before_generation": _nonnegative_int(outcome.get("before_generation")),
             "after_generation": _nonnegative_int(outcome.get("after_generation")),
             "observation_size": observation_size,

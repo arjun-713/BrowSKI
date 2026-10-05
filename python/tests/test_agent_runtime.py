@@ -218,6 +218,7 @@ async def test_long_horizon_counts_text_only_changes_as_progress() -> None:
     last_event = state.values["action_history"][-1]
     assert last_event["run_id"] == "long-horizon"
     assert last_event["step_number"] == completed.steps_taken
+    assert last_event["semantic_snapshot_bytes"] > 0
     assert last_event["observation_size"]["before_elements"] >= 0
     assert last_event["observation_size"]["after_elements"] >= 0
     assert set(last_event["timings"]).issubset(
