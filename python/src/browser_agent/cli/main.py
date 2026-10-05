@@ -11,8 +11,8 @@ from rich import print as rprint
 app = typer.Typer(name="agent", help="BROWSKI browser runtime.")
 
 
-@app.command()
-def run(
+@app.command("observe")
+def observe(
     url: str = typer.Argument(..., help="URL to navigate to and observe."),
     headless: bool = typer.Option(True, help="Run Chromium headless."),
 ) -> None:
@@ -26,6 +26,27 @@ def run(
             rprint(json.dumps(snapshot.model_dump(), indent=2))
 
     asyncio.run(_run())
+
+
+@app.command()
+def run(
+    goal: str = typer.Argument(..., help="Natural-language browser task."),
+    start_url: str | None = typer.Option(None, "--start-url", help="Optional starting page URL."),
+    headless: bool = typer.Option(True, help="Run Chromium headless."),
+    provider: str = typer.Option("laya", help="System One provider: laya, jev, or adaptive."),
+    checkpoint_db: str = typer.Option(
+        "browski-checkpoints.sqlite",
+        help="SQLite checkpoint database for this task.",
+    ),
+) -> None:
+    """Run a browser task through the autonomous graph."""
+    task(
+        goal=goal,
+        url=start_url,
+        headless=headless,
+        provider=provider,
+        checkpoint_db=checkpoint_db,
+    )
 
 
 @app.command()
