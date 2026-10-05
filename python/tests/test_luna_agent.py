@@ -229,9 +229,9 @@ async def test_luna_high_replan_uses_high_effort_only_after_gate() -> None:
     assert provider.calls[0][2] == ReasoningEffort.HIGH
 
 
-async def test_progress_after_high_replan_returns_to_system_one() -> None:
+async def test_progress_after_high_replan_deescalates_to_low_effort() -> None:
     reasoning_provider = FakeReasoningProvider(next_click())
-    decision_provider = FakeDecisionProvider("c01")
+    decision_provider = FakeDecisionProvider("c03")
     agent = LunaDecisionAgent(decision_provider, reasoning_provider)
     task = task_state(
         recovery_history=[{"step": "luna_high_replan", "reason": "complex failure"}],
@@ -242,7 +242,7 @@ async def test_progress_after_high_replan_returns_to_system_one() -> None:
     decision = await agent.decide(snapshot(), task, WorkingMemory())
 
     assert decision.action is not None
-    assert reasoning_provider.calls == []
+    assert reasoning_provider.calls[0][2] == ReasoningEffort.LOW
     assert len(decision_provider.states) == 1
 
 
