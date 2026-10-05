@@ -31,6 +31,7 @@ class AgentState(TypedDict):
     after_snapshot: SnapshotCheckpoint | None
     last_progress: dict[str, Any] | None
     pending_confirmation: bool
+    confirmation_approved: bool
     risk_assessment: dict[str, Any] | None
     status: str
     result_summary: str | None

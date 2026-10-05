@@ -178,10 +178,8 @@ does not run and recovery asks the user or stops within its configured bounds.
 
 Provider telemetry records bounded provider/model labels, operation and
 outcome, fallback routing, and provider-reported token counts when available;
-it does not estimate cost. Luna reasoning events include run and step IDs.
-Laya/Jev decision calls do not yet receive those IDs, so their provider events
-are not correlated to a run or step. No live provider response was used to
-verify token-usage reporting.
+it does not estimate cost. Luna and Laya/Jev decision events include run and
+step IDs. No live provider response was used to verify token-usage reporting.
 
 ### Local graph/checkpoint microbenchmark (2026-10-05)
 

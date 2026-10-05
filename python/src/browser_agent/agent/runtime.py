@@ -134,6 +134,7 @@ class AgentRuntime:
             "after_snapshot": None,
             "last_progress": None,
             "pending_confirmation": False,
+            "confirmation_approved": False,
             "risk_assessment": None,
             "status": "running",
             "result_summary": None,
