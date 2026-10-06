@@ -1,0 +1,38 @@
+{
+  "benchmark_id": "browski-laya-decision-benchmark-v1",
+  "version": "1.0.0",
+  "schema_version": "browski.laya-benchmark.case.v1",
+  "created_at": "2026-10-06T00:00:00Z",
+  "creation_metadata": {
+    "authoring": "independent hand-labeled ground truth",
+    "method": "deterministic local serialization",
+    "seed": 26061006,
+    "source_policy": "No Laya/API, OpenAI, Jev, or Phase A outputs used."
+  },
+  "case_count": 80,
+  "category_counts": {
+    "ambiguity_escalation": 8,
+    "distractor_noop": 8,
+    "multi_constraint": 8,
+    "next_action": 15,
+    "prerequisite_order": 10,
+    "progress_judgment": 8,
+    "recovery_classification": 8,
+    "semantic_verification": 8,
+    "task_completion": 7
+  },
+  "question_type_counts": {
+    "choice": 49,
+    "noul": 20,
+    "score": 11
+  },
+  "position_probe_count": 20,
+  "jsonl_sha256": "d585b64c02132d127bf7915f7e0f650a7e9a282ea201fa41c62e7de959343fbb",
+  "tuning_data_exposure": "none; labels frozen before baseline runs",
+  "answer_contract": {
+    "choice": "semantic_id",
+    "score": "integer rubric level 0-3",
+    "noul": "boolean"
+  },
+  "url_policy": "Reserved .example URLs only"
+}
