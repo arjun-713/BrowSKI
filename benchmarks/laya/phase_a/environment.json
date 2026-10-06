@@ -1,0 +1,39 @@
+{
+  "captured_at_utc": "2026-10-06T07:11:29.440603+00:00",
+  "laya_package_version": "0.3.28",
+  "python": "3.12.13",
+  "platform": "Linux-7.2.7-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "service_endpoint": "http://127.0.0.1:8000",
+  "model": "laya-rl-agent",
+  "routing_model": "english",
+  "health": {
+    "status": "ok",
+    "loaded": [
+      "english"
+    ],
+    "revisions": {
+      "english": "7b928d828b7b0e022f929d9bd2e44165aa270148"
+    },
+    "device": "cpu",
+    "device_is_preference": false,
+    "checkpoint_devices": {
+      "english": "cpu"
+    },
+    "cpu_fallbacks": {
+      "english": {
+        "count": 0,
+        "last_reason": null
+      }
+    }
+  },
+  "checkpoint_revision": {
+    "english": "7b928d828b7b0e022f929d9bd2e44165aa270148"
+  },
+  "device": "cpu",
+  "openapi": "3.1.0",
+  "systemone_paths": [
+    "/v1/systemone",
+    "/v1/systemone/batch"
+  ],
+  "warning_observed": "The English checkpoint temperature for choice:11+ was outside the supported range and clamped to 0.5; its confidence is uncalibrated."
+}
