@@ -1,0 +1,26 @@
+{
+  "name": "Laya held-out benchmark V2",
+  "status": "frozen-before-run",
+  "frozen_before_run": true,
+  "cases": 50,
+  "category_counts": {
+    "ambiguity_escalation": 6,
+    "distractor_noop": 5,
+    "multi_constraint": 5,
+    "next_action": 6,
+    "prerequisite_order": 6,
+    "progress_judgment": 5,
+    "recovery_classification": 6,
+    "semantic_verification": 6,
+    "task_completion": 5
+  },
+  "question_type_counts": {
+    "choice": 32,
+    "noul": 11,
+    "score": 7
+  },
+  "position_probe_count": 12,
+  "sha256": "6b817a207f057651a47dc363911706a9d477d8f362e87b89c0dd9d21074610cd",
+  "dataset_file": "benchmark_v2_holdout.jsonl",
+  "scope_note": "New held-out cases authored independently from V1 task wording. No Laya run, baseline/tuned output, or result analysis was inspected."
+}
