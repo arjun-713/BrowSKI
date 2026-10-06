@@ -317,3 +317,49 @@ def test_noul_calibration_uses_raw_p_yes_against_gold_yes_rate():
     assert calibration["p_yes_ece"] == pytest.approx(0.2)
     assert calibration["binary_brier"] == pytest.approx(0.04)
     assert calibration["chosen_answer_confidence_ece"] == pytest.approx(0.2)
+
+
+def test_position_permutations_do_not_change_canonical_accuracy_denominator():
+    case = {
+        "case_id": "position-case",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "category": "next_action",
+        "expected_answer": "first-action",
+        "acceptable_answers": [],
+        "candidates": [
+            {"semantic_id": "first-action", "description": "Do the first action."},
+            {"semantic_id": "second-action", "description": "Do the second action."},
+        ],
+    }
+    common = {
+        "case_id": "position-case",
+        "variant": "baseline",
+        "question_type": "choice",
+        "confidence": 0.8,
+        "answer_confidence": 0.8,
+        "chosen_answer_confidence": 0.8,
+        "usage": {},
+        "latency_ms": 1,
+        "raw_probabilities": {"first-action": 0.8, "second-action": 0.2},
+    }
+    records = [
+        {
+            **common,
+            "repeat": 1,
+            "permutation_index": 0,
+            "answer": "first-action",
+            "candidate_order": ["first-action", "second-action"],
+        },
+        {
+            **common,
+            "repeat": 0,
+            "permutation_index": 1,
+            "answer": "first-action",
+            "candidate_order": ["second-action", "first-action"],
+        },
+    ]
+    report = evaluate(records, [case])
+    assert report["overall"]["n"] == 1
+    assert report["permutation_runs"]["n"] == 1
+    assert report["position_selection_counts"] == {"2": 1}

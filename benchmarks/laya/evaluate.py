@@ -244,6 +244,8 @@ def evaluate(
         )
         enriched.append(row)
 
+    canonical = [row for row in enriched if row.get("permutation_index", 0) == 0]
+    permutation_rows = [row for row in enriched if row.get("permutation_index", 0) > 0]
     groupers: dict[str, dict[str, list[dict[str, Any]]]] = {
         "category": defaultdict(list),
         "question_type": defaultdict(list),
@@ -252,7 +254,7 @@ def evaluate(
         "state_token_bucket": defaultdict(list),
         "error": defaultdict(list),
     }
-    for row in enriched:
+    for row in canonical:
         state_tokens = (row.get("usage") or {}).get("state_tokens")
         if isinstance(state_tokens, (int, float)):
             row["state_token_bucket"] = (
@@ -279,7 +281,7 @@ def evaluate(
     }
 
     thresholds = []
-    choice_rows = [row for row in enriched if row.get("question_type") == "choice"]
+    choice_rows = [row for row in canonical if row.get("question_type") == "choice"]
     for confidence_key in (
         "confidence",
         "answer_confidence",
@@ -345,9 +347,17 @@ def evaluate(
         for group in permutations.values()
         if len(group) > 1
     ]
+    selected_positions: dict[str, int] = defaultdict(int)
+    for row in permutation_rows:
+        order = row.get("candidate_order", [])
+        if row.get("answer") in order:
+            selected_positions[str(order.index(row["answer"]) + 1)] += 1
+        else:
+            selected_positions["invalid_or_unmapped"] += 1
 
     return {
-        "overall": _summarize(enriched),
+        "overall": _summarize(canonical),
+        "permutation_runs": _summarize(permutation_rows),
         "by_category": grouped_metrics["category"],
         "by_question_type": grouped_metrics["question_type"],
         "by_difficulty": grouped_metrics["difficulty"],
@@ -359,6 +369,7 @@ def evaluate(
         "position_permutation_consistency": statistics.fmean(permutation_consistency)
         if permutation_consistency
         else None,
+        "position_selection_counts": dict(selected_positions),
         "note": "Confidence and probabilities are provider outputs; metrics are descriptive and impose no production thresholds.",
     }
 
