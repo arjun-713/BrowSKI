@@ -373,7 +373,14 @@ async def test_jev_timeout_is_mapped_to_typed_error(monkeypatch: pytest.MonkeyPa
 
 
 def test_default_config_selects_local_laya_and_supports_all_switches() -> None:
-    assert DecisionConfig().provider == DecisionProviderName.LAYA
+    config = DecisionConfig()
+    assert config.provider == DecisionProviderName.LAYA
+    assert config.calibration.laya.calibration_id == (
+        "laya-v1-v2-2026-10-06-no-execution-threshold"
+    )
+    assert config.calibration.laya.minimum_confidence == {}
+    assert config.calibration.jev.calibration_id is None
+    assert config.calibration.jev.minimum_confidence == {}
     providers = {
         name: create_decision_provider(
             DecisionConfig(provider=name), laya_model=FakeLayaModel({}), jev_client=object()

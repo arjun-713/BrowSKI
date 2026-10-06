@@ -49,11 +49,16 @@ class CalibrationPolicy:
         return self.minimum_confidence.get(kind)
 
 
+def _laya_evaluation_policy() -> CalibrationPolicy:
+    """Record the evaluated checkpoint while keeping execution fail-closed."""
+    return CalibrationPolicy(calibration_id="laya-v1-v2-2026-10-06-no-execution-threshold")
+
+
 @dataclass(frozen=True)
 class ProviderCalibration:
     """Independent policy table; Laya and Jev must be calibrated separately."""
 
-    laya: CalibrationPolicy = field(default_factory=CalibrationPolicy)
+    laya: CalibrationPolicy = field(default_factory=_laya_evaluation_policy)
     jev: CalibrationPolicy = field(default_factory=CalibrationPolicy)
 
     def for_provider(self, provider: str) -> CalibrationPolicy:

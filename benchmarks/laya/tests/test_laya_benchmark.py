@@ -285,6 +285,43 @@ def test_threshold_grid_does_not_count_escalations_as_executed_actions():
     assert row["total_escalations"] == 1
 
 
+def test_evaluator_keeps_gold_and_correctness_in_per_call_scored_rows():
+    case = {
+        "case_id": "scored-case",
+        "category": "next_action",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "expected_answer": "go",
+        "acceptable_answers": ["also-go"],
+        "rationale": "The required target is ready.",
+        "candidates": [
+            {"semantic_id": "go", "description": "Click the target."},
+            {"semantic_id": "ESCALATE_TO_REASONER", "description": "Escalate."},
+        ],
+    }
+    record = {
+        "case_id": "scored-case",
+        "category": "next_action",
+        "question_type": "choice",
+        "variant": "baseline",
+        "permutation_index": 0,
+        "answer": "go",
+        "raw_probabilities": {"go": 0.8, "ESCALATE_TO_REASONER": 0.2},
+        "usage": {"input_tokens": 4, "state_tokens": 2},
+        "latency_ms": 3.0,
+    }
+
+    result = evaluate([record], [case])
+    scored = result["scored_rows"][0]
+
+    assert scored["expected_answer"] == "go"
+    assert scored["acceptable_answers"] == ["also-go"]
+    assert scored["rationale"] == "The required target is ready."
+    assert scored["correct"] is True
+    assert scored["gold_key"] == "go"
+    assert "expected_answer" not in record
+
+
 def test_noul_calibration_uses_raw_p_yes_against_gold_yes_rate():
     case = {
         "case_id": "noul-case",

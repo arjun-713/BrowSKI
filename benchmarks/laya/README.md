@@ -6,6 +6,11 @@ three separate stages: run the baseline, inspect its analysis, then run the
 tuned prompt. Do not start baseline collection until the fixture has been
 reviewed, frozen, and committed. Do not combine baseline and tuned runs.
 
+The completed 2026-10-06 evaluation also includes a frozen 50-case
+`benchmark_v2_holdout.jsonl`. Its checksum was committed before inference, and
+the tuned V1 interface was not changed after V2 results. See
+`reports/laya-calibration-report.md` for the evidence-based policy verdict.
+
 ## Fixture shape and model boundary
 
 Each line follows the typed schema in `schema.py`: case/category/difficulty,
@@ -116,6 +121,17 @@ difficulty, candidate-count, provider-reported state-token-length, and
 error-type breakdowns. These thresholds are
 descriptive benchmark slices only; they are not production routing or
 acceptance thresholds.
+
+Use `--scored-output <jsonl>` with the evaluator to write every call as a
+separate scored row. This file adds evaluator-only expected/acceptable answers,
+rationale, difficulty, and correctness to a copy of each raw record. These
+labels are not present in the request payload. Keep this scored JSONL beside,
+not in place of, the unmodified request/response run log.
+
+Independent qualitative reviews use one canonical, gold-free row per case.
+Their output files live beside each phase's raw records. The main evaluator
+preserves them unchanged; deterministic fixture labels remain the primary
+quantitative ground truth.
 
 Raw HTTP bodies and run outputs are evidence, not proof of task success. This
 is a model decision benchmark over authored cases, not browser end-to-end task

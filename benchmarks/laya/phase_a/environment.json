@@ -35,5 +35,18 @@
     "/v1/systemone",
     "/v1/systemone/batch"
   ],
-  "warning_observed": "The English checkpoint temperature for choice:11+ was outside the supported range and clamped to 0.5; its confidence is uncalibrated."
+  "warning_observed": "The English checkpoint temperature for choice:11+ was outside the supported range and clamped to 0.5; its confidence is uncalibrated.",
+  "host": {
+    "cpu_model": "Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz",
+    "physical_cores": 4,
+    "logical_cpus": 8,
+    "ram_total_bytes": 16489238528,
+    "os": "Fedora 44 / Linux 7.2.7 / x86_64"
+  },
+  "runtime": {
+    "device": "cpu",
+    "laya_threads": 4,
+    "cold_start_ms": 22697.378,
+    "cold_start_note": "Service process/model startup with local model files already cached."
+  }
 }

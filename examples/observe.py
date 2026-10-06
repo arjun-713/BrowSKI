@@ -10,7 +10,9 @@ async def main() -> None:
         await browser.navigate("https://example.com")
         snapshot = await browser.observe()
         print(f"url={snapshot.url} title={snapshot.title}")
-        print(f"elements={len(snapshot.elements)} fingerprint={snapshot.page_fingerprint}")
+        print(
+            f"elements={len(snapshot.elements)} fingerprint={snapshot.page_fingerprint}"
+        )
 
         tab_id = await browser.active_tab_id()
         assert tab_id is not None

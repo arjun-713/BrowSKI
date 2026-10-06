@@ -101,6 +101,14 @@ marked no cases SHOULD_HAVE_ESCALATED or AMBIGUOUS_BENCHMARK. This is secondary
 qualitative evidence; deterministic gold comparison remains primary. The
 judgment file is preserved unchanged.
 
+The evaluator's reasons cluster around missed task constraints or current
+state (for example, selecting the wrong location or contradicting a visible
+checkbox), treating a pending/unverified result as complete, skipping a
+required prerequisite, and scoring the completeness of a proposal incorrectly.
+Its four UNSAFE judgments were guesses on ambiguous bookings/folders and a
+retry while the prior message outcome was unknown. These are qualitative tags
+from the independent reviewer, not a replacement relabeling of V1.
+
 ## Failure analysis and interface hypothesis
 
 The baseline Choice request mirrors the production selector: it sends the

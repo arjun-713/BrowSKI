@@ -203,6 +203,9 @@ def evaluate(
         row["call_error"] = bool(row.get("error"))
         row["correct"] = is_correct(row, case) if row.get("error") is None else False
         row["gold_answers"] = _gold(case)
+        row["expected_answer"] = case.get("expected_answer")
+        row["acceptable_answers"] = case.get("acceptable_answers", [])
+        row["rationale"] = case.get("rationale")
         row["difficulty"] = case.get("difficulty")
         row["candidate_count"] = len(case.get("candidates", []))
         row["top1_top2_margin"] = top_margin(row)
@@ -370,6 +373,7 @@ def evaluate(
         if permutation_consistency
         else None,
         "position_selection_counts": dict(selected_positions),
+        "scored_rows": enriched,
         "note": "Confidence and probabilities are provider outputs; metrics are descriptive and impose no production thresholds.",
     }
 
@@ -379,6 +383,11 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--cases", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--scored-output",
+        type=Path,
+        help="Optional per-request JSONL with evaluator-only gold labels and correctness",
+    )
     args = parser.parse_args()
     from .schema import load_cases
 
@@ -386,6 +395,12 @@ def main() -> int:
         load_records(args.input),
         [case.model_dump(mode="json") for case in load_cases(args.cases)],
     )
+    scored_rows = result.pop("scored_rows")
+    if args.scored_output is not None:
+        args.scored_output.parent.mkdir(parents=True, exist_ok=True)
+        with args.scored_output.open("w", encoding="utf-8") as output:
+            for row in scored_rows:
+                output.write(json.dumps(row, ensure_ascii=False) + "\n")
     result["source_results"] = str(args.input.resolve())
     result["cases"] = str(args.cases.resolve())
     args.output.parent.mkdir(parents=True, exist_ok=True)
