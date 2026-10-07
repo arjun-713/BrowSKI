@@ -12,5 +12,25 @@ from browser_agent.providers.base import (
     ProviderResponse,
 )
 from browser_agent.providers.capabilities import describe
+from browser_agent.providers.privacy import (
+    LocalTokenVault,
+    OutboundProvider,
+    PrivacyMode,
+    ProviderBoundary,
+    ProviderBoundaryError,
+    VisionProviderBoundary,
+)
 
-__all__ = ["ChatMessage", "Provider", "ProviderCapabilities", "ProviderResponse", "describe"]
+__all__ = [
+    "ChatMessage",
+    "LocalTokenVault",
+    "OutboundProvider",
+    "PrivacyMode",
+    "Provider",
+    "ProviderBoundary",
+    "ProviderBoundaryError",
+    "VisionProviderBoundary",
+    "ProviderCapabilities",
+    "ProviderResponse",
+    "describe",
+]

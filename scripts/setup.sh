@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Bootstrap developer environment: toolchains, Python venv, bindings.
+# Bootstrap the Linux development environment and build the unpacked extension.
 
 cd "$(dirname "$0")/.."
 
@@ -11,6 +11,10 @@ rustc --version
 echo "==> Python / uv"
 uv --version
 python3 --version
+
+echo "==> Node / npm"
+node --version
+npm --version
 
 if [ -z "${CHROME_PATH:-}" ]; then
   for bin in google-chrome-stable google-chrome chromium chromium-browser; do
@@ -27,7 +31,12 @@ echo "==> Rust build"
 cargo build --workspace
 
 echo "==> Python venv + bindings"
-cd python
-uv sync --extra test
+uv sync --project python --extra dev
+uv run --project python maturin develop --manifest-path crates/python-bindings/Cargo.toml
 
-echo "Setup complete. Try: make test && make example"
+echo "==> Browser extension"
+cd extension
+npm ci
+npm run build
+
+echo "Development setup complete. Try: make test && make example"

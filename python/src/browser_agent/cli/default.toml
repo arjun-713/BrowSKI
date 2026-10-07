@@ -1,0 +1,31 @@
+[agent]
+orchestrator = "langgraph"
+
+[reasoning]
+provider = "openai"
+model = "gpt-6-luna"
+enabled = true
+
+[decision]
+provider = "laya"
+mode = "shadow"
+jev_enabled = false
+laya_endpoint = "http://127.0.0.1:8000"
+shadow_telemetry = true
+
+[privacy]
+mode = "standard"
+
+[safety]
+confirm_high_risk_actions = true
+
+[extension]
+transport_mode = "disabled"
+package_path = ""
+native_host_manifest = ""
+
+[traces]
+level = "standard"
+
+[vision]
+enabled = false

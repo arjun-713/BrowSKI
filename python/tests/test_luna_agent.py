@@ -8,10 +8,12 @@ from typing import Any
 import pytest
 
 from browser_agent._types import (
+    BBox,
     SemanticElement,
     SemanticKind,
     SemanticSnapshot,
     TaskState,
+    Viewport,
     WorkingMemory,
 )
 from browser_agent.agent.luna import LunaDecisionAgent
@@ -27,6 +29,11 @@ from browser_agent.reasoning import (
     ReasoningDecision,
     ReasoningEffort,
     ReasoningOutcome,
+)
+from browser_agent.vision import (
+    VisionInterpretation,
+    VisionOutcome,
+    VisionRequest,
 )
 
 
@@ -85,13 +92,24 @@ class FakeReasoningProvider:
         return self.decision
 
 
-def snapshot() -> SemanticSnapshot:
+class FakeVisionProvider:
+    def __init__(self, finding: VisionInterpretation) -> None:
+        self.finding = finding
+        self.requests: list[VisionRequest] = []
+
+    async def interpret(self, request: VisionRequest) -> VisionInterpretation:
+        self.requests.append(request)
+        return self.finding
+
+
+def snapshot(*, visual: bool = False) -> SemanticSnapshot:
     element = SemanticElement(
         ref="@continue",
         id=12,
         generation=4,
         role="button",
         accessible_name="Continue",
+        bbox=BBox(x=100, y=200, width=120, height=40) if visual else None,
         semantic_kind=SemanticKind.BUTTON,
         fingerprint="continue-button",
     )
@@ -100,6 +118,7 @@ def snapshot() -> SemanticSnapshot:
         title="Form",
         active_tab="tab-1",
         tabs=["tab-1"],
+        viewport=Viewport(width=1280, height=720, device_scale_factor=1.0),
         elements=[element],
         interactive_elements=[element],
         state_generation=4,
@@ -108,13 +127,13 @@ def snapshot() -> SemanticSnapshot:
 
 
 def task_state(**updates: Any) -> TaskState:
-    return TaskState(
-        task="Continue the application",
-        plan_initialized=True,
-        milestones=["Continue the application"],
-        current_subgoal="Continue the application",
-        **updates,
-    )
+    values: dict[str, Any] = {
+        "plan_initialized": True,
+        "milestones": ["Continue the application"],
+        "current_subgoal": "Continue the application",
+    }
+    values.update(updates)
+    return TaskState(task="Continue the application", **values)
 
 
 def next_click() -> ReasoningDecision:
@@ -142,9 +161,10 @@ def test_luna_model_uses_environment_override_and_explicit_config(
     assert explicit.model == "explicit-luna-model"
 
 
-async def test_system_one_abstention_escalates_to_luna_with_low_effort() -> None:
+async def test_luna_executes_bounded_choice_while_laya_only_compares() -> None:
     provider = FakeReasoningProvider(next_click())
-    agent = LunaDecisionAgent(FakeDecisionProvider("c03"), provider)
+    shadow = FakeDecisionProvider("c03")
+    agent = LunaDecisionAgent(shadow, provider)
 
     decision = await agent.decide(
         snapshot(),
@@ -159,9 +179,92 @@ async def test_system_one_abstention_escalates_to_luna_with_low_effort() -> None
     assert decision.action.target.generation == 4
     assert provider.calls[0][1] == "gpt-6-luna"
     assert provider.calls[0][2] == ReasoningEffort.LOW
+    assert len(shadow.states) == 1
 
 
-async def test_decision_calls_include_safe_run_and_action_step_correlation() -> None:
+async def test_visual_task_uses_on_demand_vision_as_advisory_context() -> None:
+    vision = FakeVisionProvider(
+        VisionInterpretation(
+            outcome=VisionOutcome.TARGET_IDENTIFIED,
+            target_ref="@continue",
+            summary="The plotted line rises from left to right.",
+            confidence=0.88,
+        )
+    )
+    captures: list[str] = []
+
+    async def capture(tab_id: str) -> bytes:
+        captures.append(tab_id)
+        return b"transient-png"
+
+    reasoning = FakeReasoningProvider(next_click())
+    agent = LunaDecisionAgent(
+        None,
+        reasoning,
+        vision_provider=vision,
+        screenshot_capture=capture,
+    )
+
+    decision = await agent.decide(
+        snapshot(visual=True),
+        task_state(
+            user_goal="Read chart trend and continue the application",
+            current_subgoal="Read chart trend",
+        ),
+        WorkingMemory(user_goal="Read chart trend"),
+    )
+
+    assert decision.action is not None
+    assert captures == ["tab-1"]
+    assert len(vision.requests) == 1
+    request = vision.requests[0]
+    assert request.metadata.state_generation == 4
+    assert request.metadata.active_tab == "tab-1"
+    assert request.targets[0].ref == "@continue"
+    assert reasoning.calls[0][0].visual_observation is not None
+    assert "rises from left to right" in reasoning.calls[0][0].visual_observation
+
+
+async def test_visual_request_escalates_if_vision_is_not_configured() -> None:
+    agent = LunaDecisionAgent(None, FakeReasoningProvider(next_click()))
+
+    decision = await agent.decide(
+        snapshot(visual=True),
+        task_state(
+            user_goal="Read chart trend",
+            current_subgoal="Read chart trend",
+        ),
+        WorkingMemory(),
+    )
+
+    assert decision.action is None
+    assert decision.ask_user
+
+
+async def test_semantic_task_does_not_capture_screenshot_when_vision_is_enabled() -> None:
+    vision = FakeVisionProvider(VisionInterpretation(outcome=VisionOutcome.ABSTAIN, confidence=0.0))
+
+    async def unexpected_capture(_tab_id: str) -> bytes:
+        raise AssertionError("semantic task must not capture a screenshot")
+
+    agent = LunaDecisionAgent(
+        None,
+        FakeReasoningProvider(next_click()),
+        vision_provider=vision,
+        screenshot_capture=unexpected_capture,
+    )
+
+    decision = await agent.decide(
+        snapshot(),
+        task_state(),
+        WorkingMemory(),
+    )
+
+    assert decision.action is not None
+    assert vision.requests == []
+
+
+async def test_laya_cannot_select_when_luna_returns_unselected_candidates() -> None:
     decision_provider = FakeDecisionProvider(
         "c01",
         accepted_answers=[False, True],
@@ -183,10 +286,11 @@ async def test_decision_calls_include_safe_run_and_action_step_correlation() -> 
         WorkingMemory(),
     )
 
-    assert decision.action is not None
-    assert isinstance(decision_provider.states[-1], Mapping)
-    assert decision_provider.states[-1]["run_id"] == "run-correlation"
-    assert decision_provider.states[-1]["steps_taken"] == 7
+    assert decision.action is None
+    assert decision.ask_user
+    assert decision_provider.states == []
+    assert len(reasoning_provider.calls) == 1
+    assert all(call[0].purpose.value == "choose_action" for call in reasoning_provider.calls)
 
 
 async def test_luna_normal_replan_uses_low_effort() -> None:

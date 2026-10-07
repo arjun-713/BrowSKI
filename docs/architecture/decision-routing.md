@@ -1,17 +1,23 @@
 # System One decision routing
 
+**Runtime policy (2026-10-06):** GPT-6 Luna is the only active provider that
+may select an executable action. Laya is shadow-only and cannot change Luna's
+choice. Jev is disabled and is not required. The lower-level provider
+interfaces remain available for isolated contract work, but the product CLI
+does not enable Laya or Jev as action routers.
+
 M5 adds a Python `DecisionProvider` contract for bounded browser decisions.
 M6 adds a separate structured `ReasoningProvider` for GPT-6 Luna.
 
 ## Providers
 
-- `LayaProvider` is the default. It calls a separately managed local Laya
-  service, configured by endpoint and timeout. BROWSKI does not download model
-  weights or start a model server as a side effect of a decision call.
-- `JevProvider` is optional. It uses TypeSafe's Python SDK and requires the
-  user's TypeSafe API key when called.
-- `AdaptiveDecisionProvider` tries Laya first and uses Jev when Laya fails or
-  the Laya-specific acceptance policy abstains. It does not blend outputs.
+- `LayaProvider` calls a separately managed local Laya service, configured by
+  endpoint and timeout. It is currently permitted only for non-executing shadow
+  comparison. BROWSKI does not download model weights or start the service as
+  a side effect of a decision call.
+- `JevProvider` and `AdaptiveDecisionProvider` remain low-level contract
+  implementations. They are disabled in the current product runtime; do not
+  call Jev during this productization phase.
 
 The same provider interface exposes bounded Choice, Score, and Noul judgments,
 semantic verification, recovery classification, and progress checks. Choices
@@ -25,26 +31,29 @@ whether a result is accepted or requires fallback/escalation. Missing thresholds
 are reported as unassessed (`accepted=None`); adaptive routing then asks Jev.
 Raw and adjusted confidence are both retained with provider attribution.
 
-Thresholds are application policy, not model guarantees. Fit them on held-out
-browser-task data, record a calibration identifier, and evaluate coverage and
-error rates before relying on automatic actions. Contract tests use fake model
-and SDK clients; they do not establish live provider quality or calibration.
+Thresholds are application policy, not model guarantees. Laya has not earned
+action execution based on the current benchmark evaluation. Do not infer its
+confidence values are comparable to Luna or to Jev. Contract tests use fake
+model and SDK clients; they do not establish live provider quality or
+calibration.
 
 ## Configuration
 
+# Low-level provider factory example; this does not configure the product CLI.
 ```python
 from browser_agent.decisions import DecisionConfig, create_decision_provider
 
 provider = create_decision_provider(DecisionConfig(provider="laya"))
 ```
 
-`provider` accepts `laya` (default), `jev`, or `adaptive`. `DecisionConfig`
-also accepts separate `calibration.laya` and `calibration.jev` mappings, plus
-`laya_endpoint`, `laya_timeout_ms`, `laya_health_timeout_ms`,
-`jev_timeout_ms`, and `fallback_to_jev`. Install the `decisions-cloud` extra
-from `python/` to use Jev. Laya runs as a separately installed service. For a
-CPU-only local setup, use a separate environment and the upstream server
-settings:
+The low-level `DecisionConfig` contract accepts `laya`, `jev`, or `adaptive`.
+This is not the current product CLI policy. It also accepts separate
+`calibration.laya` and `calibration.jev` mappings, plus `laya_endpoint`,
+`laya_timeout_ms`, `laya_health_timeout_ms`, `jev_timeout_ms`, and
+`fallback_to_jev`. Install the `decisions-cloud` extra to use the optional Jev
+adapter in isolated contract work. Laya runs as a separately installed
+service. For a CPU-only local setup, use a separate environment and the upstream
+server settings:
 
 ```sh
 python3 -m venv .venv-laya
@@ -100,12 +109,12 @@ default thresholds are unset until BROWSKI has a held-out calibration corpus.
 
 ## GPT-6 Luna reasoning
 
-`LunaDecisionAgent` first offers bounded semantic actions to the selected
-System One provider. Unaccepted choices route to the planner-escalation
-candidate. Luna returns structured milestone plans, one typed next action,
-bounded action candidates, interpretations, or explicit user questions. A
-model target must be a current interactable `ElementRef`; selectors and
-backend-node IDs are not part of the response contract.
+`LunaDecisionAgent` sends bounded semantic actions to Luna for the active
+choice. A returned action must exactly match an available candidate and bind
+to a current interactable semantic reference. Only after Luna selects an
+action may Laya receive an optional shadow-comparison request; the comparison
+cannot change or authorize the action. Selectors and backend-node IDs are not
+part of the response contract.
 
 `OpenAILunaProvider` uses the Responses API structured-output path. The model
 defaults to `gpt-6-luna` and can be configured by the caller. The OpenAI SDK is

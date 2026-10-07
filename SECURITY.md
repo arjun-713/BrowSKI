@@ -6,22 +6,36 @@ submissions, messages sent as the user). This project treats that as
 safety-critical surface even though full safety policy is not implemented in
 the scaffold (v0.1).
 
-## Current scope (scaffold)
+## Current implementation scope
 
-- The runtime launches a real Chromium, navigates to arbitrary URLs, and
-  reads page state. It does not yet fill forms, upload files, or call LLMs.
-- No credential storage, token vault, or PII filtering exists yet — do not
-  feed secrets through the agent until the privacy modules land (see
-  `docs/architecture/privacy-and-vision.md` and the roadmap, phase 10).
-- Example and test code navigates only to public pages.
+- Rust owns Chromium control, semantic observation, typed actions, and
+  deterministic verification; Python owns orchestration and provider policy.
+- GPT-6 Luna is the active generative reasoning path. Laya is shadow-only and
+  Jev is disabled by current product policy. Do not enable either as an action
+  authority without reviewed evidence.
+- The typed `ProviderBoundary` supports `standard`, `privacy_first`, and
+  `offline` modes. Privacy-first tokenization is heuristic and must not be
+  treated as a guarantee that every sensitive value is detected.
+- High-risk browser actions are subject to a graph-level confirmation
+  interrupt. The browser-code execution route is disabled until a restricted
+  evaluator can enforce its capabilities.
+- Product security remains incomplete. The authenticated extension host,
+  bridge-only socket service, and Linux host installer are implemented; the
+  attached-browser backend, keyring integration, retention cleanup, and
+  end-to-end secret-leak tests remain outstanding.
 
-## Future safety direction (not yet implemented)
+## Required security direction
 
 - Explicit user confirmation for consequential actions (submit, purchase,
   send, delete).
 - Scoped permissions per task (allowed domains, actions, data).
-- Local PII/secret detection and a token vault before any remote model call.
+- Local PII/secret detection and tokenization through the provider boundary.
 - Audit traces of every action and its verification evidence.
+
+See the [internal threat model](docs/security/threat-model.md) for attacks,
+controls, gaps, and residual risk. See
+[`docs/architecture/browser-extension.md`](docs/architecture/browser-extension.md)
+for the extension permission and transport boundary.
 
 ## Responsible disclosure
 

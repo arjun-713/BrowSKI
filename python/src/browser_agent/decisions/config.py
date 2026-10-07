@@ -38,6 +38,22 @@ def create_decision_provider(
     laya_model: Any | None = None,
     jev_client: Any | None = None,
 ) -> DecisionProvider:
+    if config.provider == DecisionProviderName.LAYA:
+        return LayaProvider(
+            model=laya_model,
+            endpoint_url=config.laya_endpoint,
+            timeout_ms=config.laya_timeout_ms,
+            health_timeout_ms=config.laya_health_timeout_ms,
+            calibration=config.calibration.laya,
+            calibration_id=config.calibration.laya.calibration_id,
+        )
+    if config.provider == DecisionProviderName.JEV:
+        return JevProvider(
+            client=jev_client,
+            timeout_ms=config.jev_timeout_ms,
+            calibration=config.calibration.jev,
+            calibration_id=config.calibration.jev.calibration_id,
+        )
     laya = LayaProvider(
         model=laya_model,
         endpoint_url=config.laya_endpoint,
@@ -52,8 +68,4 @@ def create_decision_provider(
         calibration=config.calibration.jev,
         calibration_id=config.calibration.jev.calibration_id,
     )
-    if config.provider == DecisionProviderName.LAYA:
-        return laya
-    if config.provider == DecisionProviderName.JEV:
-        return jev
     return AdaptiveDecisionProvider(laya, jev, fallback_to_jev=config.fallback_to_jev)

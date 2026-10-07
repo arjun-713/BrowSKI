@@ -109,28 +109,28 @@ starts a fresh browser session and re-observes before acting; restoring or
 attaching to the previous Chromium process and page-local state is not
 supported by the current binding.
 
-## M5. System One decisions (DONE)
+## M5. System One decisions (CONTRACTS DONE; LAYA SHADOW ONLY)
 
-Added a shared `DecisionProvider`, local CPU `LayaProvider` default, optional
-`JevProvider`, and Laya-first adaptive fallback. Both adapters support bounded
-Choice, Score, and Noul decisions, semantic verification, recovery classification,
-and progress checks. Calibration policies and thresholds are provider-specific;
-default thresholds remain unset pending held-out BROWSKI task data. Tests use
-fake model and SDK clients, so they prove adapter contracts but do not measure
-live model quality, calibration, CPU latency, or Jev API behavior.
+Added a shared `DecisionProvider`, local CPU `LayaProvider`, optional
+`JevProvider`, and provider-specific calibration interfaces. Both adapters
+support bounded Choice, Score, and Noul decisions, semantic verification,
+recovery classification, and progress checks. Current product policy makes
+GPT-6 Luna the only executable decision path, keeps Laya shadow-only, and
+disables Jev. The Laya benchmark found it untrusted for execution. No Laya
+tuning or Jev calls are part of this productization phase.
 
 The Laya adapter calls an explicitly managed local service on CPU by default;
 it does not download weights in the browser-agent process. The finite candidate
-builder offers only bounded semantic actions or planner escalation, then binds
-the selected candidate through Rust-owned semantic references. Provider health,
-timeouts, typed errors, and fallback telemetry are explicit.
+builder offers bounded semantic actions and escalation, and Rust-owned semantic
+references are required for executable actions. Provider health, timeouts,
+typed errors, and fallback telemetry are explicit.
 
 Gate passed: fake-backed provider contracts, candidate bounds and binding,
 health and timeout handling, provider-specific acceptance, and observable
 adaptive routing. Optional live checks remain opt-in; live quality and
 benchmark validation are not established by contract tests.
 
-## M6. GPT-6 Luna + adaptive reasoning (DONE; live API unverified)
+## M6. GPT-6 Luna + adaptive reasoning (IMPLEMENTED; live API unverified)
 
 Added the only generative reasoning provider in the baseline and a
 deterministic `ComplexityGate`. The OpenAI adapter uses the Responses API with
@@ -141,11 +141,12 @@ and supported reasoning-effort choices were checked against the
 [OpenAI model catalog](https://developers.openai.com/api/docs/models) and
 [structured outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-`LunaDecisionAgent` tries the configured `DecisionProvider` first. It sends
-only bounded semantic candidates to Laya/Jev, escalates abstentions and
-unsupported planning to structured Luna decisions, and binds model actions to
-current interactable semantic refs. A short milestone plan carries visible
-evidence phrases that the graph checks against later browser observations.
+`LunaDecisionAgent` is the current executable decision path. It sends bounded
+semantic candidates to Luna, requires Luna's action to match one of those
+candidates, then may ask Laya for a shadow comparison that cannot change the
+action. Unsupported outputs fail closed. A short milestone plan carries
+visible evidence phrases that the graph checks against later browser
+observations.
 `BROWSKI_LUNA_MODEL` can override the model identifier; the default remains
 `gpt-6-luna`. Normal reasoning uses low effort; high effort is selected only
 when the recovery ladder's deterministic gate promotes a failed normal replan
@@ -172,9 +173,10 @@ action-history summaries omit typed values and URL data. Local tests cover an
 11-step long-horizon task, recovery bounds, completion refusal, and
 approval/denial.
 
-The recovery policy routes through System One, one normal Luna replan, the
-ComplexityGate, and at most one high-reasoning replan. Unavailable reasoning
-does not run and recovery asks the user or stops within its configured bounds.
+The recovery policy uses one normal Luna replan, the ComplexityGate, and at
+most one high-reasoning replan. Laya may provide shadow observations where it
+is configured; it does not route recovery or executable actions. Unavailable
+reasoning asks the user or stops within configured bounds.
 
 Provider telemetry records bounded provider/model labels, operation and
 outcome, fallback routing, and provider-reported token counts when available;
@@ -202,26 +204,49 @@ operations and fixtures, so they are context only and do not establish a
 before/after comparison. Live provider latency and end-to-end task latency
 remain unmeasured.
 
-## M8. Vision fallback (future)
+## M8. Vision fallback (OPT-IN ON-DEMAND ROUTING IMPLEMENTED; PRIVACY REDACTION PENDING)
 
-On-demand multimodal interpretation for semantic dead ends; not the primary
-page representation.
+Bounded viewport screenshot capture and structured Luna vision are available
+through an opt-in on-demand route for explicit visual tasks whose needed
+information is absent from browser-native semantics. Findings remain advisory
+and Luna still selects a bounded semantic action. Vision is disabled by default
+and blocked in privacy-first/offline modes until screenshot sanitization is
+implemented. Semantic observation remains primary.
 
-## M9. Browser-code escape hatch (future)
+## M9. Browser-code escape hatch (POLICY SCAFFOLD; EXECUTION DISABLED)
 
-An explicitly enabled, restricted, traced, and time-bounded tool for difficult
-deterministic browser operations.
+Request validation and capability/size/time limits exist, but no browser-side
+execution route is available. Calls fail closed; no arbitrary shell is exposed.
+The extension explicitly rejects generic `Runtime.evaluate` and
+`Runtime.callFunctionOn` requests. See the
+[`browser-code boundary`](../architecture/browser-code.md) and
+[`ADR-011`](../decisions/ADR-011-browser-code-remains-disabled.md) for the
+reason execution remains disabled.
 
-## M10. Privacy mode (future)
+## M10. Privacy mode (EARLY PROVIDER BOUNDARY; INCOMPLETE)
 
-Optional PII/secret detection, tokenization, sanitized screenshots, and local
-visual processing. These are not mandatory middleware for every action.
+Standard, privacy-first, and offline policy modes exist. Privacy-first uses
+pattern-based redaction plus a request-scoped token vault that restores values
+only into typed action text/value fields. Detection remains incomplete;
+screenshot redaction, a durable secret store, and full payload coverage remain
+future work. Privacy is optional and is not mandatory middleware for every
+action.
 
-## M11. Product surface (future)
+## M11. Product surface (CLI + EXTENSION INTEGRATION; ACCEPTANCE PENDING)
 
-CLI, SDK, trace viewer, optional extension, packaging, examples, and user docs.
+The CLI, doctor checks, safe run metadata, preview-first checkpoint cleanup,
+MV3 side-panel UI, protocol tests, and user docs are under development.
+`AgentRuntime` supports cooperative pause, resume, and stop at safe graph
+boundaries. The side panel now dispatches task controls and receives
+content-minimal lifecycle events. A Linux Native Messaging host relay
+validates caller origin, checks owner-only Unix socket permissions, and
+forwards bounded JSON frames. The authenticated service connects its attached
+browser session through the shared Rust CDP core into the Python task runtime,
+and supports task submission and confirmation responses. The complete
+extension-driven local demo, browser E2E flow, one-command product installer,
+and production install/upgrade path remain pending.
 
-## M12. Benchmark hardening (future)
+## M12. Benchmark hardening (DEFERRED)
 
 Run representative long-horizon evaluations and publish reproducible results.
 No comparative claim without controlled benchmark evidence.

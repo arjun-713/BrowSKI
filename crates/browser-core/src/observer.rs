@@ -21,7 +21,7 @@
 //! output: elements sort by document order, aliases assign in document
 //! order, fingerprints hash normalized signals. Same page → same snapshot.
 
-use browser_agent_cdp::{CdpSessionId, PersistentTransport, TabId, TargetId};
+use browser_agent_cdp::{CdpSessionId, CdpTransport, TabId, TargetId};
 use browser_agent_element_registry::{ElementRegistry, ReacquireCandidate, ReacquireOutcome};
 use browser_agent_observation::{
     assign_aliases, classify, diff_snapshots, fingerprint, page_fingerprint, score, AliasInput,
@@ -841,7 +841,7 @@ struct Geometry {
 }
 
 async fn collect_geometry(
-    transport: &PersistentTransport,
+    transport: &dyn CdpTransport,
     session: &CdpSessionId,
     backend: Option<i64>,
     node_id: Option<i64>,
@@ -1074,7 +1074,7 @@ pub(crate) async fn observe_full(
             // Center unknown until box arrives: two-phase (box first, then
             // hit test) doubles latency; instead hit-test after via second
             // pass only for interactable-looking candidates. Here: box+style.
-            let g = collect_geometry(&t, &s, backend, node_id).await;
+            let g = collect_geometry(t.as_ref(), &s, backend, node_id).await;
             (i, g)
         });
     }
@@ -1121,7 +1121,7 @@ pub(crate) async fn observe_full(
                     // Fallback: JS contains-check against the resolved node
                     // (covers text-node topmost hits).
                     if let Some(b) = backend {
-                        pass = hit_test_contains(&t, &s, b, x, y).await;
+                        pass = hit_test_contains(t.as_ref(), &s, b, x, y).await;
                     }
                 }
                 (i, pass)
@@ -1564,7 +1564,7 @@ pub(crate) fn subtree_backends(
 /// JS contains-check fallback: does the viewport point hit the node or a
 /// descendant? Resolves the backend to an object id first.
 pub(crate) async fn hit_test_contains(
-    transport: &PersistentTransport,
+    transport: &dyn CdpTransport,
     session: &CdpSessionId,
     backend: i64,
     x: i64,

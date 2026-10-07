@@ -5,7 +5,9 @@ setup:
 
 build:
 	cargo build --workspace
-	cd python && uv sync --extra test
+	uv sync --project python --extra dev
+	uv run --project python maturin develop --manifest-path crates/python-bindings/Cargo.toml
+	cd extension && npm ci && npm run build
 
 test:
 	cargo test --workspace

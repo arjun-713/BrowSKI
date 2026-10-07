@@ -15,11 +15,15 @@ presents the documented async API by running blocking calls in
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 from types import TracebackType
 from typing import Any, Self
 
 from browser_agent._types import BrowserAction, ElementRef, SemanticSnapshot, SnapshotDelta, TabInfo
+
+MAX_VIEWPORT_SCREENSHOT_BYTES = 4 * 1024 * 1024
 
 
 class BrowserSession:
@@ -44,6 +48,38 @@ class BrowserSession:
 
         self._native = await asyncio.to_thread(_core.PyBrowserSession.launch, self._headless)
 
+    @classmethod
+    async def attach_extension(
+        cls,
+        *,
+        socket_path: str,
+        token: str,
+        attachment_id: str,
+        session_id: str,
+        target_id: str,
+        title: str,
+        url: str,
+    ) -> Self:
+        """Use the shared Rust browser core through an attached extension tab."""
+        from browser_agent import _core
+
+        session = cls()
+        session._native = await asyncio.to_thread(
+            _core.PyBrowserSession.attach_extension,
+            socket_path,
+            token,
+            json.dumps(
+                {
+                    "attachment_id": attachment_id,
+                    "session_id": session_id,
+                    "target_id": target_id,
+                    "title": title,
+                    "url": url,
+                }
+            ),
+        )
+        return session
+
     def _require_open(self) -> Any:
         if self._native is None:
             raise RuntimeError("BrowserSession is not open (use `async with` or `await launch()`)")
@@ -62,6 +98,22 @@ class BrowserSession:
     async def observe(self) -> SemanticSnapshot:
         raw: str = await asyncio.to_thread(self._require_open().observe_json)
         return SemanticSnapshot.model_validate(json.loads(raw))
+
+    async def capture_viewport_screenshot(self, tab_id: str) -> bytes:
+        """Capture a bounded visible-viewport PNG for on-demand vision."""
+        encoded: str = await asyncio.to_thread(
+            self._require_open().capture_viewport_screenshot,
+            tab_id,
+        )
+        try:
+            screenshot = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise RuntimeError("Rust browser core returned invalid screenshot data") from error
+        if len(screenshot) > MAX_VIEWPORT_SCREENSHOT_BYTES:
+            raise RuntimeError("viewport screenshot exceeds the 4 MiB image limit")
+        if not screenshot.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise RuntimeError("Rust browser core returned a non-PNG viewport screenshot")
+        return screenshot
 
     async def tabs(self) -> list[TabInfo]:
         raw: str = await asyncio.to_thread(self._require_open().tabs_json)

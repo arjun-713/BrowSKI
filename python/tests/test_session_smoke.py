@@ -23,6 +23,19 @@ async def test_navigate_and_observe_local_fixture() -> None:
         assert snapshot.state_generation >= 1
 
 
+async def test_capture_viewport_screenshot_returns_bounded_png() -> None:
+    async with BrowserSession.launch() as browser:
+        await browser.navigate(FIXTURE.as_uri())
+        await browser.observe()
+        tab_id = await browser.active_tab_id()
+        assert tab_id is not None
+
+        screenshot = await browser.capture_viewport_screenshot(tab_id)
+
+        assert screenshot.startswith(b"\x89PNG\r\n\x1a\n")
+        assert len(screenshot) <= 4 * 1024 * 1024
+
+
 async def test_m2_render_delta_and_resolve() -> None:
     """M2 Python surface: tabs, render, empty delta, alias resolution."""
     async with BrowserSession.launch() as browser:

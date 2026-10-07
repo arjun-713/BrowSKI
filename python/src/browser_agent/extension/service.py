@@ -1,0 +1,976 @@
+"""Owner-only Unix socket service for the extension Native Messaging relay."""
+
+from __future__ import annotations
+
+import asyncio
+import fcntl
+import hmac
+import io
+import logging
+import os
+import secrets
+import stat
+import struct
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+from browser_agent.credentials import CredentialStore, SystemCredentialStore
+from browser_agent.extension.backend import (
+    Attachment,
+    ExtensionBackendError,
+    ExtensionCdpBackend,
+)
+from browser_agent.extension.native_messaging import (
+    MAX_NATIVE_MESSAGE_BYTES,
+    NativeMessagingProtocolError,
+    read_native_message,
+    write_native_message,
+)
+from browser_agent.extension.protocol import (
+    DEBUGGER_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
+    ExtensionMessageValidator,
+    ExtensionProtocolError,
+)
+
+if TYPE_CHECKING:
+    from browser_agent.session import BrowserSession
+
+logger = logging.getLogger(__name__)
+
+_HEADER = struct.Struct("<I")
+_AUTH_TIMEOUT_SECONDS = 3
+_HELLO_TIMEOUT_SECONDS = 5
+_MESSAGE_TIMEOUT_SECONDS = 300
+_WRITE_TIMEOUT_SECONDS = 5
+
+
+class BridgeServiceError(RuntimeError):
+    """Raised when the local extension bridge cannot start or serve safely."""
+
+
+def default_socket_path() -> Path:
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "browski" / "bridge.sock"
+    return Path.home() / ".local" / "state" / "browski" / "bridge.sock"
+
+
+async def _read_native_frame(
+    reader: asyncio.StreamReader,
+) -> dict[str, object]:
+    header = await reader.readexactly(_HEADER.size)
+    (length,) = _HEADER.unpack(header)
+    if length == 0 or length > MAX_NATIVE_MESSAGE_BYTES:
+        raise NativeMessagingProtocolError("native messaging frame size is outside limits")
+    payload = await reader.readexactly(length)
+    message = read_native_message(io.BytesIO(header + payload))
+    if message is None:
+        raise NativeMessagingProtocolError("native messaging frame is empty")
+    return message
+
+
+async def _write_native_frame(
+    writer: asyncio.StreamWriter,
+    message: dict[str, object],
+) -> None:
+    buffer = io.BytesIO()
+    write_native_message(buffer, message)
+    writer.write(buffer.getvalue())
+    await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_SECONDS)
+
+
+class ExtensionBridgeService:
+    """Serve authenticated, versioned extension connections over Unix sockets.
+
+    Native Messaging is the extension-facing channel. A second owner-only
+    Unix socket carries only authenticated CDP traffic between this service
+    and Rust's shared browser core.
+    """
+
+    def __init__(
+        self,
+        socket_path: Path | None = None,
+        *,
+        config_path: Path | None = None,
+        database_path: Path = Path("browski-checkpoints.sqlite"),
+        credential_store: CredentialStore | None = None,
+    ) -> None:
+        self.socket_path = (socket_path or default_socket_path()).expanduser()
+        self.config_path = config_path
+        self.database_path = database_path.expanduser()
+        self._credential_store = credential_store or SystemCredentialStore()
+        self.token_path = self.socket_path.with_suffix(".token")
+        self.lock_path = self.socket_path.with_suffix(".lock")
+        self.backend_socket_path = self.socket_path.with_suffix(".backend.sock")
+        self._server: asyncio.AbstractServer | None = None
+        self._backend: ExtensionCdpBackend | None = None
+        self._socket_identity: tuple[int, int] | None = None
+        self._lock_fd: int | None = None
+        self._token: str | None = None
+        self._active_connection = False
+        self._writers: set[asyncio.StreamWriter] = set()
+        self._extension_writer: asyncio.StreamWriter | None = None
+        self._negotiated_methods: list[str] = []
+        self._negotiated_events: list[str] = []
+        self._runtime_session: dict[str, object] | None = None
+        self._timeline_events: list[dict[str, object]] = []
+        self._pending_approval: dict[str, object] | None = None
+        self._browser_session: object | None = None
+        self._attachment_task: asyncio.Task[None] | None = None
+        self._task_task: asyncio.Task[None] | None = None
+        self._agent_runtime: object | None = None
+        self._runtime_context: object | None = None
+        self._run_id: str | None = None
+        self._task_label: str | None = None
+        self._pending_approval_id: str | None = None
+        self._runtime_suspended = False
+        self._closed = False
+
+    @property
+    def runtime_session(self) -> dict[str, object] | None:
+        """Return a copy of the currently attached browser session summary."""
+        return dict(self._runtime_session) if self._runtime_session is not None else None
+
+    async def wait_for_attached_browser(self) -> BrowserSession | None:
+        """Wait for the current attachment's Rust browser session to initialize."""
+        task = self._attachment_task
+        if task is not None:
+            await task
+        return cast(Any, self._browser_session)
+
+    async def start(self) -> None:
+        """Create the private socket endpoint and start accepting one client."""
+        if self._closed:
+            raise BridgeServiceError("a closed extension bridge cannot be restarted")
+        if self._server is not None:
+            raise BridgeServiceError("extension bridge is already running")
+        if not self.socket_path.is_absolute():
+            raise BridgeServiceError("runtime socket path must be absolute")
+        if len(os.fsencode(self.socket_path)) >= 100:
+            raise BridgeServiceError("runtime socket path is too long for Unix sockets")
+
+        directory = self.socket_path.parent
+        try:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._validate_directory(directory)
+            self._acquire_lock()
+            self._remove_stale_socket()
+            self._remove_stale_token()
+            self._token = secrets.token_urlsafe(32)
+            self._write_token(self._token)
+            self._backend = ExtensionCdpBackend(self.backend_socket_path, self._token)
+            await self._backend.start()
+            self._server = await asyncio.start_unix_server(
+                self._handle_connection,
+                path=self.socket_path,
+                limit=MAX_NATIVE_MESSAGE_BYTES + _HEADER.size,
+            )
+            socket_stat = self.socket_path.lstat()
+            self._socket_identity = (socket_stat.st_dev, socket_stat.st_ino)
+            os.chmod(self.socket_path, 0o600, follow_symlinks=False)
+        except (BridgeServiceError, OSError, ValueError) as exc:
+            await self.close()
+            raise BridgeServiceError("could not create the private extension socket") from exc
+
+    async def serve_forever(self) -> None:
+        """Run until cancelled, then remove only this service's socket files."""
+        if self._server is None:
+            await self.start()
+        await self.wait_closed()
+
+    async def wait_closed(self) -> None:
+        """Wait on an already-started service and clean up on cancellation."""
+        server = self._server
+        if server is None:
+            raise BridgeServiceError("extension bridge failed to start")
+        try:
+            async with server:
+                await server.serve_forever()
+        finally:
+            await self.close()
+
+    async def close(self) -> None:
+        """Stop accepting clients and remove this service's private endpoint."""
+        if self._closed:
+            return
+        self._closed = True
+        task_task, self._task_task = self._task_task, None
+        if task_task is not None and not task_task.done():
+            task_task.cancel()
+            await asyncio.gather(task_task, return_exceptions=True)
+        attach_task, self._attachment_task = self._attachment_task, None
+        if attach_task is not None and not attach_task.done():
+            attach_task.cancel()
+            await asyncio.gather(attach_task, return_exceptions=True)
+        browser_session, self._browser_session = self._browser_session, None
+        if browser_session is not None:
+            await cast(Any, browser_session).close()
+        server, self._server = self._server, None
+        backend, self._backend = self._backend, None
+        if backend is not None:
+            await backend.close()
+        if server is not None:
+            server.close()
+            for writer in tuple(self._writers):
+                writer.close()
+            if self._writers:
+                await asyncio.gather(
+                    *(writer.wait_closed() for writer in tuple(self._writers)),
+                    return_exceptions=True,
+                )
+            await server.wait_closed()
+        try:
+            self._unlink_owned_socket()
+            self._unlink_owned_token()
+        finally:
+            self._release_lock()
+
+    def _validate_directory(self, directory: Path) -> None:
+        metadata = directory.lstat()
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) & 0o077
+        ):
+            raise BridgeServiceError("runtime socket directory must be user-owned with mode 0700")
+
+    def _acquire_lock(self) -> None:
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(self.lock_path, flags, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) & 0o077
+        ):
+            os.close(descriptor)
+            raise BridgeServiceError("runtime lock file has unsafe ownership or permissions")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            os.close(descriptor)
+            raise BridgeServiceError("another BROWSKI runtime is already listening") from exc
+        self._lock_fd = descriptor
+
+    def _release_lock(self) -> None:
+        descriptor, self._lock_fd = self._lock_fd, None
+        if descriptor is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def _remove_stale_socket(self) -> None:
+        try:
+            metadata = self.socket_path.lstat()
+        except FileNotFoundError:
+            return
+        if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise BridgeServiceError("runtime socket path is not an owned Unix socket")
+
+        self.socket_path.unlink()
+
+    def _remove_stale_token(self) -> None:
+        try:
+            metadata = self.token_path.lstat()
+        except FileNotFoundError:
+            return
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) & 0o077
+        ):
+            raise BridgeServiceError("runtime token path has unsafe ownership or permissions")
+        self.token_path.unlink()
+
+    def _write_token(self, token: str) -> None:
+        temporary_path = self.token_path.with_name(f".{self.token_path.name}.{uuid.uuid4().hex}")
+        descriptor = os.open(
+            temporary_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+                stream.write(token)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, self.token_path)
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        if self._closed or self._active_connection or self._token is None:
+            writer.close()
+            await writer.wait_closed()
+            return
+        self._active_connection = True
+        self._writers.add(writer)
+        try:
+            await self._authenticate(reader)
+            validator = ExtensionMessageValidator()
+            hello_value = await asyncio.wait_for(
+                _read_native_frame(reader), timeout=_HELLO_TIMEOUT_SECONDS
+            )
+            hello = validator.validate(hello_value)
+            if hello.get("type") != "extension.hello":
+                raise ExtensionProtocolError("extension hello must be the first message")
+            hello_payload = cast(dict[str, object], hello["payload"])
+            methods = cast(list[str], hello_payload["debuggerMethods"])
+            events = cast(list[str], hello_payload["debuggerEvents"])
+            self._negotiated_methods = methods
+            self._negotiated_events = events
+            self._extension_writer = writer
+            if self._backend is not None:
+                self._backend.set_extension_connection(writer, methods=methods, events=events)
+            await self._send_host_hello(writer, methods, events)
+            await self._send_runtime_snapshot(writer)
+            await self._send_credentials_status(writer)
+
+            while True:
+                value = await asyncio.wait_for(
+                    _read_native_frame(reader), timeout=_MESSAGE_TIMEOUT_SECONDS
+                )
+                message = validator.validate(value)
+                await self._handle_message(writer, message)
+        except (
+            TimeoutError,
+            asyncio.IncompleteReadError,
+            OSError,
+            ValueError,
+            ExtensionBackendError,
+        ):
+            pass
+        finally:
+            attachment = self._backend.attachment if self._backend is not None else None
+            if attachment is not None and self._backend is not None:
+                await self._backend.detach_attachment(attachment.attachment_id)
+            attach_task, self._attachment_task = self._attachment_task, None
+            if attach_task is not None and not attach_task.done():
+                attach_task.cancel()
+                await asyncio.gather(attach_task, return_exceptions=True)
+            await self._cancel_task()
+            browser_session, self._browser_session = self._browser_session, None
+            if browser_session is not None:
+                await cast(Any, browser_session).close()
+            self._runtime_session = None
+            if self._extension_writer is writer:
+                self._extension_writer = None
+            self._active_connection = False
+            self._writers.discard(writer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+
+    async def _authenticate(self, reader: asyncio.StreamReader) -> None:
+        value = await asyncio.wait_for(_read_native_frame(reader), timeout=_AUTH_TIMEOUT_SECONDS)
+        token = value.get("token")
+        if (
+            value.get("type") != "runtime.auth"
+            or not isinstance(token, str)
+            or self._token is None
+            or not hmac.compare_digest(token, self._token)
+        ):
+            raise ExtensionProtocolError("local runtime authentication failed")
+
+    async def _handle_message(
+        self,
+        writer: asyncio.StreamWriter,
+        message: dict[str, object],
+    ) -> None:
+        message_type = message["type"]
+        if message_type == "runtime.snapshot.request":
+            await self._send_runtime_snapshot(writer)
+        elif message_type == "browser.tab.attached":
+            payload_value = message["payload"]
+            if isinstance(payload_value, dict):
+                payload = cast(dict[str, object], payload_value)
+                attachment = Attachment(
+                    attachment_id=cast(str, payload["attachmentId"]),
+                    tab_id=cast(int, payload["tabId"]),
+                    session_id=cast(str, payload["sessionId"]),
+                )
+                if self._backend is None:
+                    raise ExtensionProtocolError("attached-browser backend is unavailable")
+                self._backend.set_attachment(attachment)
+                self._reset_task_state()
+                self._timeline_events = []
+                self._pending_approval = None
+                self._runtime_session = {
+                    "sessionId": attachment.session_id,
+                    "updatedAt": datetime.now(UTC).isoformat(),
+                    "status": "idle",
+                }
+                await self._send_runtime_snapshot(writer)
+                self._attachment_task = asyncio.create_task(
+                    self._open_attached_browser(writer, attachment)
+                )
+        elif message_type in {
+            "debugger.command.result",
+            "debugger.event",
+            "browser.tab.detached",
+        }:
+            if self._backend is not None:
+                await self._backend.handle_extension_message(message)
+            if message_type == "browser.tab.detached":
+                attach_task, self._attachment_task = self._attachment_task, None
+                if attach_task is not None and not attach_task.done():
+                    attach_task.cancel()
+                    await asyncio.gather(attach_task, return_exceptions=True)
+                browser_session, self._browser_session = self._browser_session, None
+                if browser_session is not None:
+                    await cast(Any, browser_session).close()
+                self._runtime_session = None
+                await self._cancel_task()
+                await self._send_runtime_snapshot(writer)
+        elif message_type == "runtime.task.submit":
+            payload = cast(dict[str, object], message["payload"])
+            if (
+                self._runtime_session is None
+                or self._backend is None
+                or self._backend.attachment is None
+            ):
+                raise ExtensionProtocolError("attach a browser tab before starting a task")
+            if payload.get("sessionId") != self._runtime_session.get("sessionId"):
+                raise ExtensionProtocolError("task belongs to a different browser session")
+            if self._task_task is not None and not self._task_task.done():
+                raise ExtensionProtocolError("a browser task is already running")
+            self._task_label = cast(str, payload["task"])[:160]
+            self._run_id = str(uuid.uuid4())
+            self._pending_approval_id = None
+            self._pending_approval = None
+            self._timeline_events = []
+            self._runtime_session["taskLabel"] = self._task_label
+            self._runtime_session["status"] = "running"
+            self._runtime_session["updatedAt"] = datetime.now(UTC).isoformat()
+            self._task_task = asyncio.create_task(
+                self._run_attached_task(writer, cast(str, payload["task"]), self._run_id),
+                name=f"browski-run-{self._run_id}",
+            )
+            await self._send_runtime_status(writer)
+        elif message_type == "runtime.approval.respond":
+            payload = cast(dict[str, object], message["payload"])
+            if (
+                self._runtime_session is None
+                or payload.get("sessionId") != self._runtime_session.get("sessionId")
+                or payload.get("approvalId") != self._pending_approval_id
+                or self._agent_runtime is None
+                or self._run_id is None
+            ):
+                raise ExtensionProtocolError("approval does not match the pending browser action")
+            approval_id = cast(str, self._pending_approval_id)
+            await self._send_approval_cleared(writer, approval_id)
+            approved = payload.get("decision") == "approve"
+            self._pending_approval_id = None
+            self._runtime_suspended = False
+            self._pending_approval = None
+            self._runtime_session["status"] = "running"
+            self._task_task = asyncio.create_task(
+                self._resume_attached_task(writer, self._run_id, approved),
+                name=f"browski-resume-{self._run_id}",
+            )
+            await self._send_runtime_status(writer)
+        elif message_type == "runtime.task.control":
+            payload = cast(dict[str, object], message["payload"])
+            if (
+                self._runtime_session is None
+                or payload.get("sessionId") != self._runtime_session.get("sessionId")
+                or payload.get("runId") != self._run_id
+                or self._agent_runtime is None
+                or self._run_id is None
+            ):
+                raise ExtensionProtocolError("task control does not match the active run")
+            control = cast(str, payload["control"])
+            if control == "pause":
+                if self._task_task is None or self._task_task.done():
+                    raise ExtensionProtocolError("the task is already at a safe pause point")
+                cast(Any, self._agent_runtime).pause(self._run_id)
+            elif control == "resume":
+                if not self._runtime_suspended or self._pending_approval_id is not None:
+                    raise ExtensionProtocolError("the task is not waiting for a normal resume")
+                self._runtime_suspended = False
+                self._runtime_session["status"] = "running"
+                self._task_task = asyncio.create_task(
+                    self._resume_attached_task(writer, self._run_id, None),
+                    name=f"browski-resume-{self._run_id}",
+                )
+            else:
+                self._runtime_suspended = False
+                self._task_task = asyncio.create_task(
+                    self._stop_attached_task(writer, self._run_id),
+                    name=f"browski-stop-{self._run_id}",
+                )
+            await self._send_runtime_status(writer)
+        elif message_type == "runtime.credentials.set":
+            payload = cast(dict[str, object], message["payload"])
+            api_key = cast(str, payload["apiKey"])
+            try:
+                self._credential_store.set_openai_api_key(api_key)
+                await self._send_credentials_status(writer)
+            except Exception:
+                logger.warning("BROWSKI could not save an OpenAI key in the system keyring")
+                await self._send_credentials_status(
+                    writer,
+                    error="The operating system credential store is unavailable.",
+                )
+        elif message_type == "runtime.credentials.clear":
+            try:
+                self._credential_store.delete_openai_api_key()
+                await self._send_credentials_status(writer)
+            except Exception:
+                logger.warning("BROWSKI could not remove an OpenAI key from the system keyring")
+                await self._send_credentials_status(
+                    writer,
+                    error="The operating system credential store is unavailable.",
+                )
+        elif message_type == "runtime.credentials.status.request":
+            await self._send_credentials_status(writer)
+        elif message_type == "browser.event.dropped":
+            return
+        else:
+            raise ExtensionProtocolError("runtime backend is not available for this message")
+
+    def _reset_task_state(self) -> None:
+        self._run_id = None
+        self._task_label = None
+        self._pending_approval_id = None
+        self._runtime_suspended = False
+        self._pending_approval = None
+        self._agent_runtime = None
+        self._runtime_context = None
+        self._task_task = None
+
+    async def _cancel_task(self) -> None:
+        task, self._task_task = self._task_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await self._close_runtime_context()
+        self._agent_runtime = None
+        self._run_id = None
+        self._pending_approval_id = None
+        self._pending_approval = None
+
+    async def _open_attached_browser(
+        self,
+        writer: asyncio.StreamWriter,
+        attachment: Attachment,
+    ) -> None:
+        try:
+            from browser_agent.session import BrowserSession
+
+            browser_session = await BrowserSession.attach_extension(
+                socket_path=str(self.backend_socket_path),
+                token=self._token or "",
+                attachment_id=attachment.attachment_id,
+                session_id=attachment.session_id,
+                target_id=f"extension-tab-{attachment.tab_id}",
+                title="Attached browser tab",
+                url="about:blank",
+            )
+            if (
+                self._closed
+                or self._attachment_task is None
+                or self._backend is None
+                or self._backend.attachment != attachment
+            ):
+                await browser_session.close()
+                return
+            self._browser_session = browser_session
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if not writer.is_closing():
+                await self._send_detach(
+                    writer,
+                    attachment.attachment_id,
+                    "BROWSKI could not initialize the attached browser session.",
+                )
+            self._runtime_session = None
+            if not writer.is_closing():
+                await self._send_runtime_snapshot(writer)
+            if self._backend is not None:
+                await self._backend.detach_attachment(attachment.attachment_id)
+
+    async def _run_attached_task(
+        self,
+        writer: asyncio.StreamWriter,
+        task: str,
+        run_id: str,
+    ) -> None:
+        browser = await self.wait_for_attached_browser()
+        if browser is None:
+            await self._finish_task(
+                writer, success=False, summary="The attached browser is unavailable."
+            )
+            return
+        context = None
+        try:
+            from browser_agent.agent import AgentRuntime, LunaDecisionAgent
+            from browser_agent.cli.config import DecisionMode, load_config
+            from browser_agent.cli.main import (
+                create_luna_reasoning_provider,
+                create_luna_vision_provider,
+            )
+            from browser_agent.decisions import DecisionConfig as LayaConfig
+            from browser_agent.decisions import create_decision_provider
+            from browser_agent.decisions.config import DecisionProviderName
+
+            config = load_config(self.config_path)
+            shadow_provider = None
+            if (
+                config.decision.mode == DecisionMode.SHADOW
+                and config.decision.shadow_telemetry
+                and config.privacy.mode.value == "standard"
+            ):
+                shadow_provider = create_decision_provider(
+                    LayaConfig(
+                        provider=DecisionProviderName.LAYA,
+                        laya_endpoint=config.decision.laya_endpoint,
+                    )
+                )
+            agent = LunaDecisionAgent(
+                shadow_provider,
+                create_luna_reasoning_provider(config),
+                model=config.reasoning.model,
+                vision_provider=create_luna_vision_provider(config),
+                screenshot_capture=browser.capture_viewport_screenshot,
+            )
+
+            async def event_sink(event: object) -> None:
+                payload = cast(Any, event).to_protocol_payload()
+                if self._runtime_session is not None:
+                    payload["sessionId"] = self._runtime_session["sessionId"]
+                await self._send_timeline(writer, payload)
+
+            context = AgentRuntime.open_sqlite(
+                agent,
+                browser,
+                database=self.database_path,
+                event_sink=event_sink,
+            )
+            runtime = await context.__aenter__()
+            self._agent_runtime = runtime
+            self._runtime_context = context
+            result = await runtime.run(task, run_id=run_id)
+            await self._handle_task_result(writer, result)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Attached browser task failed")
+            await self._finish_task(
+                writer,
+                success=False,
+                summary="The task stopped because the local runtime could not complete it.",
+            )
+        finally:
+            if context is not None and not self._runtime_suspended:
+                await context.__aexit__(None, None, None)
+                self._agent_runtime = None
+                self._runtime_context = None
+
+    async def _resume_attached_task(
+        self,
+        writer: asyncio.StreamWriter,
+        run_id: str,
+        approved: bool | None,
+    ) -> None:
+        runtime = self._agent_runtime
+        if runtime is None:
+            return
+        try:
+            if approved is None:
+                result = await cast(Any, runtime).resume(run_id)
+            else:
+                result = await cast(Any, runtime).resume_with_confirmation(
+                    run_id,
+                    approved=approved,
+                )
+            await self._handle_task_result(writer, result)
+            if not self._runtime_suspended:
+                await self._close_runtime_context()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Attached browser task could not resume")
+            await self._finish_task(
+                writer, success=False, summary="The task could not resume safely."
+            )
+            await self._close_runtime_context()
+
+    async def _stop_attached_task(self, writer: asyncio.StreamWriter, run_id: str) -> None:
+        runtime = self._agent_runtime
+        if runtime is None:
+            return
+        try:
+            result = await cast(Any, runtime).stop(run_id)
+            if result.status != "running":
+                await self._handle_task_result(writer, result)
+                await self._close_runtime_context()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Attached browser task could not stop")
+            await self._finish_task(
+                writer,
+                success=False,
+                summary="The task could not stop safely.",
+            )
+            await self._close_runtime_context()
+
+    async def _close_runtime_context(self) -> None:
+        context, self._runtime_context = self._runtime_context, None
+        if context is not None:
+            await cast(Any, context).__aexit__(None, None, None)
+        self._agent_runtime = None
+
+    async def _handle_task_result(self, writer: asyncio.StreamWriter, result: object) -> None:
+        state = cast(Any, result)
+        status = state.status
+        if status == "pending_confirmation":
+            session_id = cast(str, (self._runtime_session or {}).get("sessionId", ""))
+            approval_id = self._run_id or str(uuid.uuid4())
+            details: dict[str, str] = {}
+            if self._agent_runtime is not None and self._run_id is not None:
+                try:
+                    details = await cast(Any, self._agent_runtime).pending_confirmation_details(
+                        self._run_id
+                    )
+                except Exception:
+                    logger.exception("Could not summarize pending confirmation")
+            self._pending_approval_id = approval_id
+            self._runtime_suspended = True
+            self._runtime_session["status"] = "awaiting_approval"  # type: ignore[index]
+            await self._send_approval_required(
+                writer,
+                approval_id,
+                session_id,
+                details,
+            )
+            await self._send_runtime_status(writer)
+            return
+        if status == "paused":
+            self._runtime_suspended = True
+            self._runtime_session["status"] = "idle"  # type: ignore[index]
+            await self._send_runtime_status(writer)
+            return
+        self._runtime_suspended = False
+        await self._finish_task(
+            writer,
+            success=status == "completed",
+            summary=state.result_summary
+            or ("Task completed." if status == "completed" else "Task stopped."),
+        )
+
+    async def _finish_task(
+        self, writer: asyncio.StreamWriter, *, success: bool, summary: str
+    ) -> None:
+        session = self._runtime_session
+        if session is None or writer.is_closing():
+            return
+        session_id = cast(str, session["sessionId"])
+        session["status"] = "completed" if success else "failed"
+        session["updatedAt"] = datetime.now(UTC).isoformat()
+        await self._send_runtime_status(writer)
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.task.result",
+                "eventId": str(uuid.uuid4()),
+                "payload": {
+                    "sessionId": session_id,
+                    "outcome": "verified_success" if success else "failed",
+                    "summary": summary[:2_000],
+                    "finishedAt": datetime.now(UTC).isoformat(),
+                },
+            },
+        )
+        self._run_id = None
+        self._pending_approval_id = None
+        self._pending_approval = None
+
+    async def _send_runtime_status(self, writer: asyncio.StreamWriter) -> None:
+        if self._runtime_session is None:
+            return
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.status",
+                "eventId": str(uuid.uuid4()),
+                "payload": {"session": self._runtime_session},
+            },
+        )
+
+    async def _send_timeline(self, writer: asyncio.StreamWriter, event: dict[str, object]) -> None:
+        if writer.is_closing():
+            return
+        self._timeline_events.append(dict(event))
+        self._timeline_events = self._timeline_events[-200:]
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.timeline",
+                "eventId": str(uuid.uuid4()),
+                "payload": {"event": event},
+            },
+        )
+
+    async def _send_approval_required(
+        self,
+        writer: asyncio.StreamWriter,
+        approval_id: str,
+        session_id: str,
+        details: dict[str, str],
+    ) -> None:
+        action = details.get("action", "high-risk action")
+        target = details.get("target", "the browser page")
+        reason = details.get("reason", "the action may have a consequential effect")
+        approval: dict[str, object] = {
+            "approvalId": approval_id,
+            "sessionId": session_id,
+            "title": f"Confirm {action}"[:160],
+            "summary": (
+                f"Target: {target}. Reason: {reason}. Review the browser page before approving."
+            )[:500],
+            "risk": "high",
+        }
+        self._pending_approval = approval
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.approval.required",
+                "eventId": str(uuid.uuid4()),
+                "payload": {"approval": approval},
+            },
+        )
+
+    async def _send_approval_cleared(self, writer: asyncio.StreamWriter, approval_id: str) -> None:
+        self._pending_approval = None
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.approval.cleared",
+                "eventId": str(uuid.uuid4()),
+                "payload": {"approvalId": approval_id},
+            },
+        )
+
+    async def _send_credentials_status(
+        self,
+        writer: asyncio.StreamWriter,
+        *,
+        error: str | None = None,
+    ) -> None:
+        configured = False
+        try:
+            configured = bool(
+                os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("BROWSKI_OPENAI_API_KEY")
+                or self._credential_store.get_openai_api_key()
+            )
+
+        except Exception:
+            configured = False
+        payload: dict[str, object] = {"openAiKeyConfigured": configured}
+        if error is not None:
+            payload["error"] = error
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.credentials.status",
+                "eventId": str(uuid.uuid4()),
+                "payload": payload,
+            },
+        )
+
+    async def _send_host_hello(
+        self,
+        writer: asyncio.StreamWriter,
+        methods: list[str],
+        events: list[str],
+    ) -> None:
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "host.hello",
+                "eventId": str(uuid.uuid4()),
+                "payload": {
+                    "supportedProtocolVersions": [PROTOCOL_VERSION],
+                    "debuggerProtocolVersion": DEBUGGER_PROTOCOL_VERSION,
+                    "debuggerMethods": methods,
+                    "debuggerEvents": events,
+                },
+            },
+        )
+
+    async def _send_runtime_snapshot(self, writer: asyncio.StreamWriter) -> None:
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "runtime.snapshot",
+                "eventId": str(uuid.uuid4()),
+                "payload": {
+                    "session": self._runtime_session,
+                    "events": self._timeline_events[-200:],
+                    "pendingApproval": self._pending_approval,
+                },
+            },
+        )
+
+    async def _send_detach(
+        self,
+        writer: asyncio.StreamWriter,
+        attachment_id: str,
+        reason: str,
+    ) -> None:
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "debugger.detach",
+                "eventId": str(uuid.uuid4()),
+                "payload": {
+                    "attachmentId": attachment_id,
+                    "reason": reason,
+                },
+            },
+        )
+
+    def _unlink_owned_socket(self) -> None:
+        if self._socket_identity is None:
+            return
+        try:
+            metadata = self.socket_path.lstat()
+        except FileNotFoundError:
+            return
+        if (metadata.st_dev, metadata.st_ino) == self._socket_identity:
+            self.socket_path.unlink(missing_ok=True)
+        self._socket_identity = None
+
+    def _unlink_owned_token(self) -> None:
+        if self._token is None:
+            return
+        try:
+            token = self.token_path.read_text(encoding="ascii")
+        except (OSError, UnicodeError):
+            return
+        if hmac.compare_digest(token, self._token):
+            self.token_path.unlink(missing_ok=True)
+        self._token = None

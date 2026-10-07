@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any, Protocol, cast
 
@@ -35,6 +36,7 @@ from browser_agent.agent.checkpoint_state import (
     snapshot_from_checkpoint,
     stagnation_detector,
 )
+from browser_agent.agent.events import RuntimeEventType
 from browser_agent.agent.safety import ActionRiskPolicy, RiskCategory
 from browser_agent.agent.state import AgentState
 from browser_agent.decisions.base import DecisionProvider
@@ -65,6 +67,12 @@ class GraphLimits(Protocol):
     confirm_high_risk: bool
 
 
+class RunControl(Protocol):
+    pause_requested: bool
+    stop_requested: bool
+    stop_event: asyncio.Event
+
+
 def build_agent_graph(
     agent: DecisionAgent,
     browser: BrowserSession,
@@ -73,6 +81,8 @@ def build_agent_graph(
     checkpointer: BaseCheckpointSaver[Any] | None,
     decision_provider: DecisionProvider | None = None,
     interrupt_before: Sequence[str] = (),
+    control_for_run: Callable[[str], RunControl] | None = None,
+    emit_event: Callable[[RuntimeEventType, str, int, str], Any] | None = None,
 ) -> Any:
     """Build the workflow around one live browser session.
 
@@ -113,6 +123,45 @@ def build_agent_graph(
             decision_cache.pop(next(iter(decision_cache)))
         decision_cache[key] = decision
 
+    async def notify(
+        state: AgentState,
+        event_type: RuntimeEventType,
+        status: str,
+    ) -> None:
+        if emit_event is None:
+            return
+        raw_task_state = state["task_state"]
+        steps_taken = raw_task_state.get("steps_taken", 0)
+        step = steps_taken if type(steps_taken) is int else 0
+        if event_type in {
+            RuntimeEventType.OBSERVATION_COMPLETED,
+            RuntimeEventType.DECISION_MADE,
+            RuntimeEventType.ACTION_STARTED,
+        }:
+            step += 1
+        await emit_event(event_type, cache_key(state), step, status)
+
+    def control_result(state: AgentState) -> dict[str, Any] | None:
+        if control_for_run is None:
+            return None
+        control: RunControl = control_for_run(cache_key(state))
+        if control.stop_requested:
+            task_state = TaskState.model_validate(state["task_state"])
+            task_state.status = "stopped"
+            task_state.result_summary = "Stopped by the user at a safe action boundary."
+            decision_cache.pop(cache_key(state), None)
+            return {
+                "task_state": task_state.model_dump(mode="json"),
+                "status": "stopped",
+                "result_summary": task_state.result_summary,
+                "decision": None,
+                "pending_confirmation": False,
+                "confirmation_approved": False,
+            }
+        if control.pause_requested:
+            interrupt({"kind": "user_pause"})
+        return None
+
     async def current_snapshot(
         state: AgentState,
         *,
@@ -125,11 +174,18 @@ def build_agent_graph(
         return snapshot
 
     async def observe_node(state: AgentState) -> dict[str, Any]:
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
         snapshot = await browser.observe()
         save_snapshot(state, snapshot)
+        await notify(state, RuntimeEventType.OBSERVATION_COMPLETED, "completed")
         return {"snapshot": snapshot_checkpoint(snapshot)}
 
     async def decide_node(state: AgentState) -> dict[str, Any]:
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
         decision_cache.pop(cache_key(state), None)
         task_state = TaskState.model_validate(state["task_state"])
         memory = WorkingMemory.model_validate(state["memory"])
@@ -160,11 +216,39 @@ def build_agent_graph(
         snapshot = await current_snapshot(state)
 
         task_state.llm_calls += 1
-        decision = await agent.decide(
-            snapshot,
-            task_state.model_copy(deep=True),
-            memory.model_copy(deep=True),
-        )
+        control = control_for_run(cache_key(state)) if control_for_run is not None else None
+        if control is None:
+            decision = await agent.decide(
+                snapshot,
+                task_state.model_copy(deep=True),
+                memory.model_copy(deep=True),
+            )
+        else:
+            decision_task = asyncio.create_task(
+                agent.decide(
+                    snapshot,
+                    task_state.model_copy(deep=True),
+                    memory.model_copy(deep=True),
+                )
+            )
+            stop_task = asyncio.create_task(control.stop_event.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {decision_task, stop_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stop_task in done and control.stop_requested:
+                    decision_task.cancel()
+                    await asyncio.gather(decision_task, return_exceptions=True)
+                    controlled = control_result(state)
+                    if controlled is not None:
+                        return controlled
+                decision = await decision_task
+            finally:
+                if not stop_task.done():
+                    stop_task.cancel()
+                    await asyncio.gather(stop_task, return_exceptions=True)
+        await notify(state, RuntimeEventType.DECISION_MADE, "completed")
         if decision.action is not None:
             save_decision(state, decision)
         if decision.ask_user:
@@ -300,11 +384,15 @@ def build_agent_graph(
         }
 
     async def safety_node(state: AgentState) -> dict[str, Any]:
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
         if not state["pending_confirmation"]:
             return {"status": "running"}
         decision_data = state["decision"] or {}
         action = decision_data.get("action", {})
         risk = state["risk_assessment"] or {}
+        await notify(state, RuntimeEventType.CONFIRMATION_REQUIRED, "running")
         approved = interrupt(
             {
                 "kind": "high_risk_action_confirmation",
@@ -312,6 +400,19 @@ def build_agent_graph(
                 "risk": risk,
             }
         )
+        if control_for_run is not None and control_for_run(cache_key(state)).stop_requested:
+            task_state = TaskState.model_validate(state["task_state"])
+            task_state.status = "stopped"
+            task_state.result_summary = "Stopped by the user before the confirmed action."
+            decision_cache.pop(cache_key(state), None)
+            return {
+                "task_state": task_state.model_dump(mode="json"),
+                "pending_confirmation": False,
+                "confirmation_approved": False,
+                "status": "stopped",
+                "result_summary": task_state.result_summary,
+                "decision": None,
+            }
         if approved is True:
             return {
                 "pending_confirmation": False,
@@ -328,6 +429,9 @@ def build_agent_graph(
         }
 
     async def execute_node(state: AgentState) -> dict[str, Any]:
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
         decision_data = state["decision"]
         if decision_data is None or state["snapshot"] is None:
             decision_cache.pop(cache_key(state), None)
@@ -412,10 +516,22 @@ def build_agent_graph(
             decision_cache.pop(key, None)
             return {"status": "failed", "result_summary": "No active browser tab was observed."}
 
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
+
         try:
+            await notify(state, RuntimeEventType.ACTION_STARTED, "running")
             outcome = await browser.act(decision.action, snapshot.active_tab)
         finally:
             decision_cache.pop(key, None)
+        raw_execution = outcome.get("execution")
+        execution_succeeded = isinstance(raw_execution, dict) and "Ok" in raw_execution
+        await notify(
+            state,
+            RuntimeEventType.ACTION_COMPLETED,
+            "completed" if execution_succeeded else "failed",
+        )
         observed_after = await current_snapshot(state, after=True)
         raw_verification = outcome.get("verification", {})
         verification = (
@@ -449,6 +565,11 @@ def build_agent_graph(
         mechanically_executed = isinstance(execution, dict) and "Ok" in execution
         verification_status = str(verification.get("status", "UNKNOWN"))
         verified = verification_status == "SUCCESS"
+        await notify(
+            state,
+            RuntimeEventType.VERIFICATION_COMPLETED,
+            "completed" if verified else "failed",
+        )
         before_data = state["snapshot"]
         if before_data is None:
             return {"status": "failed", "result_summary": "Pre-action snapshot is missing."}
@@ -575,6 +696,7 @@ def build_agent_graph(
                     ),
                     budget,
                 )
+            await notify(state, RuntimeEventType.RECOVERY_STARTED, "running")
             if recovery.step.value in {"luna_normal_replan", "luna_high_replan"}:
                 task_state.replan_count += 1
             classification: str | None = None

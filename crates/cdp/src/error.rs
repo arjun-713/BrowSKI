@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 /// Errors from the CDP layer.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum CdpError {
     #[error("chrome binary not found (set CHROME_PATH or install Chromium/Chrome)")]
     ChromeNotFound,
@@ -21,6 +21,8 @@ pub enum CdpError {
     Http(String),
     #[error("websocket error: {0}")]
     WebSocket(String),
+    #[error("extension bridge error: {0}")]
+    ExtensionBridge(String),
     #[error("cdp error {code}: {message}")]
     Protocol { code: i64, message: String },
     #[error("no page target available")]

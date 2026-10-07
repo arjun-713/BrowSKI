@@ -1,7 +1,7 @@
 //! [`BrowserSession`]: one owned Chromium (or an attached external one),
 //! one persistent transport, a tab/frame registry, and a typed event bus.
 //!
-//! All browser I/O flows through the [`PersistentTransport`](browser_agent_cdp::transport::PersistentTransport);
+//! All browser I/O flows through [`CdpTransport`](browser_agent_cdp::CdpTransport);
 //! the session adds lifecycle (launch/attach/reconnect/close), the
 //! [`TabRegistry`](crate::model::TabRegistry) view, and the
 //! [`BrowserEvent`](crate::events::BrowserEvent) projection.
@@ -10,7 +10,7 @@ use crate::error::BrowserRuntimeError;
 use crate::events::BrowserEvent;
 use crate::model::{Tab, TabRegistry};
 use browser_agent_cdp::{
-    browser_ws_url, list_targets, CdpError, CdpEvent, CdpSessionId, LaunchedChrome,
+    browser_ws_url, list_targets, CdpError, CdpEvent, CdpSessionId, CdpTransport, LaunchedChrome,
     PersistentTransport, TabId, TargetId, DEFAULT_COMMAND_TIMEOUT,
 };
 use browser_agent_element_registry::ElementRegistry;
@@ -28,6 +28,7 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 const ATTACH_WAIT: Duration = Duration::from_secs(15);
 const REMOVAL_WAIT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const MAX_VIEWPORT_SCREENSHOT_BASE64_BYTES: usize = 5_600_000;
 
 /// Options for [`BrowserSession::launch_with_options`].
 #[derive(Debug, Clone)]
@@ -80,9 +81,10 @@ impl From<&Tab> for TabInfo {
 /// handling never touch a socket directly.
 pub struct BrowserSession {
     session_id: String,
+    mode: SessionMode,
     chrome: Option<LaunchedChrome>,
     base_url: String,
-    transport: RwLock<Arc<PersistentTransport>>,
+    transport: RwLock<Arc<dyn CdpTransport>>,
     tabs: Arc<RwLock<TabRegistry>>,
     event_tx: broadcast::Sender<BrowserEvent>,
     generation: Arc<AtomicU64>,
@@ -94,6 +96,12 @@ pub struct BrowserSession {
     snapshots: Arc<RwLock<HashMap<TargetId, SemanticSnapshot>>>,
     deltas: Arc<RwLock<HashMap<TargetId, SnapshotDelta>>>,
     dialog_open_flag: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionMode {
+    Managed,
+    Attached,
 }
 
 impl BrowserSession {
@@ -123,6 +131,61 @@ impl BrowserSession {
         Self::attach(debugger_base_url.to_string(), None, options).await
     }
 
+    /// Create a session around an already attached browser tab transport.
+    ///
+    /// The caller owns browser attachment and supplies the single tab and CDP
+    /// session authorized by that attachment. This skips managed-browser
+    /// discovery and target auto-attach; observation and execution still use
+    /// the same `BrowserSession` implementation.
+    pub async fn from_attached_transport(
+        transport: Arc<dyn CdpTransport>,
+        target: TargetId,
+        cdp_session: CdpSessionId,
+        session_id: Option<String>,
+        title: String,
+        url: String,
+        options: LaunchOptions,
+    ) -> Result<Self, BrowserRuntimeError> {
+        let id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let mut tabs = TabRegistry::new();
+        tabs.upsert_target(target.clone(), title.clone(), url.clone());
+        tabs.bind_session(cdp_session.clone(), target.clone());
+        tabs.set_active(target);
+        let session = Self {
+            session_id: session_id.unwrap_or_else(|| id.to_string()),
+            mode: SessionMode::Attached,
+            chrome: None,
+            base_url: String::new(),
+            transport: RwLock::new(transport.clone()),
+            tabs: Arc::new(RwLock::new(tabs)),
+            event_tx,
+            generation: Arc::new(AtomicU64::new(0)),
+            navigation_timeout: options.navigation_timeout,
+            command_timeout: options.command_timeout,
+            closed: Arc::new(AtomicBool::new(false)),
+            pump: tokio::sync::Mutex::new(None),
+            registries: Arc::new(RwLock::new(HashMap::new())),
+            snapshots: Arc::new(RwLock::new(HashMap::new())),
+            deltas: Arc::new(RwLock::new(HashMap::new())),
+            dialog_open_flag: Arc::new(AtomicBool::new(false)),
+        };
+        session.spawn_pump().await;
+        for method in ["Page.enable", "DOM.enable", "CSS.enable", "Runtime.enable"] {
+            transport
+                .command_in_session(&cdp_session, method, serde_json::json!({}))
+                .await
+                .map_err(|error| BrowserRuntimeError::from_cdp(error, None))?;
+        }
+        browser_agent_telemetry::TraceEvent::new(
+            "browser.session.attach",
+            format!("attached browser session {} ready", session.session_id),
+        )
+        .with_session(session.session_id.clone())
+        .emit();
+        Ok(session)
+    }
+
     async fn attach(
         base_url: String,
         chrome: Option<LaunchedChrome>,
@@ -131,7 +194,7 @@ impl BrowserSession {
         let ws_url = browser_ws_url(&base_url)
             .await
             .map_err(|e| BrowserRuntimeError::LaunchFailure(e.to_string()))?;
-        let transport = Arc::new(
+        let transport: Arc<dyn CdpTransport> = Arc::new(
             PersistentTransport::connect(&ws_url, options.command_timeout)
                 .await
                 .map_err(|e| BrowserRuntimeError::LaunchFailure(e.to_string()))?,
@@ -140,6 +203,7 @@ impl BrowserSession {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let session = Self {
             session_id: id.to_string(),
+            mode: SessionMode::Managed,
             chrome,
             base_url,
             transport: RwLock::new(Arc::clone(&transport)),
@@ -160,7 +224,7 @@ impl BrowserSession {
         // explicitly attaches existing targets (deterministic: the session
         // id comes back in the command response) and enables auto-attach
         // only for *future* targets.
-        session.initialize(&transport).await?;
+        session.initialize(transport.as_ref()).await?;
         session.wait_for_first_tab().await?;
         browser_agent_telemetry::TraceEvent::new(
             "browser.session.launch",
@@ -177,7 +241,7 @@ impl BrowserSession {
     /// explicit `Target.attachToTarget` (synchronous session id) if an event
     /// does not arrive. Auto-attach-first avoids double sessions in the
     /// common case.
-    async fn initialize(&self, transport: &PersistentTransport) -> Result<(), BrowserRuntimeError> {
+    async fn initialize(&self, transport: &dyn CdpTransport) -> Result<(), BrowserRuntimeError> {
         transport
             .command(
                 "Target.setDiscoverTargets",
@@ -400,7 +464,7 @@ impl BrowserSession {
         self.tab_session(tab).await
     }
 
-    pub(crate) async fn transport_pub(&self) -> Arc<PersistentTransport> {
+    pub(crate) async fn transport_pub(&self) -> Arc<dyn CdpTransport> {
         self.transport.read().await.clone()
     }
 
@@ -594,6 +658,39 @@ impl BrowserSession {
         crate::observer::observe_full(self, tab).await
     }
 
+    /// Capture the visible viewport as transient base64 PNG data.
+    ///
+    /// Full-page capture is deliberately excluded: callers should request
+    /// vision only after semantic observation is insufficient.
+    pub async fn capture_viewport_screenshot(
+        &self,
+        tab: &TabId,
+    ) -> Result<String, BrowserRuntimeError> {
+        let (_, session) = self.tab_session(tab).await?;
+        let result = self
+            .cmd(
+                Some(&session),
+                "Page.captureScreenshot",
+                serde_json::json!({
+                    "format": "png",
+                    "fromSurface": true,
+                    "captureBeyondViewport": false,
+                }),
+            )
+            .await?;
+        let data = result.get("data").and_then(Value::as_str).ok_or_else(|| {
+            BrowserRuntimeError::Cdp(CdpError::Unexpected(
+                "Page.captureScreenshot missing base64 data".into(),
+            ))
+        })?;
+        if data.len() > MAX_VIEWPORT_SCREENSHOT_BASE64_BYTES {
+            return Err(BrowserRuntimeError::Cdp(CdpError::Unexpected(
+                "viewport screenshot exceeds the 4 MiB encoded image limit".into(),
+            )));
+        }
+        Ok(data.to_owned())
+    }
+
     /// Incremental delta vs the previous snapshot of a tab.
     pub async fn observe_delta(&self, tab: &TabId) -> Result<SnapshotDelta, BrowserRuntimeError> {
         let target = TargetId::from(tab.as_str().to_string());
@@ -704,10 +801,13 @@ impl BrowserSession {
         if self.closed.load(Ordering::SeqCst) {
             return Err(BrowserRuntimeError::SessionClosed);
         }
+        if self.mode == SessionMode::Attached {
+            return Err(BrowserRuntimeError::ConnectionLost);
+        }
         let ws_url = browser_ws_url(&self.base_url)
             .await
             .map_err(|_| BrowserRuntimeError::ConnectionLost)?;
-        let fresh = Arc::new(
+        let fresh: Arc<dyn CdpTransport> = Arc::new(
             PersistentTransport::connect(&ws_url, self.command_timeout)
                 .await
                 .map_err(|e| BrowserRuntimeError::from_cdp(e, None))?,
@@ -733,7 +833,7 @@ impl BrowserSession {
             handle.abort();
         }
         self.spawn_pump().await;
-        self.initialize(&fresh).await?;
+        self.initialize(fresh.as_ref()).await?;
         // Wait until at least one tab is usable again.
         let start = Instant::now();
         while start.elapsed() < ATTACH_WAIT {
@@ -965,7 +1065,7 @@ impl Drop for BrowserSession {
 async fn adopt_session_into(
     tabs: &Arc<RwLock<TabRegistry>>,
     event_tx: &broadcast::Sender<BrowserEvent>,
-    transport: &Arc<PersistentTransport>,
+    transport: &Arc<dyn CdpTransport>,
     session: CdpSessionId,
     target: TargetId,
     title: String,
@@ -1013,7 +1113,7 @@ async fn pump_one(
     tabs: &Arc<RwLock<TabRegistry>>,
     event_tx: &broadcast::Sender<BrowserEvent>,
     _session_id: &str,
-    transport: &Arc<PersistentTransport>,
+    transport: &Arc<dyn CdpTransport>,
     closed: &Arc<AtomicBool>,
     dialog_open: &Arc<AtomicBool>,
     generation: &Arc<AtomicU64>,
@@ -1199,11 +1299,113 @@ async fn pump_one(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Mutex;
+
+    struct MockTransport {
+        events: broadcast::Sender<CdpEvent>,
+        commands: Mutex<Vec<String>>,
+    }
+
+    impl MockTransport {
+        fn new() -> Self {
+            let (events, _) = broadcast::channel(8);
+            Self {
+                events,
+                commands: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl CdpTransport for MockTransport {
+        fn command<'a>(
+            &'a self,
+            method: &'a str,
+            _params: Value,
+        ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.commands.lock().unwrap().push(method.to_string());
+                Ok(Value::Null)
+            })
+        }
+
+        fn command_in_session<'a>(
+            &'a self,
+            _session: &'a CdpSessionId,
+            method: &'a str,
+            params: Value,
+        ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+            self.command(method, params)
+        }
+
+        fn command_with_timeout<'a>(
+            &'a self,
+            session: Option<&'a CdpSessionId>,
+            method: &'a str,
+            params: Value,
+            _timeout: Duration,
+        ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+            match session {
+                Some(session) => self.command_in_session(session, method, params),
+                None => self.command(method, params),
+            }
+        }
+
+        fn subscribe(&self) -> broadcast::Receiver<CdpEvent> {
+            self.events.subscribe()
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn pending_commands(&self) -> usize {
+            0
+        }
+
+        fn close<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+            Box::pin(async {})
+        }
+    }
 
     #[test]
     fn launch_options_defaults() {
         let opts = LaunchOptions::default();
         assert!(opts.headless);
         assert_eq!(opts.navigation_timeout, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn attached_transport_seeds_one_tab_and_enables_page_domains() {
+        let transport = Arc::new(MockTransport::new());
+        let commands = &transport.commands;
+        let session = BrowserSession::from_attached_transport(
+            transport.clone(),
+            TargetId::from("tab-17"),
+            CdpSessionId::from("attachment-17"),
+            None,
+            "Search results".to_string(),
+            "https://example.test/results".to_string(),
+            LaunchOptions::default(),
+        )
+        .await
+        .unwrap();
+
+        let tabs = session.tabs().await;
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].id.as_str(), "tab-17");
+        assert_eq!(tabs[0].title, "Search results");
+        assert_eq!(tabs[0].url, "https://example.test/results");
+        assert_eq!(
+            *commands.lock().unwrap(),
+            ["Page.enable", "DOM.enable", "CSS.enable", "Runtime.enable"]
+        );
+        assert!(matches!(
+            session.reconnect().await,
+            Err(BrowserRuntimeError::ConnectionLost)
+        ));
+
+        session.close().await.unwrap();
     }
 }

@@ -7,10 +7,11 @@ an ADR (see “When to write an ADR”).
 ## 1. Project mission
 
 Build BROWSKI, an open-source browser agent runtime for reliable short and
-long-running browser tasks. Laya is the default local System One provider;
-TypeSafe Jev is the optional cloud fallback/comparison provider. GPT-6 Luna is
-the only generative reasoning model in the baseline. API credentials are only
-needed when an optional cloud provider is selected.
+long-running browser tasks. Current runtime policy is GPT-6 Luna for all
+executable decisions, Laya as non-executing shadow only, and Jev disabled.
+GPT-6 Luna is the only generative reasoning model in the baseline. OpenAI
+credentials are needed to run model-backed tasks; doctor must never make a
+provider call.
 
 Primary metric: **end-to-end task completion**. Everything else (steps,
 tokens, latency, cost, recovery rate) is secondary but measured — see
@@ -32,7 +33,8 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 12. Long-running tasks require explicit working memory and task state.
 13. Raw historical context must not grow without bound.
 14. Prefer deterministic browser operations once intent is known.
-15. LLMs resolve ambiguity, not mechanical reasoning.
+15. GPT-6 Luna selects bounded executable actions; Rust performs deterministic
+    browser mechanics and verification.
 16. Decision and reasoning providers are replaceable through the shared
     `DecisionProvider` and `ReasoningProvider` domain interfaces.
 17. The browser core must not know which LLM provider is used.
@@ -67,7 +69,7 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/telemetry/` — `TraceEvent` envelope, timing, traces.
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
 - `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
-- `python/src/browser_agent/decisions/` — bounded `DecisionProvider` contract, Laya/Jev adapters, calibration, and routing.
+- `python/src/browser_agent/decisions/` — bounded `DecisionProvider` contract, Laya/Jev adapters, calibration, and shadow comparison. Laya output must not authorize execution.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
 - `benchmarks/`, `tests/`, `examples/`, `docs/`, `scripts/` — as named.
@@ -97,7 +99,8 @@ Do not create directories with no expected ownership or purpose.
   microservices, auth systems, or cloud infra without a benchmark-backed need.
 - Keep new dependencies minimal (“no 30 dependencies for later”).
 - Laya and TypeSafe SDK are optional provider extras; neither may become a
-  required dependency of the base browser runtime.
+  required dependency of the base browser runtime. Jev is disabled by current
+  runtime policy. Do not call Jev without a later explicit architecture change.
 - Commit lockfiles: `Cargo.lock`, `python/uv.lock`.
 
 ## 7. Test requirements
@@ -176,10 +179,25 @@ architectural options. Read ADR-001 and ADR-002 first.
 - Do not build the old mandatory pipeline (screenshot → local detector → OCR
   → ScreenGraph → privacy → LLM → executor) as the default; browser-native
   grounding comes first, perception/privacy are optional modules.
-- Do not build large frontends, extensions, local VLM inference, training, or
-  cloud infra in early milestones.
+- Do not add a frontend, extension capability, local visual model, training,
+  or cloud infrastructure unless it is part of an explicitly authorized
+  product milestone. The current productization scope authorizes an extension
+  UI/bridge, on-demand vision, browser-code policy, privacy modes, and local
+  service packaging; preserve the Rust/Python ownership boundaries.
 
-## 14. Definition of done (scaffold)
+## 14. Current provider and product status
+
+- GPT-6 Luna is the only provider allowed to select executable actions.
+- Laya comparisons are shadow telemetry only and never change Luna's choice.
+- Jev is disabled and is not required for development or runtime operation.
+- The extension is a UI, browser attachment layer, and permission broker. It
+  must not implement agent reasoning, semantic state, verification, recovery,
+  memory, or provider routing.
+- Mark product capabilities as implemented, partial, or planned based on
+  executable integration evidence. A provider contract or UI scaffold is not
+  an end-to-end feature.
+
+## 15. Definition of done (scaffold)
 
 Cargo builds · Python installs via `uv` · bindings build · Python drives Rust
 · Chromium launches · navigation + title observation work · clean shutdown ·

@@ -362,9 +362,15 @@ class TaskState(BaseModel):
         default_factory=list[dict[str, Any]], max_length=50
     )
     progress_signals: list[str] = Field(default_factory=list[str], max_length=20)
-    status: Literal["running", "awaiting_user", "pending_confirmation", "completed", "failed"] = (
-        "running"
-    )
+    status: Literal[
+        "running",
+        "awaiting_user",
+        "pending_confirmation",
+        "paused",
+        "stopped",
+        "completed",
+        "failed",
+    ] = "running"
     run_id: str | None = None
     result_summary: str | None = None
     done: bool = False

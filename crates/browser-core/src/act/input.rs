@@ -218,7 +218,7 @@ async fn perform_click(
         Ok((x, y)) => {
             if hit_passes(session, &r.session, r.backend, x, y).await {
                 let transport = session.transport_pub().await;
-                let targets_before = count_page_targets(&transport).await;
+                let targets_before = count_page_targets(transport.as_ref()).await;
                 let button_str = match button {
                     MouseButton::Left => "left",
                     MouseButton::Middle => "middle",
@@ -257,7 +257,7 @@ async fn perform_click(
                         // release and wedges opener input while the popup is
                         // open. A synchronously-appeared page target proves
                         // delivery; anything else stays a timeout failure.
-                        if new_page_target_appeared(&transport, targets_before).await {
+                        if new_page_target_appeared(transport.as_ref(), targets_before).await {
                             return Ok(ExecutionEvidence {
                                 method: "cdp-input".into(),
                                 detail: format!(

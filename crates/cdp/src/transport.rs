@@ -40,6 +40,8 @@ use crate::ids::CdpSessionId;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -49,6 +51,49 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 const COMMAND_QUEUE_CAPACITY: usize = 256;
+
+/// Command and event interface consumed by the semantic browser runtime.
+///
+/// Managed Chromium uses [`PersistentTransport`]. Attached-browser mode can
+/// implement the same contract while forwarding commands through the
+/// authenticated extension bridge.
+pub trait CdpTransport: Send + Sync {
+    /// Send a browser-level command and wait for its correlated response.
+    fn command<'a>(
+        &'a self,
+        method: &'a str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>>;
+
+    /// Send a command to an attached target session.
+    fn command_in_session<'a>(
+        &'a self,
+        session: &'a CdpSessionId,
+        method: &'a str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>>;
+
+    /// Send a command with a caller-selected deadline.
+    fn command_with_timeout<'a>(
+        &'a self,
+        session: Option<&'a CdpSessionId>,
+        method: &'a str,
+        params: Value,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>>;
+
+    /// Subscribe to protocol events.
+    fn subscribe(&self) -> broadcast::Receiver<CdpEvent>;
+
+    /// Report whether the transport is usable.
+    fn is_connected(&self) -> bool;
+
+    /// Return the number of command responses currently pending.
+    fn pending_commands(&self) -> usize;
+
+    /// Close the transport and stop its owned background tasks.
+    fn close<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+}
 
 struct Outbound {
     id: u64,
@@ -257,6 +302,55 @@ impl PersistentTransport {
         for h in handles {
             h.abort();
         }
+    }
+}
+
+impl CdpTransport for PersistentTransport {
+    fn command<'a>(
+        &'a self,
+        method: &'a str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+        Box::pin(PersistentTransport::command(self, method, params))
+    }
+
+    fn command_in_session<'a>(
+        &'a self,
+        session: &'a CdpSessionId,
+        method: &'a str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+        Box::pin(PersistentTransport::command_in_session(
+            self, session, method, params,
+        ))
+    }
+
+    fn command_with_timeout<'a>(
+        &'a self,
+        session: Option<&'a CdpSessionId>,
+        method: &'a str,
+        params: Value,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
+        Box::pin(PersistentTransport::command_with_timeout(
+            self, session, method, params, timeout,
+        ))
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<CdpEvent> {
+        PersistentTransport::subscribe(self)
+    }
+
+    fn is_connected(&self) -> bool {
+        PersistentTransport::is_connected(self)
+    }
+
+    fn pending_commands(&self) -> usize {
+        PersistentTransport::pending_commands(self)
+    }
+
+    fn close<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(PersistentTransport::close(self))
     }
 }
 

@@ -16,6 +16,7 @@ dependencies = [
   "typing-extensions>=4.8",
   "typer>=0.9",
   "rich>=13.0",
+  "keyring>=25.0,<26.0",
   "anyio>=4.0",
   "structlog>=23.0",
   "langgraph>=1.0,<2.0",
@@ -37,6 +38,8 @@ dev = [
 [project.scripts]
 browski = "browser_agent.cli:main"
 agent = "browser_agent.cli:main"
+browski-native-host = "browser_agent.extension.native_host:main"
+browski-install-native-host = "browser_agent.extension.install:main"
 
 [tool.maturin]
 bindings = "pyo3"

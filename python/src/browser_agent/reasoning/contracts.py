@@ -27,6 +27,7 @@ class ReasoningPurpose(StrEnum):
     REPLAN = "replan"
     RESOLVE_AMBIGUITY = "resolve_ambiguity"
     INTERPRET_STATE = "interpret_state"
+    CHOOSE_ACTION = "choose_action"
 
 
 class ReasoningOutcome(StrEnum):
@@ -184,7 +185,9 @@ class ReasoningContext(BaseModel):
     memory: WorkingMemory
     observation: AgentObservation
     prior_summary: str = Field(default="", max_length=2_000)
+    visual_observation: str | None = Field(default=None, max_length=1_200)
     failure_summary: str | None = Field(default=None, max_length=1_000)
+    candidate_options: dict[str, str] = Field(default_factory=dict, max_length=16)
 
 
 class ReasoningProvider(Protocol):

@@ -143,7 +143,9 @@ dependencies = [
 name = "browser-agent-python"
 version = "0.1.0"
 dependencies = [
+ "browser-agent-cdp",
  "browser-agent-core",
+ "browser-agent-observation",
  "pyo3",
  "serde",
  "serde_json",

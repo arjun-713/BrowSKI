@@ -1,5 +1,6 @@
 """LangGraph agent runtime, typed state, and decision seam."""
 
+from browser_agent.agent.events import RuntimeEvent, RuntimeEventType
 from browser_agent.agent.luna import LunaDecisionAgent
 from browser_agent.agent.runtime import Agent, AgentConfig, AgentRuntime
 from browser_agent.agent.safety import ActionRiskPolicy, RiskAssessment, RiskCategory
@@ -12,6 +13,8 @@ __all__ = [
     "AgentRuntime",
     "AgentState",
     "LunaDecisionAgent",
+    "RuntimeEvent",
+    "RuntimeEventType",
     "RiskAssessment",
     "RiskCategory",
 ]

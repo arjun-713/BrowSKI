@@ -1,6 +1,6 @@
 use crate::observer::hit_test_contains;
 use crate::session::BrowserSession;
-use browser_agent_cdp::{CdpSessionId, TabId};
+use browser_agent_cdp::{CdpSessionId, CdpTransport, TabId};
 use browser_agent_executor::{ExecutionFailure, ExecutionFailureKind, MouseButton};
 use browser_agent_observation::{BackendNodeId, SemanticKind};
 use serde_json::Value;
@@ -151,7 +151,7 @@ pub(super) async fn hit_passes(
         .and_then(|r| r.get("backendNodeId").and_then(Value::as_i64));
     match topmost {
         Some(t) if t == backend.get() => true,
-        _ => hit_test_contains(&transport, cdp_session, backend.get(), x, y).await,
+        _ => hit_test_contains(transport.as_ref(), cdp_session, backend.get(), x, y).await,
     }
 }
 
@@ -224,9 +224,7 @@ pub(super) async fn send_mouse_timeout(
 
 /// Page-target count for popup-appearance probes (browser-level command,
 /// unaffected by per-target input wedges).
-pub(super) async fn count_page_targets(
-    transport: &browser_agent_cdp::PersistentTransport,
-) -> usize {
+pub(super) async fn count_page_targets(transport: &dyn CdpTransport) -> usize {
     transport
         .command("Target.getTargets", serde_json::json!({}))
         .await
@@ -242,10 +240,7 @@ pub(super) async fn count_page_targets(
         .unwrap_or(0)
 }
 
-pub(super) async fn new_page_target_appeared(
-    transport: &browser_agent_cdp::PersistentTransport,
-    before: usize,
-) -> bool {
+pub(super) async fn new_page_target_appeared(transport: &dyn CdpTransport, before: usize) -> bool {
     count_page_targets(transport).await > before
 }
 

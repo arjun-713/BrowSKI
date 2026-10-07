@@ -8,9 +8,14 @@
 //!
 //! API changes here follow `docs/protocols/versioning.md`.
 
+use browser_agent_cdp::ExtensionCdpTransport;
 use browser_agent_core::BrowserSession;
+use browser_agent_observation::{CdpSessionId, TargetId};
 use pyo3::prelude::*;
-use std::sync::{Mutex, OnceLock};
+use serde::Deserialize;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 fn runtime() -> &'static Runtime {
@@ -26,6 +31,15 @@ fn runtime() -> &'static Runtime {
 
 fn map_err(e: impl std::fmt::Display) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+}
+
+#[derive(Deserialize)]
+struct AttachedBrowserMetadata {
+    attachment_id: String,
+    session_id: String,
+    target_id: String,
+    title: String,
+    url: String,
 }
 
 /// Synchronous browser session handle (wrap with `asyncio.to_thread` on the
@@ -55,6 +69,45 @@ impl PyBrowserSession {
         })
     }
 
+    #[staticmethod]
+    #[pyo3(signature = (socket_path, token, metadata_json))]
+    fn attach_extension(
+        py: Python<'_>,
+        socket_path: String,
+        token: String,
+        metadata_json: String,
+    ) -> PyResult<Self> {
+        let socket_path = PathBuf::from(socket_path);
+        let metadata: AttachedBrowserMetadata =
+            serde_json::from_str(&metadata_json).map_err(map_err)?;
+        let session = py.detach(|| {
+            let transport = runtime()
+                .block_on(ExtensionCdpTransport::connect(
+                    &socket_path,
+                    &token,
+                    metadata.attachment_id,
+                    CdpSessionId::from(metadata.session_id.clone()),
+                    Duration::from_secs(30),
+                ))
+                .map(Arc::new)
+                .map_err(map_err)?;
+            runtime()
+                .block_on(BrowserSession::from_attached_transport(
+                    transport,
+                    TargetId::from(metadata.target_id),
+                    CdpSessionId::from(metadata.session_id.clone()),
+                    Some(metadata.session_id),
+                    metadata.title,
+                    metadata.url,
+                    browser_agent_core::LaunchOptions::default(),
+                ))
+                .map_err(map_err)
+        })?;
+        Ok(Self {
+            inner: Mutex::new(Some(session)),
+        })
+    }
+
     fn navigate(&self, py: Python<'_>, url: &str) -> PyResult<()> {
         let url = url.to_owned();
         py.detach(|| {
@@ -78,6 +131,21 @@ impl PyBrowserSession {
             let session = guard.as_ref().ok_or_else(|| map_err("session is closed"))?;
             let snapshot = runtime().block_on(session.observe()).map_err(map_err)?;
             serde_json::to_string(&snapshot).map_err(map_err)
+        })
+    }
+
+    /// Capture the active page viewport as transient base64 PNG data.
+    fn capture_viewport_screenshot(&self, py: Python<'_>, tab_id: &str) -> PyResult<String> {
+        let tab = browser_agent_core::TabId::from(tab_id);
+        py.detach(|| {
+            let guard = self
+                .inner
+                .lock()
+                .map_err(|_| map_err("session lock poisoned"))?;
+            let session = guard.as_ref().ok_or_else(|| map_err("session is closed"))?;
+            runtime()
+                .block_on(session.capture_viewport_screenshot(&tab))
+                .map_err(map_err)
         })
     }
 

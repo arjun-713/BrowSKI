@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -11,12 +12,14 @@ import pytest
 from browser_agent import AgentDecision, BrowserAction, BrowserSession, ElementRef
 from browser_agent._types import SemanticSnapshot, TaskState, WorkingMemory
 from browser_agent.agent import Agent, AgentConfig, AgentRuntime
+from browser_agent.agent.events import RuntimeEvent, RuntimeEventType
 from browser_agent.decisions import (
     DecisionAnswer,
     DecisionProvider,
     DecisionQuestion,
     DecisionResult,
 )
+from browser_agent.persistence import SQLiteRunMetadataStore
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,6 +48,41 @@ class FormAgent(Agent):
             generation=checkbox.generation,
         )
         return AgentDecision(action=BrowserAction(type="check", target=target, checked=True))
+
+
+class BlockingNavigationAgent(Agent):
+    def __init__(self) -> None:
+        self.deciding = asyncio.Event()
+        self.release_decision = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def decide(
+        self,
+        snapshot: SemanticSnapshot,
+        task: TaskState,
+        memory: WorkingMemory,
+    ) -> AgentDecision:
+        _ = task, memory
+        self.deciding.set()
+        try:
+            await self.release_decision.wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        if snapshot.url == "about:blank":
+            return AgentDecision(action=BrowserAction(type="navigate", url=FIXTURE.as_uri()))
+        return AgentDecision(done=True, result_summary="Fixture opened.")
+
+
+class AskingUserAgent(Agent):
+    async def decide(
+        self,
+        snapshot: SemanticSnapshot,
+        task: TaskState,
+        memory: WorkingMemory,
+    ) -> AgentDecision:
+        _ = snapshot, task, memory
+        return AgentDecision(ask_user=["Which result should I open?"])
 
 
 class CompleteAfterObserveAgent(Agent):
@@ -189,6 +227,168 @@ async def test_graph_executes_verified_actions_on_local_fixture() -> None:
         assert "checked" in checkbox.state
 
 
+async def test_runtime_emits_content_minimal_timeline_events() -> None:
+    events: list[RuntimeEvent] = []
+
+    async def capture(event: RuntimeEvent) -> None:
+        events.append(event)
+
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(FormAgent(), browser, event_sink=capture)
+        result = await runtime.run("Open the signup fixture and accept terms.", run_id="trace-run")
+
+    assert result.done
+    assert events[0].type == RuntimeEventType.RUN_STARTED
+    assert events[-1].type == RuntimeEventType.RUN_COMPLETED
+    event_types = {event.type for event in events}
+    assert RuntimeEventType.OBSERVATION_COMPLETED in event_types
+    assert RuntimeEventType.DECISION_MADE in event_types
+    assert RuntimeEventType.ACTION_STARTED in event_types
+    assert RuntimeEventType.ACTION_COMPLETED in event_types
+    assert RuntimeEventType.VERIFICATION_COMPLETED in event_types
+    assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+    assert all(event.run_id == "trace-run" for event in events)
+    assert all("signup fixture" not in str(event.to_protocol_payload()) for event in events)
+
+
+async def test_trace_sink_failure_does_not_interrupt_browser_task(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def broken_sink(_event: RuntimeEvent) -> None:
+        raise RuntimeError("sensitive trace transport detail")
+
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(FormAgent(), browser, event_sink=broken_sink)
+        result = await runtime.run("Open the fixture", run_id="trace-disconnect")
+
+    assert result.done
+    assert "trace consumer failed" in caplog.text
+    assert "sensitive trace transport detail" not in caplog.text
+
+
+async def test_pause_checkpoints_before_action_and_resume_continues() -> None:
+    agent = BlockingNavigationAgent()
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(agent, browser)
+        running = asyncio.create_task(runtime.run("Open the fixture", run_id="pause-run"))
+        await agent.deciding.wait()
+        runtime.pause("pause-run")
+        agent.release_decision.set()
+
+        paused = await running
+
+        assert paused.status == "paused"
+        assert "Paused" in (paused.result_summary or "")
+        assert (await browser.observe()).url == "about:blank"
+
+        resumed = await runtime.resume("pause-run")
+
+        assert resumed.done
+        assert resumed.status == "completed"
+        assert (await browser.observe()).url == FIXTURE.as_uri()
+
+
+async def test_stop_while_deciding_does_not_execute_the_pending_action() -> None:
+    agent = BlockingNavigationAgent()
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(agent, browser)
+        running = asyncio.create_task(runtime.run("Open the fixture", run_id="stop-run"))
+        await agent.deciding.wait()
+
+        stop_request = await runtime.stop("stop-run")
+        stopped = await running
+
+        assert stop_request.status == "running"
+        assert stopped.status == "stopped"
+        assert agent.cancelled.is_set()
+        assert "Stopped" in (stopped.result_summary or "")
+        assert (await browser.observe()).url == "about:blank"
+
+
+async def test_stop_during_action_waits_for_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = BlockingNavigationAgent()
+    async with BrowserSession.launch() as browser:
+        action_started = asyncio.Event()
+        release_action = asyncio.Event()
+        original_act = browser.act
+
+        async def delayed_act(
+            action: BrowserAction,
+            tab_id: str | None = None,
+        ) -> dict[str, Any]:
+            action_started.set()
+            await release_action.wait()
+            return await original_act(action, tab_id)
+
+        monkeypatch.setattr(browser, "act", delayed_act)
+        runtime = AgentRuntime(agent, browser)
+        agent.release_decision.set()
+        running = asyncio.create_task(runtime.run("Open the fixture", run_id="stop-in-flight"))
+        await action_started.wait()
+
+        stop_request = await runtime.stop("stop-in-flight")
+        release_action.set()
+        stopped = await running
+
+        assert stop_request.status == "running"
+        assert stopped.status == "stopped"
+        assert stopped.steps_taken == 1
+        assert (await browser.observe()).url == FIXTURE.as_uri()
+
+
+async def test_stop_from_paused_checkpoint_is_terminal() -> None:
+    agent = BlockingNavigationAgent()
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(agent, browser)
+        running = asyncio.create_task(runtime.run("Open the fixture", run_id="paused-stop"))
+        await agent.deciding.wait()
+        runtime.pause("paused-stop")
+        agent.release_decision.set()
+        paused = await running
+
+        stopped = await runtime.stop("paused-stop")
+
+        assert paused.status == "paused"
+        assert stopped.status == "stopped"
+        assert (await browser.observe()).url == "about:blank"
+
+
+async def test_stop_while_waiting_for_user_persists_terminal_status() -> None:
+    async with BrowserSession.launch() as browser:
+        runtime = AgentRuntime(AskingUserAgent(), browser)
+        waiting = await runtime.run("Open a result", run_id="awaiting-user")
+
+        stopped = await runtime.stop("awaiting-user")
+        checkpoint = await runtime.graph.aget_state(
+            {"configurable": {"thread_id": "awaiting-user"}}
+        )
+
+        assert waiting.status == "awaiting_user"
+        assert stopped.status == "stopped"
+        assert checkpoint.values["status"] == "stopped"
+
+
+async def test_sqlite_runtime_records_safe_run_metadata(tmp_path: Path) -> None:
+    database = tmp_path / "metadata.sqlite3"
+    async with BrowserSession.launch() as browser:
+        async with AgentRuntime.open_sqlite(
+            CompleteAfterObserveAgent(),
+            browser,
+            database=database,
+        ) as runtime:
+            result = await runtime.run("Navigate then inspect", run_id="metadata-run")
+
+    records = await SQLiteRunMetadataStore(database).list_runs()
+
+    assert result.status == "completed"
+    assert len(records) == 1
+    assert records[0].run_id == "metadata-run"
+    assert records[0].status == "completed"
+    assert records[0].steps == result.steps_taken
+
+
 async def test_long_horizon_counts_text_only_changes_as_progress() -> None:
     task = TaskState(task="Click ten times", required_evidence=["clicked 10 times"])
     async with BrowserSession.launch() as browser:
@@ -314,6 +514,10 @@ document.querySelector('#order').addEventListener('submit', (event) => {
 
         denied = await runtime.run("Submit the signup form.", run_id="submit-denied")
         assert denied.status == "pending_confirmation"
+        confirmation = await runtime.pending_confirmation_details("submit-denied")
+        assert confirmation["action"] == "click"
+        assert confirmation["target"] == "Submit order"
+        assert confirmation["reason"] == "policy requires confirmation"
         denied_result = await runtime.resume_with_confirmation("submit-denied", approved=False)
         assert denied_result.status == "failed"
         assert "denied" in (denied_result.result_summary or "")

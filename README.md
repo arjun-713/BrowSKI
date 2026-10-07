@@ -1,11 +1,11 @@
-# BROWSKI Rust Browser Foundation
+# BROWSKI — Open-Source Autonomous Browser Agent Runtime
 
-BROWSKI is an open-source autonomous browser-agent runtime. This repository
-contains its Rust browser foundation: persistent Chromium control, semantic
+BROWSKI operates a browser from natural-language tasks. Rust owns browser
 observation, stable element identity, typed actions, and deterministic
-verification. Its Python package also contains a LangGraph workflow and a
-shared System One decision interface with local Laya and optional TypeSafe Jev
-adapters.
+verification. Python owns LangGraph orchestration, bounded memory and
+recovery, and GPT-6 Luna reasoning. The Manifest V3 side-panel extension is
+being productized as a UI and browser-session attachment layer; it is not a
+second agent.
 
 ```python
 from browser_agent import BrowserSession
@@ -16,65 +16,51 @@ async with BrowserSession.launch() as browser:
     print(snapshot.title)  # Example Domain
 ```
 
-> **Status:** M0–M7 implementation is present. Rust and Python quality gates
-> pass, and local browser, graph-resume, decision-contract, reasoning, and
-> recovery checks cover the implemented paths. Tests use fake provider clients;
-> they do not establish live provider quality, calibration, latency, or cloud
-> reliability. Laya is the default and runs as a separately managed local CPU
-> service at `http://127.0.0.1:8000`; live CPU inference has not been verified
-> in this checkout. Jev is optional and requires a TypeSafe API key. See the
-> [roadmap](docs/development/roadmap.md) for detailed evidence and limits.
+> **Status:** The managed Chromium runtime, semantic observation, executor,
+> LangGraph workflow, persistence, progress, and recovery are implemented.
+> GPT-6 Luna is the only provider allowed to produce executable decisions.
+> Laya is shadow-only and Jev is disabled. The extension now has an
+> authenticated Native Messaging bridge, attached-tab Rust transport, task
+> dispatch, trace events, and confirmation handling. The complete extension
+> driven demo and browser E2E flow have not yet been validated. Opt-in vision
+> routing is available for explicit visual tasks; screenshot redaction,
+> browser-code execution, complete privacy controls, and a supported installer
+> remain incomplete. See the [roadmap](docs/development/roadmap.md).
 
-Install Jev's optional SDK from `python/` when cloud decisions are enabled:
+For local development setup and extension loading, see
+[installation](docs/user/install.md) and [extension setup](docs/user/extension.md).
+Provider policy, secret handling, and privacy modes are described in
+[configuration](docs/user/configuration.md) and [privacy](docs/user/privacy.md).
 
-```sh
-uv sync --extra decisions-cloud
-```
-
-Run Laya separately in its own Python environment. The upstream CPU setup is:
-
-```sh
-python3 -m venv .venv-laya
-.venv-laya/bin/python -m pip install "laya[serve]"
-LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu LAYA_MODELS=english \
-  LAYA_PRELOAD=1 LAYA_THREADS=4 .venv-laya/bin/laya-serve
-```
-
-The first service start downloads the selected checkpoint if it is not already
-cached. These commands follow the [upstream Laya HTTP server
-setup](https://github.com/NandhaKishorM/laya/blob/main/docs/http-api.md); CPU
-thread count should match the host. `DecisionConfig` selects `laya` by default
-and also accepts `jev` or `adaptive`. Its `laya_endpoint` setting changes the
-client URL; the CLI defaults to `http://127.0.0.1:8000`. Provider calibration,
-thresholds, and timeouts are configured independently. BROWSKI does not install
-Laya, download weights, or start its service when a task runs.
-
-The `BROWSKI_LIVE_LAYA` and `BROWSKI_LAYA_ENDPOINT` environment variables are
-read only by the opt-in live provider contract test; they do not configure the
-normal CLI. Set them only when deliberately running that test against a local
-service. The local HTTP adapter has fake-backed contract coverage; live CPU
-inference has not been run or verified in this checkout.
-
-Run a task with the local Laya service and optional Luna escalation:
+Run a managed-browser task with Luna:
 
 ```sh
 cd python
 uv sync --extra dev
-OPENAI_API_KEY=... uv run browski run "Complete the application form" \
-  --start-url http://127.0.0.1:8080/form --provider laya
+OPENAI_API_KEY=... uv run browski run "Inspect the jobs page" \
+  --start-url http://127.0.0.1:8080/jobs
 ```
 
-The OpenAI key is used only if the bounded System One provider escalates to
-Luna. `--provider` accepts `laya` (default), `jev`, or `adaptive`. The task
-command writes LangGraph checkpoints to `browski-checkpoints.sqlite` by
-default. The `agent` console command remains available as a compatibility
-alias. Use `browski --help` for options.
+Luna calls require a configured key and may incur API charges. The task command
+writes LangGraph checkpoints to `browski-checkpoints.sqlite` by default. Use
+`browski doctor` to inspect local prerequisites and `browski config` to review
+effective non-secret settings; neither command calls OpenAI. Use
+`browski runs list` to inspect safe run metadata and `browski runs clean` to
+preview old checkpoint cleanup. Cleanup deletes nothing until `--apply` is
+passed. Running records are protected unless you explicitly use
+`--include-running` after verifying the runtime has stopped. Use
+`browski --help` for the supported command options.
+
+`browski serve` runs the authenticated local extension runtime. Attach a tab in
+the side panel before submitting a task. The attached-browser task path uses
+the shared Rust browser core and Python LangGraph runtime; it has not yet
+passed the full local demo and extension E2E acceptance flow.
 
 ## Why this project exists
 
 The design keeps browser state, element identity, execution, and deterministic
-verification in Rust. Python owns LangGraph orchestration, Laya/Jev bounded
-System One decisions, GPT-6 Luna System Two reasoning, and adaptive effort.
+verification in Rust. Python owns LangGraph orchestration and GPT-6 Luna
+decisions, with Laya available only as a non-executing shadow provider.
 Architecture claims are gated on reproducible benchmarks.
 
 ## High-level architecture
@@ -85,8 +71,8 @@ USER TASK
    v
 LANGGRAPH (Python state, bounded memory, progress, recovery)
    |
-   +--> DecisionProvider: Laya local CPU (default) | Jev cloud (optional)
-   +--> GPT-6 Luna through ComplexityGate when planning must escalate
+   +--> GPT-6 Luna through the ComplexityGate (active decision path)
+   +--> Laya shadow comparison (optional; cannot choose executable actions)
    |
    v
 RUST BROWSER CORE (CDP, semantic observation, stable refs, executor,
@@ -96,8 +82,10 @@ RUST BROWSER CORE (CDP, semantic observation, stable refs, executor,
 CHROMIUM
 ```
 
-Optional future capability: screenshot/vision as a fallback sensor; it is not
-the primary observation path.
+Optional on-demand vision can supplement semantic observation for explicit
+visual tasks when DOM, accessibility, and layout do not expose the needed
+information. A restricted browser-code tool remains future work. Semantic
+observation remains primary.
 
 Full picture: [system overview](docs/architecture/system-overview.md) ·
 [agent loop](docs/architecture/agent-loop.md) ·
