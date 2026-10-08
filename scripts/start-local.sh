@@ -39,7 +39,7 @@ trap 'exit 143' TERM
 launch_service() {
   # Bash background jobs inherit ignored SIGINT; restore it before exec so
   # Python services can perform their normal graceful shutdown.
-  "$runtime_python" - "$@" <<'PY'
+  exec "$runtime_python" - "$@" <<'PY'
 import os
 import signal
 import sys
