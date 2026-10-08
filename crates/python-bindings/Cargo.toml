@@ -17,5 +17,6 @@ thiserror.workspace = true
 tokio.workspace = true
 pyo3.workspace = true
 browser-agent-core = { path = "../browser-core" }
+browser-agent-code = { path = "../browser-code" }
 browser-agent-cdp = { path = "../cdp" }
 browser-agent-observation = { path = "../observation" }

@@ -11,7 +11,7 @@ use crate::events::BrowserEvent;
 use crate::model::{Tab, TabRegistry};
 use browser_agent_cdp::{
     browser_ws_url, list_targets, CdpError, CdpEvent, CdpSessionId, CdpTransport, LaunchedChrome,
-    PersistentTransport, TabId, TargetId, DEFAULT_COMMAND_TIMEOUT,
+    OwnedTab, PersistentTransport, TabId, TargetId, DEFAULT_COMMAND_TIMEOUT,
 };
 use browser_agent_element_registry::ElementRegistry;
 use browser_agent_observation::{AgentObservation, SemanticSnapshot, SnapshotDelta};
@@ -29,6 +29,8 @@ const ATTACH_WAIT: Duration = Duration::from_secs(15);
 const REMOVAL_WAIT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_VIEWPORT_SCREENSHOT_BASE64_BYTES: usize = 5_600_000;
+const MAX_ATTACHED_TABS: usize = 8;
+const MAX_ATTACHED_TAB_URL_BYTES: usize = 2048;
 
 /// Options for [`BrowserSession::launch_with_options`].
 #[derive(Debug, Clone)]
@@ -82,6 +84,7 @@ impl From<&Tab> for TabInfo {
 pub struct BrowserSession {
     session_id: String,
     mode: SessionMode,
+    initial_attached_target: Option<TargetId>,
     chrome: Option<LaunchedChrome>,
     base_url: String,
     transport: RwLock<Arc<dyn CdpTransport>>,
@@ -151,10 +154,11 @@ impl BrowserSession {
         let mut tabs = TabRegistry::new();
         tabs.upsert_target(target.clone(), title.clone(), url.clone());
         tabs.bind_session(cdp_session.clone(), target.clone());
-        tabs.set_active(target);
+        tabs.set_active(target.clone());
         let session = Self {
             session_id: session_id.unwrap_or_else(|| id.to_string()),
             mode: SessionMode::Attached,
+            initial_attached_target: Some(target.clone()),
             chrome: None,
             base_url: String::new(),
             transport: RwLock::new(transport.clone()),
@@ -204,6 +208,7 @@ impl BrowserSession {
         let session = Self {
             session_id: id.to_string(),
             mode: SessionMode::Managed,
+            initial_attached_target: None,
             chrome,
             base_url,
             transport: RwLock::new(Arc::clone(&transport)),
@@ -523,12 +528,20 @@ impl BrowserSession {
         if !self.tabs.read().await.contains(&target) {
             return Err(BrowserRuntimeError::TargetClosed(target));
         }
-        self.cmd(
-            None,
-            "Target.activateTarget",
-            serde_json::json!({"targetId": target.as_str()}),
-        )
-        .await?;
+        if self.mode == SessionMode::Attached {
+            let transport = self.transport.read().await.clone();
+            transport
+                .activate_owned_tab(&target)
+                .await
+                .map_err(|error| BrowserRuntimeError::from_cdp(error, Some(&target)))?;
+        } else {
+            self.cmd(
+                None,
+                "Target.activateTarget",
+                serde_json::json!({"targetId": target.as_str()}),
+            )
+            .await?;
+        }
         self.tabs.write().await.set_active(target);
         Ok(())
     }
@@ -536,6 +549,25 @@ impl BrowserSession {
     /// Create a tab (optionally already navigated) and wait for attach.
     pub async fn new_tab(&self, url: Option<&str>) -> Result<TabId, BrowserRuntimeError> {
         self.require_live()?;
+        if self.mode == SessionMode::Attached {
+            let Some(url) = url else {
+                return Err(BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+                    "attached browser tabs require an explicit HTTP or HTTPS URL".to_string(),
+                )));
+            };
+            validate_owned_tab_url(url)?;
+            if self.tabs.read().await.len() >= MAX_ATTACHED_TABS {
+                return Err(BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+                    "the attachment-owned tab limit has been reached".to_string(),
+                )));
+            }
+            let transport = self.transport.read().await.clone();
+            let owned = transport
+                .create_owned_tab(url)
+                .await
+                .map_err(|error| BrowserRuntimeError::from_cdp(error, None))?;
+            return self.adopt_owned_tab(transport, owned).await;
+        }
         let params = match url {
             Some(u) => serde_json::json!({"url": u}),
             None => serde_json::json!({"url": "about:blank"}),
@@ -569,6 +601,26 @@ impl BrowserSession {
         let target = TargetId::from(tab.as_str().to_string());
         if !self.tabs.read().await.contains(&target) {
             return Ok(()); // already gone: idempotent
+        }
+        if self.mode == SessionMode::Attached {
+            if self.initial_attached_target.as_ref() == Some(&target) {
+                return Err(BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+                    "the initially attached user tab cannot be closed by the agent".to_string(),
+                )));
+            }
+            let transport = self.transport.read().await.clone();
+            transport
+                .close_owned_tab(&target)
+                .await
+                .map_err(|error| BrowserRuntimeError::from_cdp(error, Some(&target)))?;
+            let start = Instant::now();
+            while start.elapsed() < REMOVAL_WAIT {
+                if !self.tabs.read().await.contains(&target) {
+                    return Ok(());
+                }
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            return Err(BrowserRuntimeError::Cdp(CdpError::Timeout(REMOVAL_WAIT)));
         }
         match self
             .cmd(
@@ -870,15 +922,58 @@ impl BrowserSession {
             handle.abort();
         }
         let transport = self.transport.read().await.clone();
-        // Best-effort graceful browser exit first; the owned-process kill in
-        // `chrome.take()` (Drop) finishes the job if anything lingers.
-        let _ = tokio::time::timeout(
-            Duration::from_secs(5),
-            transport.command("Browser.close", Value::Null),
-        )
-        .await;
+        if self.mode == SessionMode::Attached {
+            // The extension attachment is user-owned. Ask the extension to
+            // detach every session debugger while preserving all browser tabs.
+            let _ =
+                tokio::time::timeout(Duration::from_secs(5), transport.detach_owned_tabs()).await;
+        } else {
+            // Best-effort graceful browser exit first; the owned-process kill
+            // in `chrome.take()` (Drop) finishes the job if anything lingers.
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                transport.command("Browser.close", Value::Null),
+            )
+            .await;
+        }
         transport.close().await;
         let _ = self.event_tx.send(BrowserEvent::ConnectionLost);
+    }
+
+    async fn adopt_owned_tab(
+        &self,
+        transport: Arc<dyn CdpTransport>,
+        owned: OwnedTab,
+    ) -> Result<TabId, BrowserRuntimeError> {
+        let target = owned.target;
+        let session = owned.session;
+        let mut tabs = self.tabs.write().await;
+        if tabs.len() >= MAX_ATTACHED_TABS {
+            drop(tabs);
+            let _ = transport.close_owned_tab(&target).await;
+            return Err(BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+                "the attachment-owned tab limit has been reached".to_string(),
+            )));
+        }
+        if tabs.contains(&target) {
+            return Err(BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+                "the extension returned a duplicate owned-tab identity".to_string(),
+            )));
+        }
+        tabs.upsert_target(target.clone(), owned.title, owned.url);
+        tabs.bind_session(session.clone(), target.clone());
+        drop(tabs);
+        for method in ["Page.enable", "DOM.enable", "CSS.enable", "Runtime.enable"] {
+            transport
+                .command_in_session(&session, method, serde_json::json!({}))
+                .await
+                .map_err(|error| BrowserRuntimeError::from_cdp(error, Some(&target)))?;
+        }
+        let tab = TabId::from(target.as_str().to_string());
+        let _ = self
+            .event_tx
+            .send(BrowserEvent::TargetCreated { tab: tab.clone() });
+        Ok(tab)
     }
 
     // -- internals ------------------------------------------------------
@@ -1058,6 +1153,30 @@ impl Drop for BrowserSession {
         }
         self.chrome.take();
     }
+}
+
+fn validate_owned_tab_url(value: &str) -> Result<(), BrowserRuntimeError> {
+    let invalid = || {
+        BrowserRuntimeError::Cdp(CdpError::ExtensionBridge(
+            "attached tab URLs must be bounded, credential-free HTTP or HTTPS URLs".to_string(),
+        ))
+    };
+    if value.is_empty()
+        || value.len() > MAX_ATTACHED_TAB_URL_BYTES
+        || value.chars().any(char::is_whitespace)
+        || value.chars().any(char::is_control)
+    {
+        return Err(invalid());
+    }
+    let authority = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .and_then(|remainder| remainder.split(['/', '?', '#']).next())
+        .filter(|authority| !authority.is_empty() && !authority.contains('@'));
+    if authority.is_none() {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 /// Shared adoption logic for explicit attach and the event pump.
@@ -1301,11 +1420,13 @@ mod tests {
     use super::*;
     use std::future::Future;
     use std::pin::Pin;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Mutex;
 
     struct MockTransport {
         events: broadcast::Sender<CdpEvent>,
         commands: Mutex<Vec<String>>,
+        detach_owned_tabs_calls: AtomicUsize,
     }
 
     impl MockTransport {
@@ -1314,6 +1435,7 @@ mod tests {
             Self {
                 events,
                 commands: Mutex::new(Vec::new()),
+                detach_owned_tabs_calls: AtomicUsize::new(0),
             }
         }
     }
@@ -1364,6 +1486,15 @@ mod tests {
             0
         }
 
+        fn detach_owned_tabs<'a>(
+            &'a self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.detach_owned_tabs_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        }
+
         fn close<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
             Box::pin(async {})
         }
@@ -1406,6 +1537,13 @@ mod tests {
             Err(BrowserRuntimeError::ConnectionLost)
         ));
 
+        assert!(session.close_tab(&TabId::from("tab-17")).await.is_err());
+
         session.close().await.unwrap();
+        assert_eq!(transport.detach_owned_tabs_calls.load(Ordering::SeqCst), 1);
+        assert!(!commands
+            .lock()
+            .unwrap()
+            .contains(&"Browser.close".to_string()));
     }
 }

@@ -340,7 +340,7 @@ async fn verify_hover(
         session,
         &cdp_session,
         backend,
-        "function(){ return this.matches(':hover'); }",
+        include_str!("../mechanics/read-hover.js"),
     )
     .await
     {

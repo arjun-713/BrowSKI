@@ -18,6 +18,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
+mod browser_code;
+
 fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
     RT.get_or_init(|| {
@@ -47,12 +49,18 @@ struct AttachedBrowserMetadata {
 #[pyclass(name = "PyBrowserSession")]
 pub struct PyBrowserSession {
     inner: Mutex<Option<BrowserSession>>,
+    browser_code_enabled: bool,
 }
 
 #[pymethods]
 impl PyBrowserSession {
     #[staticmethod]
-    fn launch(py: Python<'_>, headless: Option<bool>) -> PyResult<Self> {
+    #[pyo3(signature = (headless=None, browser_code_enabled=false))]
+    fn launch(
+        py: Python<'_>,
+        headless: Option<bool>,
+        browser_code_enabled: bool,
+    ) -> PyResult<Self> {
         let headless = headless.unwrap_or(true);
         let session = py
             .detach(|| {
@@ -66,16 +74,18 @@ impl PyBrowserSession {
             .map_err(map_err)?;
         Ok(Self {
             inner: Mutex::new(Some(session)),
+            browser_code_enabled,
         })
     }
 
     #[staticmethod]
-    #[pyo3(signature = (socket_path, token, metadata_json))]
+    #[pyo3(signature = (socket_path, token, metadata_json, browser_code_enabled=false))]
     fn attach_extension(
         py: Python<'_>,
         socket_path: String,
         token: String,
         metadata_json: String,
+        browser_code_enabled: bool,
     ) -> PyResult<Self> {
         let socket_path = PathBuf::from(socket_path);
         let metadata: AttachedBrowserMetadata =
@@ -105,6 +115,38 @@ impl PyBrowserSession {
         })?;
         Ok(Self {
             inner: Mutex::new(Some(session)),
+            browser_code_enabled,
+        })
+    }
+
+    /// Transform a bounded projection of this session's current semantic
+    /// snapshot. The projection is created inside Rust and contains no URL,
+    /// form/input values, screenshot, or page text excerpt.
+    #[pyo3(signature = (script, timeout_ms=750, max_result_bytes=16384))]
+    fn transform_snapshot_json(
+        &self,
+        py: Python<'_>,
+        script: String,
+        timeout_ms: u64,
+        max_result_bytes: usize,
+    ) -> PyResult<String> {
+        if !self.browser_code_enabled {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(
+                "browser-code capability is disabled for this session",
+            ));
+        }
+
+        py.detach(|| {
+            let snapshot = {
+                let guard = self
+                    .inner
+                    .lock()
+                    .map_err(|_| map_err("session lock poisoned"))?;
+                let session = guard.as_ref().ok_or_else(|| map_err("session is closed"))?;
+                runtime().block_on(session.observe()).map_err(map_err)?
+            };
+
+            browser_code::transform_snapshot(&snapshot, &script, timeout_ms, max_result_bytes)
         })
     }
 

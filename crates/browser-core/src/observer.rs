@@ -717,6 +717,16 @@ fn value_for(raw: &RawNode, ax: &AxInfo) -> Option<String> {
 
 fn states_for(raw: &RawNode, ax: &AxInfo, role: &str) -> Vec<String> {
     let mut states = Vec::new();
+    let input_type = raw
+        .attrs
+        .get("type")
+        .map(|value| value.to_ascii_lowercase());
+    let native_submit = (raw.tag == "button"
+        && !matches!(input_type.as_deref(), Some("button" | "reset")))
+        || (raw.tag == "input" && matches!(input_type.as_deref(), Some("submit" | "image")));
+    if native_submit {
+        states.push("submit".to_string());
+    }
     if ax.disabled || raw.attrs.contains_key("disabled") {
         states.push("disabled".to_string());
     }
@@ -1104,8 +1114,9 @@ pub(crate) async fn observe_full(
                 .unwrap_or_default();
             let (cx, cy) = bbox.map(|b| b.center()).unwrap();
             hit_tasks.spawn(async move {
-                let x = (cx - scroll_x as f64).round() as i64;
-                let y = (cy - scroll_y as f64).round() as i64;
+                // DOM.getBoxModel already returns viewport CSS coordinates.
+                let x = cx.round() as i64;
+                let y = cy.round() as i64;
                 let topmost = t
                     .command_in_session(
                         &s,
@@ -1587,18 +1598,19 @@ pub(crate) async fn hit_test_contains(
     let Some(object_id) = object_id else {
         return false;
     };
-    transport
+    let result = transport
         .command_in_session(
             session,
             "Runtime.callFunctionOn",
             serde_json::json!({
                 "objectId": object_id,
-                "functionDeclaration": "function(x, y) { var t = document.elementFromPoint(x, y); return t === this || this.contains(t); }",
+                "functionDeclaration": include_str!("mechanics/hit-test-contains.js"),
                 "arguments": [{"value": x}, {"value": y}],
                 "returnByValue": true,
             }),
         )
-        .await
+        .await;
+    result
         .ok()
         .and_then(|r| {
             r.get("result")
@@ -1643,13 +1655,7 @@ fn summarize_forms(elements: &[SemanticElement]) -> Vec<FormSummary> {
     let submit = elements
         .iter()
         .find(|e| e.semantic_kind == SemanticKind::Button && e.state.iter().any(|s| s == "submit"))
-        .map(|e| e.reference.clone())
-        .or_else(|| {
-            elements
-                .iter()
-                .find(|e| e.semantic_kind == SemanticKind::Button)
-                .map(|e| e.reference.clone())
-        });
+        .map(|e| e.reference.clone());
     vec![FormSummary {
         name: None,
         controls,
@@ -1703,4 +1709,33 @@ fn build_dialogs(elements: &[SemanticElement]) -> Vec<DialogSummary> {
             frame_path: e.frame_path.clone(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submit_state_requires_native_submit_semantics() {
+        for (tag, input_type, expected) in [
+            ("button", None, true),
+            ("button", Some("submit"), true),
+            ("button", Some("button"), false),
+            ("button", Some("reset"), false),
+            ("input", Some("SUBMIT"), true),
+            ("input", Some("image"), true),
+            ("input", Some("button"), false),
+            ("div", Some("submit"), false),
+        ] {
+            let mut raw = RawNode {
+                tag: tag.to_string(),
+                ..RawNode::default()
+            };
+            if let Some(input_type) = input_type {
+                raw.attrs.insert("type".into(), input_type.into());
+            }
+            let states = states_for(&raw, &AxInfo::default(), "button");
+            assert_eq!(states.iter().any(|state| state == "submit"), expected);
+        }
+    }
 }

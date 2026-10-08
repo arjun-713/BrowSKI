@@ -1,8 +1,8 @@
 use super::cdp::{
-    call_on_backend, cmd, count_page_targets, element_tag, focus_backend, hit_passes, js_set_value,
-    key_with_modifiers, new_page_target_appeared, press_key, read_checked, read_scroll, read_value,
-    scroll_into_view, send_mouse, send_mouse_timeout, viewport_point, wait_for_evaluate,
-    wait_ready,
+    call_on_backend, call_on_backend_with_args, cmd, count_page_targets, element_tag,
+    focus_backend, hit_passes, js_set_value, key_with_modifiers, new_page_target_appeared,
+    press_key, read_checked, read_scroll, read_value, scroll_into_view, send_mouse,
+    send_mouse_timeout, viewport_point, wait_for_evaluate, wait_ready,
 };
 use super::{gate_target, ResolvedTarget};
 use crate::observer::observe_full;
@@ -292,15 +292,20 @@ async fn perform_click(
     }
     // 3. DOM method only when policy permits.
     if options.allow_dom_fallback {
-        call_on_backend(session, &r.session, r.backend, "function(){this.click()}")
-            .await
-            .map_err(|e| {
-                ExecutionFailure::new(
-                    ExecutionFailureKind::InteractionRejected,
-                    Some(r.reference.to_string()),
-                    format!("dom click failed: {e}"),
-                )
-            })?;
+        call_on_backend(
+            session,
+            &r.session,
+            r.backend,
+            include_str!("../mechanics/click.js"),
+        )
+        .await
+        .map_err(|e| {
+            ExecutionFailure::new(
+                ExecutionFailureKind::InteractionRejected,
+                Some(r.reference.to_string()),
+                format!("dom click failed: {e}"),
+            )
+        })?;
         return Ok(ExecutionEvidence {
             method: "dom-method".into(),
             detail: "el.click()".into(),
@@ -416,23 +421,26 @@ async fn perform_select(
         r.element.role == "combobox" && (tag == "input" || r.element.role == "textbox");
     if is_native {
         let selector = match by {
-            browser_agent_executor::SelectBy::Value => "option.value",
-            browser_agent_executor::SelectBy::Label => "(option.text || '').trim()",
+            browser_agent_executor::SelectBy::Value => "value",
+            browser_agent_executor::SelectBy::Label => "label",
         };
-        let script = format!(
-            "function(){{ const wanted = {value:?}; const options = [...this.options]; const targetIndex = options.findIndex(option => {selector} === wanted); return JSON.stringify({{targetIndex, selectedIndex: this.selectedIndex, multiple: this.multiple}}); }}"
-        );
-        let selection = call_on_backend(session, &r.session, r.backend, &script)
-            .await?
-            .as_str()
-            .and_then(|json| serde_json::from_str::<Value>(json).ok())
-            .ok_or_else(|| {
-                ExecutionFailure::new(
-                    ExecutionFailureKind::InteractionRejected,
-                    Some(r.reference.to_string()),
-                    "native select returned malformed option metadata",
-                )
-            })?;
+        let selection = call_on_backend_with_args(
+            session,
+            &r.session,
+            r.backend,
+            include_str!("../mechanics/select-metadata.js"),
+            &[serde_json::json!(value), serde_json::json!(selector)],
+        )
+        .await?
+        .as_str()
+        .and_then(|json| serde_json::from_str::<Value>(json).ok())
+        .ok_or_else(|| {
+            ExecutionFailure::new(
+                ExecutionFailureKind::InteractionRejected,
+                Some(r.reference.to_string()),
+                "native select returned malformed option metadata",
+            )
+        })?;
         let target_index = selection
             .get("targetIndex")
             .and_then(Value::as_i64)

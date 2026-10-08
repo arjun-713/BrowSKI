@@ -2,14 +2,14 @@
 
 use crate::error::CdpError;
 use crate::event::CdpEvent;
-use crate::ids::CdpSessionId;
-use crate::transport::CdpTransport;
+use crate::ids::{CdpSessionId, TargetId};
+use crate::transport::{CdpTransport, OwnedTab};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -33,6 +33,7 @@ struct OutboundCommand {
 struct TransportState {
     connected: AtomicBool,
     pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, CdpError>>>>,
+    owned_sessions: Mutex<HashMap<String, String>>,
 }
 
 /// CDP transport pinned to one user-confirmed extension tab attachment.
@@ -43,7 +44,7 @@ struct TransportState {
 pub struct ExtensionCdpTransport {
     attachment_id: String,
     session_id: CdpSessionId,
-    next_request_id: AtomicU64,
+    next_request_id: Mutex<u64>,
     command_timeout: Duration,
     state: Arc<TransportState>,
     command_tx: mpsc::Sender<OutboundCommand>,
@@ -112,6 +113,7 @@ impl ExtensionCdpTransport {
         let state = Arc::new(TransportState {
             connected: AtomicBool::new(true),
             pending: Mutex::new(HashMap::new()),
+            owned_sessions: Mutex::new(HashMap::new()),
         });
         let reader_task = tokio::spawn(reader_task(reader, Arc::clone(&state), event_tx.clone()));
         let writer_task = tokio::spawn(writer_task(writer, command_rx, Arc::clone(&state)));
@@ -119,7 +121,7 @@ impl ExtensionCdpTransport {
         Ok(Self {
             attachment_id,
             session_id,
-            next_request_id: AtomicU64::new(1),
+            next_request_id: Mutex::new(1),
             command_timeout,
             state,
             command_tx,
@@ -138,32 +140,52 @@ impl ExtensionCdpTransport {
         if !self.is_connected() {
             return Err(CdpError::ConnectionLost);
         }
-        if let Some(session) = session {
-            if session != &self.session_id {
-                return Err(CdpError::ExtensionBridge(
-                    "command session does not match the confirmed tab attachment".to_string(),
-                ));
-            }
+        let target_session_id = session
+            .map(CdpSessionId::as_str)
+            .unwrap_or_else(|| self.session_id.as_str());
+        if target_session_id != self.session_id.as_str()
+            && !self
+                .state
+                .owned_sessions
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(target_session_id)
+        {
+            return Err(CdpError::ExtensionBridge(
+                "command session is not owned by this extension attachment".to_string(),
+            ));
         }
 
-        let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
+        // Reserve capacity before acquiring any synchronous locks. Assign the
+        // wire ID and enqueue together so concurrent callers cannot arrive out
+        // of order at the bridge's replay-protected receiver.
+        let permit = self
+            .command_tx
+            .reserve()
+            .await
+            .map_err(|_| CdpError::ConnectionLost)?;
         let (sender, receiver) = oneshot::channel();
-        self.state
-            .pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(request_id, sender);
-        let command = OutboundCommand {
-            request_id,
-            attachment_id: self.attachment_id.clone(),
-            session_id: self.session_id.as_str().to_string(),
-            method: method.to_string(),
-            params,
+        let request_id = {
+            let mut next = self
+                .next_request_id
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let request_id = *next;
+            *next += 1;
+            self.state
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(request_id, sender);
+            permit.send(OutboundCommand {
+                request_id,
+                attachment_id: self.attachment_id.clone(),
+                session_id: target_session_id.to_string(),
+                method: method.to_string(),
+                params,
+            });
+            request_id
         };
-        if self.command_tx.send(command).await.is_err() {
-            remove_pending(&self.state, request_id);
-            return Err(CdpError::ConnectionLost);
-        }
 
         match tokio::time::timeout(timeout, receiver).await {
             Ok(Ok(result)) => result,
@@ -176,6 +198,54 @@ impl ExtensionCdpTransport {
                 })
             }
         }
+    }
+
+    fn remember_owned_tab(&self, tab: &OwnedTab) -> Result<(), CdpError> {
+        validate_identifier("owned target ID", tab.target.as_str())?;
+        validate_identifier("owned tab session ID", tab.session.as_str())?;
+        if tab.session == self.session_id {
+            return Err(CdpError::ExtensionBridge(
+                "owned tab session ID collides with the root attachment".to_string(),
+            ));
+        }
+        self.state
+            .owned_sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                tab.session.as_str().to_string(),
+                tab.target.as_str().to_string(),
+            );
+        Ok(())
+    }
+
+    fn parse_owned_tab(&self, value: Value) -> Result<OwnedTab, CdpError> {
+        let target = value
+            .get("targetId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CdpError::Unexpected("owned tab response has no target ID".into()))?;
+        let session = value
+            .get("tabSessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CdpError::Unexpected("owned tab response has no session ID".into()))?;
+        let title = value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let url = value
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CdpError::Unexpected("owned tab response has no URL".into()))?
+            .to_string();
+        let tab = OwnedTab {
+            target: TargetId::from(target.to_string()),
+            session: CdpSessionId::from(session.to_string()),
+            title,
+            url,
+        };
+        self.remember_owned_tab(&tab)?;
+        Ok(tab)
     }
 }
 
@@ -205,6 +275,65 @@ impl CdpTransport for ExtensionCdpTransport {
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
         Box::pin(self.command_inner(session, method, params, timeout))
+    }
+
+    fn create_owned_tab<'a>(
+        &'a self,
+        url: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<OwnedTab, CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            let result = self
+                .command_inner(
+                    None,
+                    "BROWSKI.tabs.create",
+                    json!({ "url": url }),
+                    self.command_timeout,
+                )
+                .await?;
+            self.parse_owned_tab(result)
+        })
+    }
+
+    fn activate_owned_tab<'a>(
+        &'a self,
+        target: &'a TargetId,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.command_inner(
+                None,
+                "BROWSKI.tabs.activate",
+                json!({ "targetId": target.as_str() }),
+                self.command_timeout,
+            )
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn close_owned_tab<'a>(
+        &'a self,
+        target: &'a TargetId,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.command_inner(
+                None,
+                "BROWSKI.tabs.close",
+                json!({ "targetId": target.as_str() }),
+                self.command_timeout,
+            )
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn detach_owned_tabs<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.command_inner(None, "BROWSKI.tabs.stop", json!({}), self.command_timeout)
+                .await?;
+            Ok(())
+        })
     }
 
     fn subscribe(&self) -> broadcast::Receiver<CdpEvent> {
@@ -288,7 +417,7 @@ async fn reader_task(
         };
         match message.get("type").and_then(Value::as_str) {
             Some("backend.response") => handle_response(&state, &message),
-            Some("backend.event") => handle_event(&event_tx, &message),
+            Some("backend.event") => handle_event(&event_tx, &state, &message),
             Some("backend.detached") => break,
             _ => break,
         }
@@ -321,10 +450,23 @@ fn handle_response(state: &TransportState, message: &Value) {
     }
 }
 
-fn handle_event(event_tx: &broadcast::Sender<CdpEvent>, message: &Value) {
+fn handle_event(event_tx: &broadcast::Sender<CdpEvent>, state: &TransportState, message: &Value) {
     let Some(method) = message.get("method").and_then(Value::as_str) else {
         return;
     };
+    if method == "Target.targetDestroyed" {
+        if let Some(target_id) = message
+            .get("params")
+            .and_then(|params| params.get("targetId"))
+            .and_then(Value::as_str)
+        {
+            state
+                .owned_sessions
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retain(|_, owned_target| owned_target != target_id);
+        }
+    }
     let mut event = json!({
         "method": method,
         "params": message.get("params").cloned().unwrap_or_else(|| json!({})),
@@ -501,5 +643,56 @@ mod tests {
         transport.close().await;
         bridge.await.expect("bridge task should finish");
         let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_commands_enqueue_monotonic_request_ids() {
+        let state = Arc::new(TransportState {
+            connected: AtomicBool::new(true),
+            pending: Mutex::new(HashMap::new()),
+            owned_sessions: Mutex::new(HashMap::new()),
+        });
+        let (command_tx, mut command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
+        let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let transport = Arc::new(ExtensionCdpTransport {
+            attachment_id: "attachment-1".into(),
+            session_id: CdpSessionId::from("session-1"),
+            next_request_id: Mutex::new(1),
+            command_timeout: Duration::from_secs(5),
+            state: Arc::clone(&state),
+            command_tx,
+            event_tx,
+            tasks: Mutex::new(Vec::new()),
+        });
+        let receiver = tokio::spawn(async move {
+            for expected_id in 1..=512 {
+                let command = command_rx.recv().await.expect("command should arrive");
+                assert_eq!(command.request_id, expected_id);
+                let sender = state
+                    .pending
+                    .lock()
+                    .expect("pending lock")
+                    .remove(&expected_id)
+                    .expect("command should be registered");
+                sender
+                    .send(Ok(json!({})))
+                    .expect("caller should remain available");
+            }
+        });
+        let mut callers = Vec::new();
+        for _ in 0..512 {
+            let transport = Arc::clone(&transport);
+            callers.push(tokio::spawn(async move {
+                transport
+                    .command("Page.enable", json!({}))
+                    .await
+                    .expect("command should succeed");
+            }));
+        }
+        for caller in callers {
+            caller.await.expect("caller should finish");
+        }
+        receiver.await.expect("receiver should finish");
+        assert_eq!(transport.pending_commands(), 0);
     }
 }

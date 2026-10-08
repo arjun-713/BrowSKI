@@ -1,0 +1,9 @@
+[
+  "window.location.href",
+  "document.title",
+  "({x: window.scrollX, y: window.scrollY})",
+  "document.readyState",
+  "window.location.href + '|' + document.readyState",
+  "window.scrollX + ',' + window.scrollY",
+  "!!document.querySelector('[role=listbox],[role=option],select')"
+]

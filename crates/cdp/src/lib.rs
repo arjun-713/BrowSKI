@@ -24,4 +24,4 @@ pub use extension::ExtensionCdpTransport;
 pub use http::{browser_ws_url, close_target_http, list_targets, new_page_target, DebuggerTarget};
 pub use ids::{BrowserSessionId, CdpSessionId, ExecutionContextId, FrameId, TabId, TargetId};
 pub use launch::{find_chrome_binary, LaunchedChrome};
-pub use transport::{CdpTransport, PersistentTransport, DEFAULT_COMMAND_TIMEOUT};
+pub use transport::{CdpTransport, OwnedTab, PersistentTransport, DEFAULT_COMMAND_TIMEOUT};

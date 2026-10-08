@@ -1,0 +1,3 @@
+function clickElement() {
+  this.click();
+}

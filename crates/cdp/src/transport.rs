@@ -36,7 +36,7 @@
 
 use crate::error::CdpError;
 use crate::event::CdpEvent;
-use crate::ids::CdpSessionId;
+use crate::ids::{CdpSessionId, TargetId};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -51,6 +51,16 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 const COMMAND_QUEUE_CAPACITY: usize = 256;
+
+/// Identity of a page explicitly created and attached by the extension-owned
+/// tab capability. IDs are opaque to callers and are never Chrome tab IDs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedTab {
+    pub target: TargetId,
+    pub session: CdpSessionId,
+    pub title: String,
+    pub url: String,
+}
 
 /// Command and event interface consumed by the semantic browser runtime.
 ///
@@ -81,6 +91,52 @@ pub trait CdpTransport: Send + Sync {
         params: Value,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>>;
+
+    /// Create a page through a transport's explicit owned-tab capability.
+    /// Managed transports do not use this operation; attached transports may
+    /// implement it without exposing generic Target.* CDP methods.
+    fn create_owned_tab<'a>(
+        &'a self,
+        _url: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<OwnedTab, CdpError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(CdpError::ExtensionBridge(
+                "owned-tab creation is unavailable on this transport".to_string(),
+            ))
+        })
+    }
+
+    /// Activate a previously created page through an explicit ownership map.
+    fn activate_owned_tab<'a>(
+        &'a self,
+        _target: &'a TargetId,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(CdpError::ExtensionBridge(
+                "owned-tab activation is unavailable on this transport".to_string(),
+            ))
+        })
+    }
+
+    /// Close a previously created supporting page through an ownership map.
+    fn close_owned_tab<'a>(
+        &'a self,
+        _target: &'a TargetId,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(CdpError::ExtensionBridge(
+                "owned-tab closure is unavailable on this transport".to_string(),
+            ))
+        })
+    }
+
+    /// Detach all extension-owned debuggers while leaving their browser tabs
+    /// open. Managed transports have no extension-owned attachment to detach.
+    fn detach_owned_tabs<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CdpError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
 
     /// Subscribe to protocol events.
     fn subscribe(&self) -> broadcast::Receiver<CdpEvent>;

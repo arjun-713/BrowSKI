@@ -105,30 +105,11 @@ pub(super) async fn viewport_point(
         nums[1].min(nums[3]).min(nums[5]).min(nums[7]),
         nums[1].max(nums[3]).max(nums[5]).max(nums[7]),
     );
-    let scroll = session
-        .evaluate_in(cdp_session, "({x: window.scrollX, y: window.scrollY})")
-        .await
-        .ok();
-    let (sx, sy) = scroll
-        .as_ref()
-        .map(|v| {
-            (
-                v.get("result")
-                    .and_then(|r| r.get("value"))
-                    .and_then(|o| o.get("x"))
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0),
-                v.get("result")
-                    .and_then(|r| r.get("value"))
-                    .and_then(|o| o.get("y"))
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0),
-            )
-        })
-        .unwrap_or((0, 0));
+    // Chromium's box-model quads are already in viewport CSS coordinates.
+    // Subtracting page scroll again misdirects both hit tests and input.
     Ok((
-        ((x0 + x1) / 2.0 - sx as f64).round() as i64,
-        ((y0 + y1) / 2.0 - sy as f64).round() as i64,
+        ((x0 + x1) / 2.0).round() as i64,
+        ((y0 + y1) / 2.0).round() as i64,
     ))
 }
 
@@ -326,6 +307,16 @@ pub(super) async fn call_on_backend(
     backend: BackendNodeId,
     function: &str,
 ) -> Result<Value, ExecutionFailure> {
+    call_on_backend_with_args(session, cdp_session, backend, function, &[]).await
+}
+
+pub(super) async fn call_on_backend_with_args(
+    session: &BrowserSession,
+    cdp_session: &CdpSessionId,
+    backend: BackendNodeId,
+    function: &str,
+    arguments: &[Value],
+) -> Result<Value, ExecutionFailure> {
     let transport = session.transport_pub().await;
     let object_id = transport
         .command_in_session(
@@ -359,6 +350,9 @@ pub(super) async fn call_on_backend(
             serde_json::json!({
                 "objectId": object_id,
                 "functionDeclaration": function,
+                "arguments": arguments.iter().map(|value| {
+                    serde_json::json!({"value": value})
+                }).collect::<Vec<_>>(),
                 "returnByValue": true,
                 "awaitPromise": true,
             }),
@@ -395,9 +389,9 @@ pub(super) async fn read_value(
     let script = if role == "textbox"
         || matches!(kind, SemanticKind::TextInput | SemanticKind::OptionList)
     {
-        "function(){ if (this.isContentEditable) return String(this.innerText); return (this.value !== undefined) ? String(this.value) : null; }"
+        include_str!("../mechanics/read-value.js")
     } else {
-        "function(){ return (this.innerText !== undefined) ? String(this.innerText) : null; }"
+        include_str!("../mechanics/read-text.js")
     };
     call_on_backend(session, cdp_session, backend, script)
         .await
@@ -414,7 +408,7 @@ pub(super) async fn read_checked(
         session,
         cdp_session,
         backend,
-        "function(){ if (typeof this.checked === 'boolean') return this.checked; const a = this.getAttribute && this.getAttribute('aria-checked'); return a === 'true' ? true : (a === 'false' ? false : null); }",
+        include_str!("../mechanics/read-checked.js"),
     )
     .await
     .ok()
@@ -430,7 +424,7 @@ pub(super) async fn read_selected(
         session,
         cdp_session,
         backend,
-        "function(){ const el = this; if (el.tagName === 'SELECT') { const o = el.selectedOptions && el.selectedOptions[0]; return o ? (o.value + '\\u0000' + (o.text || '')) : null; } return (el.value || '') + '\\u0000' + ((el.innerText || '').trim()); }",
+        include_str!("../mechanics/read-selected.js"),
     )
     .await
     .ok()?;
@@ -451,7 +445,7 @@ pub(super) async fn element_tag(
         session,
         cdp_session,
         backend,
-        "function(){return (this.tagName || '').toLowerCase();}",
+        include_str!("../mechanics/element-tag.js"),
     )
     .await
     .ok()
@@ -468,7 +462,7 @@ pub(super) async fn read_scroll(
             session,
             cdp_session,
             b,
-            "function(){return (this.scrollLeft || 0) + ',' + (this.scrollTop || 0);}",
+            include_str!("../mechanics/read-scroll.js"),
         )
         .await
         .ok()
@@ -502,13 +496,15 @@ pub(super) async fn js_set_value(
 ) -> Result<(), ExecutionFailure> {
     // Native-setter path for controlled inputs (React): bypasses the plain
     // property assignment that frameworks ignore.
-    let script = format!(
-        "function(){{ const el = this; const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const desc = Object.getOwnPropertyDescriptor(proto, 'value'); if (desc && desc.set) {{ desc.set.call(el, {t:?}); }} else {{ el.value = {t:?}; }} el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); return true; }}",
-        t = text
-    );
-    call_on_backend(session, cdp_session, backend, &script)
-        .await
-        .map(|_| ())
+    call_on_backend_with_args(
+        session,
+        cdp_session,
+        backend,
+        include_str!("../mechanics/set-value.js"),
+        &[serde_json::json!(text)],
+    )
+    .await
+    .map(|_| ())
 }
 
 pub(super) async fn wait_for_evaluate(

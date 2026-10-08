@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/browser-core",
+  "crates/browser-code",
   "crates/cdp",
   "crates/observation",
   "crates/element-registry",
@@ -30,3 +31,4 @@ tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
 anyhow = "1"
 pyo3 = { version = "0.26", features = ["extension-module"] }
+rquickjs = { version = "=0.8.1", default-features = false }
