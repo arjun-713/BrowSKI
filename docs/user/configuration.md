@@ -14,6 +14,8 @@ The current policy defaults to:
   tasks into the shared runtime and browser core.
 - Reasoning effort defaults to low; the extension can select none or low.
 - On-demand vision disabled unless `[vision].enabled` is set to `true`.
+- Local debug capture disabled unless `[debug].enabled` is set to `true`;
+  see [local debug sessions](debugging.md) for storage and redaction details.
 
 Set `OPENAI_API_KEY` or `BROWSKI_OPENAI_API_KEY` in the local runtime's
 environment, or configure the key in the extension Settings panel. The panel

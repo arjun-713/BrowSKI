@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
@@ -30,6 +31,7 @@ from browser_agent.decisions.base import (
     response_usage_counts,
 )
 from browser_agent.decisions.calibration import CalibrationPolicy
+from browser_agent.telemetry.debug_log import record_debug
 
 JsonTransport = Callable[
     [str, str, Mapping[str, Any] | None, float, Mapping[str, str]], Mapping[str, Any]
@@ -162,8 +164,14 @@ class LayaProvider(DecisionProvider):
     async def evaluate(
         self, state: str | Mapping[str, Any], questions: Mapping[str, DecisionQuestion]
     ) -> DecisionResult:
+        started = time.perf_counter()
+        call_id = str(uuid.uuid4())
         if not questions:
-            raise ValueError("at least one decision question is required")
+            error = ValueError("at least one decision question is required")
+            self._record_debug_call(
+                "provider.error", call_id, started, error_type=type(error).__name__
+            )
+            raise error
         payload = {
             name: {
                 "type": question.kind.value,
@@ -186,8 +194,14 @@ class LayaProvider(DecisionProvider):
             }
             for name, question in questions.items()
         }
-        started = time.perf_counter()
+        response: object | None = None
         try:
+            self._record_debug_call(
+                "provider.request",
+                call_id,
+                started,
+                request={"state": state, "questions": payload},
+            )
             if self._test_model is not None:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(self._test_model.predict, state, payload),
@@ -205,6 +219,19 @@ class LayaProvider(DecisionProvider):
                     ),
                     timeout=self.timeout_ms / 1000,
                 )
+            response_mapping: Mapping[str, Any] = {}
+            if isinstance(response, Mapping):
+                # The transport/test-model seam is intentionally untyped at runtime.
+                response_mapping = cast(Mapping[str, Any], response)
+            input_tokens, output_tokens = response_usage_counts(cast(object, response))
+            self._record_debug_call(
+                "provider.response",
+                call_id,
+                started,
+                response=response_mapping,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
             answers = get_value(response, "answers", {})
             if not isinstance(answers, Mapping):
                 raise DecisionProviderProtocolError("Laya response has no answer mapping.")
@@ -217,24 +244,51 @@ class LayaProvider(DecisionProvider):
                 raise DecisionProviderProtocolError("Laya response omitted a requested answer.")
         except TimeoutError as exc:
             error = DecisionProviderTimeout("Laya decision exceeded its configured timeout.")
+            self._record_debug_call(
+                "provider.error", call_id, started, error_type=type(error).__name__
+            )
             self._emit_call(questions, started, "timeout", error, state=state)
             raise error from exc
         except DecisionProviderError as exc:
+            self._record_debug_call(
+                "provider.error", call_id, started, error_type=type(exc).__name__
+            )
             self._emit_call(questions, started, "error", exc, state=state)
             raise
         except Exception as exc:
             error = DecisionProviderProtocolError(
                 f"Laya decision failed with {type(exc).__name__}."
             )
+            self._record_debug_call(
+                "provider.error", call_id, started, error_type=type(error).__name__
+            )
             self._emit_call(questions, started, "error", error, state=state)
             raise error from exc
 
-        self._emit_call(questions, started, "success", response=response, state=state)
+        self._emit_call(questions, started, "success", response=cast(object, response), state=state)
         return DecisionResult(
             provider=self.name,
             model=str(get_value(response, "model", "laya-local")),
             answers=normalized,
             calibration_id=self.calibration_id,
+        )
+
+    def _record_debug_call(
+        self,
+        event: str,
+        call_id: str,
+        started: float,
+        **payload: object,
+    ) -> None:
+        record_debug(
+            event,
+            {
+                "call_id": call_id,
+                "provider": self.name,
+                "operation": "evaluate",
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                **payload,
+            },
         )
 
     def _emit_call(

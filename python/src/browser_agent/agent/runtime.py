@@ -36,6 +36,7 @@ from browser_agent.persistence.run_identity import resolve_run_id, validate_run_
 from browser_agent.persistence.run_metadata import SQLiteRunMetadataStore
 from browser_agent.persistence.run_metrics import RunMetricKind, RunMetricsAggregator
 from browser_agent.session import BrowserSession
+from browser_agent.telemetry.debug_log import DebugLogConfig, DebugRecorder, record_debug
 
 logger = logging.getLogger(__name__)
 RuntimeEventSink = Callable[[RuntimeEvent], Awaitable[None]]
@@ -114,6 +115,7 @@ class AgentRuntime:
         run_metadata_store: SQLiteRunMetadataStore | None = None,
         interrupt_before: Sequence[str] = (),
         event_sink: RuntimeEventSink | None = None,
+        debug_config: DebugLogConfig | None = None,
     ) -> None:
         self.agent = agent
         self.browser = browser
@@ -122,6 +124,7 @@ class AgentRuntime:
         self.run_metadata_store = run_metadata_store
         self.session_id = str(uuid.uuid4())
         self._event_sink = event_sink
+        self._debug_recorder = DebugRecorder(debug_config or DebugLogConfig())
         self._event_sequence = 0
         self._run_metrics = RunMetricsAggregator()
         self._run_controls: dict[str, _RunControl] = {}
@@ -151,6 +154,7 @@ class AgentRuntime:
         decision_provider: DecisionProvider | None = None,
         interrupt_before: Sequence[str] = (),
         event_sink: RuntimeEventSink | None = None,
+        debug_config: DebugLogConfig | None = None,
     ) -> AsyncGenerator[AgentRuntime, None]:
         """Open a durable checkpointed runtime for the lifetime of a context.
 
@@ -167,9 +171,31 @@ class AgentRuntime:
                 run_metadata_store=SQLiteRunMetadataStore(database),
                 interrupt_before=interrupt_before,
                 event_sink=event_sink,
+                debug_config=debug_config,
             )
 
     async def run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
+        """Capture the local debug session around a new graph run when enabled."""
+        thread_id = resolve_run_id(run_id)
+        with self._debug_recorder.bind(thread_id, self.session_id):
+            if isinstance(task, TaskState):
+                prompt = task.user_goal or task.task
+            else:
+                prompt = task
+            record_debug("task.prompt", {"prompt": prompt})
+            try:
+                result = await self._run(task, run_id=thread_id)
+            except BaseException as error:
+                record_debug("task.error", {"error_type": type(error).__name__})
+                raise
+            record_debug(
+                "task.result",
+                {"status": result.status, "summary": result.result_summary},
+                step=result.steps_taken,
+            )
+            return result
+
+    async def _run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
         """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""
         thread_id = resolve_run_id(run_id)
         if thread_id in self._active_runs:
@@ -252,10 +278,23 @@ class AgentRuntime:
         if run_id not in self._active_runs:
             raise ValueError(f"run {run_id!r} is not active")
         self._control_for_run(run_id).pause_requested = True
+        with self._debug_recorder.bind(run_id, self.session_id):
+            record_debug("task.control", {"control": "pause"})
 
     async def stop(self, run_id: str) -> TaskState:
         """Stop at a safe boundary; an in-flight action is verified first."""
         run_id = validate_run_id(run_id)
+        with self._debug_recorder.bind(run_id, self.session_id):
+            record_debug("task.control", {"control": "stop"})
+            result = await self._stop_graph(run_id)
+            record_debug(
+                "task.result",
+                {"status": result.status, "summary": result.result_summary},
+                step=result.steps_taken,
+            )
+            return result
+
+    async def _stop_graph(self, run_id: str) -> TaskState:
         config = self._graph_config(run_id)
         if run_id not in self._run_controls:
             checkpoint = await self.graph.aget_state(config)
@@ -363,6 +402,21 @@ class AgentRuntime:
         }
 
     async def _resume(self, run_id: str, confirmation: bool | None) -> TaskState:
+        with self._debug_recorder.bind(run_id, self.session_id):
+            record_debug("task.control", {"control": "resume", "approved": confirmation})
+            try:
+                result = await self._resume_graph(run_id, confirmation)
+            except BaseException as error:
+                record_debug("task.error", {"error_type": type(error).__name__})
+                raise
+            record_debug(
+                "task.result",
+                {"status": result.status, "summary": result.result_summary},
+                step=result.steps_taken,
+            )
+            return result
+
+    async def _resume_graph(self, run_id: str, confirmation: bool | None) -> TaskState:
         config = self._graph_config(run_id)
         checkpoint = await self.graph.aget_state(config)
         pending = checkpoint.values.get("pending_confirmation") is True
@@ -524,6 +578,7 @@ class AgentRuntime:
             status=status,
             browser_code=browser_code,
         )
+        record_debug("runtime.event", event.to_protocol_payload(), step=step)
         metrics = self._run_metrics.observe_event(event)
         if self.run_metadata_store is not None:
             try:

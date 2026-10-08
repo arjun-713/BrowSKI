@@ -368,6 +368,7 @@ def task(
                 # comparison path. It must not classify graph recovery or
                 # otherwise influence run control.
                 decision_provider=None,
+                debug_config=config.debug,
             ) as runtime:
                 result = await runtime.run(goal)
         rprint(
@@ -448,6 +449,7 @@ def resume(
                 database=checkpoint_db,
                 # Keep shadow decisions out of recovery and graph routing.
                 decision_provider=None,
+                debug_config=config.debug,
             ) as runtime:
                 if approve or deny:
                     result = await runtime.resume_with_confirmation(run_id, approved=approve)

@@ -46,6 +46,7 @@ from browser_agent.reasoning import (
     ReasoningPurpose,
     configured_luna_model,
 )
+from browser_agent.telemetry.debug_log import record_debug
 from browser_agent.vision import (
     ScreenshotMetadata,
     SemanticTargetMetadata,
@@ -446,17 +447,36 @@ class LunaDecisionAgent(Agent):
 
         chosen_candidate: ActionCandidate | None = None
         action: BrowserAction | None = None
+        comparisons: list[dict[str, object]] = []
         if proposed is not None:
-            for candidate in candidates:
+            proposed_signature = _action_signature(proposed)
+            for index, candidate in enumerate(candidates):
+                candidate_id = f"c{index + 1:02d}"
                 try:
                     candidate_action = candidate.to_browser_action(
                         _resolve_target(candidate, snapshot)
                     )
                 except ValueError:
+                    comparisons.append(
+                        {"candidate_id": candidate_id, "status": "target_resolution_failed"}
+                    )
                     continue
                 if candidate_action is None:
+                    comparisons.append({"candidate_id": candidate_id, "status": "not_executable"})
                     continue
-                if _action_signature(candidate_action) == _action_signature(proposed):
+                signature = _action_signature(candidate_action)
+                comparisons.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "action": signature,
+                        "differing_fields": sorted(
+                            field
+                            for field in signature.keys() | proposed_signature.keys()
+                            if signature.get(field) != proposed_signature.get(field)
+                        ),
+                    }
+                )
+                if signature == proposed_signature:
                     chosen_candidate = candidate
                     action = candidate_action
                     break
@@ -468,6 +488,23 @@ class LunaDecisionAgent(Agent):
                 if candidates[index] is chosen_candidate
             ),
             None,
+        )
+        validation_reason = "action_binding_failed"
+        if proposed is not None:
+            validation_reason = "signature_mismatch"
+        if action is not None:
+            validation_reason = "matched"
+        record_debug(
+            "decision.candidate_validation",
+            {
+                "accepted": action is not None,
+                "reason": validation_reason,
+                "proposed_action": result.action.model_dump(mode="json", exclude_none=True),
+                "bounded_candidates": options,
+                "comparisons": comparisons,
+                "selected_candidate": luna_id,
+            },
+            step=task.steps_taken + 1,
         )
         if action is None:
             return AgentDecision(

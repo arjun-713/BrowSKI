@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -18,7 +19,9 @@ from browser_agent.reasoning.contracts import (
     ReasoningDecision,
     ReasoningEffort,
 )
+from browser_agent.reasoning.debug_capture import public_error_payload, public_response_payload
 from browser_agent.reasoning.openai_wire import LunaDecisionOutput
+from browser_agent.telemetry.debug_log import record_debug
 
 DEFAULT_LUNA_MODEL = "gpt-6-luna"
 LUNA_MODEL_ENV = "BROWSKI_LUNA_MODEL"
@@ -194,9 +197,11 @@ class OpenAILunaProvider:
     ) -> ReasoningDecision:
         """Request and validate one bounded structured reasoning decision."""
         started = time.perf_counter()
+        call_id = str(uuid.uuid4())
         try:
             client = self._client or self._create_client()
         except ReasoningProviderError as error:
+            record_debug("provider.error", {"call_id": call_id, **public_error_payload(error)})
             self._emit(context, model, effort, started, "unavailable", error=error)
             raise
         context_data = context.model_dump(mode="json", exclude_none=True)
@@ -209,10 +214,27 @@ class OpenAILunaProvider:
             error = ReasoningProviderProtocolError(
                 "Reasoning context exceeds the configured character limit"
             )
+            record_debug("provider.error", {"call_id": call_id, **public_error_payload(error)})
             self._emit(context, model, effort, started, "protocol_error", error=error)
             raise error
 
         try:
+            record_debug(
+                "provider.request",
+                {
+                    "call_id": call_id,
+                    "provider": "openai",
+                    "operation": "reason",
+                    "model": model,
+                    "effort": effort.value,
+                    "instructions": _REASONING_INSTRUCTIONS,
+                    "input": context_data,
+                    "response_schema": LunaDecisionOutput.model_json_schema(),
+                    "max_output_tokens": self._max_output_tokens,
+                    "store": False,
+                },
+                step=context.task.steps_taken + 1,
+            )
             async with asyncio.timeout(self._timeout_seconds):
                 response = await client.responses.parse(
                     model=model,
@@ -225,24 +247,39 @@ class OpenAILunaProvider:
                     timeout=self._timeout_seconds,
                 )
         except TimeoutError as error:
+            record_debug("provider.error", {"call_id": call_id, **public_error_payload(error)})
             wrapped = ReasoningProviderTimeout(
                 f"Reasoning request exceeded {self._timeout_seconds:g} seconds"
             )
             self._emit(context, model, effort, started, "timeout", error=wrapped)
             raise wrapped from error
         except ReasoningProviderError as error:
+            record_debug("provider.error", {"call_id": call_id, **public_error_payload(error)})
             self._emit(context, model, effort, started, "error", error=error)
             raise
         except Exception as error:
+            record_debug("provider.error", {"call_id": call_id, **public_error_payload(error)})
             # Do not forward SDK messages: they can include endpoint or payload data.
             wrapped = ReasoningProviderRequestError.from_exception(error)
             self._emit(context, model, effort, started, "error", error=wrapped)
             raise wrapped from error
 
+        record_debug(
+            "provider.response",
+            {
+                "call_id": call_id,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "response": public_response_payload(response),
+            },
+            step=context.task.steps_taken + 1,
+        )
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
             error = ReasoningProviderProtocolError(
                 "Reasoning response did not contain a parsed decision"
+            )
+            record_debug(
+                "provider.validation_failed", {"call_id": call_id, "reason": "no_parsed_decision"}
             )
             self._emit(
                 context, model, effort, started, "protocol_error", response=response, error=error
@@ -262,6 +299,11 @@ class OpenAILunaProvider:
             # Validate model-selected refs against the exact observation sent.
             decision.bind_actions(context.observation)
         except (ValidationError, ValueError, TypeError) as validation_error:
+            record_debug(
+                "provider.validation_failed",
+                {"call_id": call_id, "error_type": type(validation_error).__name__},
+                step=context.task.steps_taken + 1,
+            )
             protocol_error = ReasoningProviderProtocolError(
                 "Reasoning response violated the decision contract"
             )

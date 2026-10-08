@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from browser_agent.cli.config import load_config
 from browser_agent.credentials import CredentialStore, SystemCredentialStore
 from browser_agent.extension.backend import (
     Attachment,
@@ -35,6 +36,7 @@ from browser_agent.extension.protocol import (
     ExtensionProtocolError,
 )
 from browser_agent.extension.settings_service import ExtensionSettingsService
+from browser_agent.telemetry.debug_log import DebugRecorder, record_debug
 
 if TYPE_CHECKING:
     from browser_agent.session import BrowserSession
@@ -460,6 +462,9 @@ class ExtensionBridgeService:
                 raise ExtensionProtocolError("resume or stop the suspended task first")
             self._task_label = cast(str, payload["task"])[:160]
             self._run_id = str(uuid.uuid4())
+            recorder = DebugRecorder(load_config(self.config_path).debug)
+            with recorder.bind(self._run_id, cast(str, self._runtime_session["sessionId"])):
+                record_debug("task.received", {"prompt": payload["task"], "source": "extension"})
             self._pending_approval_id = None
             self._pending_approval = None
             self._timeline_events = []
@@ -647,6 +652,9 @@ class ExtensionBridgeService:
     ) -> None:
         browser = await self.wait_for_attached_browser()
         if browser is None:
+            recorder = DebugRecorder(load_config(self.config_path).debug)
+            with recorder.bind(run_id, str(uuid.uuid4())):
+                record_debug("task.error", {"reason": "attached_browser_unavailable"})
             await self._finish_task(
                 writer, success=False, summary="The attached browser is unavailable."
             )
@@ -654,7 +662,7 @@ class ExtensionBridgeService:
         context = None
         try:
             from browser_agent.agent import AgentRuntime, LunaDecisionAgent
-            from browser_agent.cli.config import DecisionMode, load_config
+            from browser_agent.cli.config import DecisionMode
             from browser_agent.cli.main import (
                 create_luna_reasoning_provider,
                 create_luna_vision_provider,
@@ -697,6 +705,7 @@ class ExtensionBridgeService:
                 browser,
                 database=self.database_path,
                 event_sink=event_sink,
+                debug_config=config.debug,
             )
             runtime = await context.__aenter__()
             self._agent_runtime = runtime

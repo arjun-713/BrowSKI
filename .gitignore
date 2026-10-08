@@ -55,6 +55,7 @@ chrome-profile-*/
 # Screenshots / traces
 artifacts/
 traces/
+debug-logs/
 
 # OS files
 .DS_Store

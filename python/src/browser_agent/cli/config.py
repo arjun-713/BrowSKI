@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import cast
 
 from browser_agent.reasoning.contracts import ReasoningEffort
+from browser_agent.telemetry.debug_log import DebugLogConfig
 
 
 class ConfigError(ValueError):
@@ -115,6 +116,7 @@ class BrowskiConfig:
     traces: TraceConfig
     vision: VisionConfig
     browser_code: BrowserCodeConfig = BrowserCodeConfig()
+    debug: DebugLogConfig = DebugLogConfig()
 
 
 class RuntimeLayaMode(StrEnum):
@@ -148,6 +150,7 @@ _EXPECTED_KEYS: dict[str, set[str]] = {
     "traces": {"level"},
     "vision": {"enabled"},
     "browser_code": {"enabled"},
+    "debug": {"enabled", "directory", "max_session_bytes", "max_sessions", "retention_days"},
 }
 
 
@@ -287,7 +290,34 @@ def parse_config(document: Mapping[str, object]) -> BrowskiConfig:
         traces=TraceConfig(level=trace_level),
         vision=VisionConfig(enabled=_boolean(vision, "enabled")),
         browser_code=BrowserCodeConfig(enabled=browser_code_enabled),
+        debug=_parse_debug_config(document),
     )
+
+
+def _parse_debug_config(document: Mapping[str, object]) -> DebugLogConfig:
+    if "debug" not in document:
+        return DebugLogConfig()
+    section = _section(document, "debug")
+    enabled = section.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError("'debug.enabled' must be true or false.")
+
+    def integer(key: str, default: int) -> int:
+        value = section.get(key, default)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ConfigError(f"'debug.{key}' must be an integer.")
+        return value
+
+    try:
+        return DebugLogConfig(
+            enabled=enabled,
+            directory=_optional_path(section, "directory") or Path("debug-logs"),
+            max_session_bytes=integer("max_session_bytes", 16 * 1024 * 1024),
+            max_sessions=integer("max_sessions", 100),
+            retention_days=integer("retention_days", 30),
+        )
+    except ValueError as error:
+        raise ConfigError("Invalid debug logging limits.") from error
 
 
 def load_config(path: Path | None = None) -> BrowskiConfig:

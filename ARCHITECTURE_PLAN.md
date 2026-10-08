@@ -1206,6 +1206,14 @@ Large raw snapshots/screenshots should be referenced as artifacts rather than em
 
 # 23. Telemetry
 
+The runtime also supports opt-in local debug sessions: sanitized task prompts,
+provider requests and public responses, runtime events, browser summaries, and
+bounded-candidate validation diagnostics. Capture is separate from graph
+checkpoints, bounded by session size and retention, and ignored by Git.
+Credentials, screenshot bytes, and hidden reasoning are excluded. This does
+not change provider routing or action authorization. See
+[`docs/user/debugging.md`](docs/user/debugging.md).
+
 The following is the target per-step trace contract. The foundation currently
 has partial task-state and provider telemetry, but does not yet emit this full
 structured record for every graph step.

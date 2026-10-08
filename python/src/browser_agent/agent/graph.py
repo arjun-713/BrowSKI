@@ -50,6 +50,7 @@ from browser_agent.progress.task_state import (
 )
 from browser_agent.recovery.high_level import RecoveryBudget, RecoveryContext, RecoveryPolicy
 from browser_agent.session import BrowserSession
+from browser_agent.telemetry.debug_log import record_debug
 
 
 class DecisionAgent(Protocol):
@@ -220,6 +221,7 @@ def build_agent_graph(
             return controlled
         snapshot = await browser.observe()
         save_snapshot(state, snapshot)
+        record_debug("browser.observation", {"snapshot": snapshot_checkpoint(snapshot)})
         await notify(state, RuntimeEventType.OBSERVATION_COMPLETED, "completed")
         return {"snapshot": snapshot_checkpoint(snapshot)}
 
@@ -323,6 +325,11 @@ def build_agent_graph(
                     if not owned_task.done():
                         owned_task.cancel()
                 await asyncio.gather(*owned_tasks, return_exceptions=True)
+        record_debug(
+            "decision.result",
+            {"decision": decision_checkpoint(decision)},
+            step=task_state.steps_taken + 1,
+        )
         await notify(state, RuntimeEventType.DECISION_MADE, "completed")
         controlled = control_result(state)
         if controlled is not None:
@@ -689,6 +696,13 @@ def build_agent_graph(
 
         fresh_snapshot = await browser.observe()
         if not same_decision_state(snapshot, fresh_snapshot):
+            record_debug(
+                "browser.action_invalidated",
+                {
+                    "reason": "browser_state_changed",
+                    "snapshot": snapshot_checkpoint(fresh_snapshot),
+                },
+            )
             save_snapshot(state, fresh_snapshot)
             decision_cache.pop(key, None)
             return {
@@ -704,8 +718,13 @@ def build_agent_graph(
             return controlled
 
         try:
+            record_debug(
+                "browser.action_started",
+                {"action": action_audit_summary(decision.action.model_dump(mode="json"))},
+            )
             await notify(state, RuntimeEventType.ACTION_STARTED, "running")
             outcome = await browser.act(decision.action, snapshot.active_tab)
+            record_debug("browser.action_result", {"outcome": outcome_checkpoint(outcome)})
         finally:
             decision_cache.pop(key, None)
         raw_execution = outcome.get("execution")
@@ -746,6 +765,7 @@ def build_agent_graph(
         execution = outcome.get("execution")
         verification = outcome.get("verification", {})
         mechanically_executed = isinstance(execution, dict) and "Ok" in execution
+        record_debug("browser.verification", {"verification": verification})
         verification_status = str(verification.get("status", "UNKNOWN"))
         verified = verification_status == "SUCCESS"
         await notify(

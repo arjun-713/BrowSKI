@@ -223,6 +223,11 @@ architectural options. Read ADR-001 and ADR-002 first.
 - Mark product capabilities as implemented, partial, or planned based on
   executable integration evidence. A provider contract or UI scaffold is not
   an end-to-end feature.
+- User-authorized debug capture may persist sanitized task prompts, provider
+  requests/public responses, and browser diagnostics in ignored local run
+  files. Keep capture opt-in, bounded, owner-only, and separate from durable
+  checkpoints. Never persist credentials, screenshots, or hidden reasoning.
+  See `docs/user/debugging.md`.
 
 ## 15. Definition of done (scaffold)
 

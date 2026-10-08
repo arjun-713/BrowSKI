@@ -33,6 +33,8 @@ Configure the key in the side-panel Settings or set `OPENAI_API_KEY` or
 presence only. If keyring access fails, use the environment override.
 Network and API errors are intentionally sanitized in normal user output;
 developer logs identify error types without including request payloads.
+For opt-in, sanitized request and response capture, see
+[local debug sessions](debugging.md).
 
 ## Laya is unavailable
 

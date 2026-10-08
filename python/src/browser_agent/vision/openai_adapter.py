@@ -6,10 +6,13 @@ import asyncio
 import base64
 import json
 import os
+import time
+import uuid
 from typing import cast
 
 from pydantic import ValidationError
 
+from browser_agent.reasoning.debug_capture import public_error_payload, public_response_payload
 from browser_agent.reasoning.openai_adapter import (
     DEFAULT_LUNA_MODEL,
     ReasoningProviderError,
@@ -20,6 +23,7 @@ from browser_agent.reasoning.openai_adapter import (
     ResponsesClient,
     configured_luna_model,
 )
+from browser_agent.telemetry.debug_log import record_debug
 from browser_agent.vision.contracts import VisionInterpretation, VisionRequest
 
 DEFAULT_VISION_TIMEOUT_SECONDS = 20.0
@@ -58,35 +62,53 @@ class OpenAILunaVisionProvider:
         self._max_input_characters = max_input_characters
 
     async def interpret(self, request: VisionRequest) -> VisionInterpretation:
-        client = self._client or self._create_client()
-        input_context = {
-            "task": request.task,
-            "observation": request.observation.model_dump(
-                mode="json",
-                exclude={"elements", "active_tab", "state_generation", "page_fingerprint"},
-            ),
-            "elements": [
-                element.model_dump(mode="json") for element in request.observation.elements
-            ],
-            # Tab identity and generation remain local correlation metadata.
-            "viewport": {
-                "width": request.metadata.viewport_width,
-                "height": request.metadata.viewport_height,
-                "device_scale_factor": request.metadata.device_scale_factor,
-            },
-            "targets": [target.model_dump(mode="json") for target in request.targets],
-        }
-        serialized_context = json.dumps(input_context, separators=(",", ":"), ensure_ascii=True)
-        if len(serialized_context) > self._max_input_characters:
-            raise ReasoningProviderProtocolError(
-                "Vision context exceeds the configured character limit"
-            )
-
-        image_url = (
-            f"data:{request.mime_type};base64,"
-            f"{base64.b64encode(request.screenshot).decode('ascii')}"
-        )
+        started = time.perf_counter()
+        call_id = str(uuid.uuid4())
         try:
+            client = self._client or self._create_client()
+            input_context = {
+                "task": request.task,
+                "observation": request.observation.model_dump(
+                    mode="json",
+                    exclude={"elements", "active_tab", "state_generation", "page_fingerprint"},
+                ),
+                "elements": [
+                    element.model_dump(mode="json") for element in request.observation.elements
+                ],
+                # Tab identity and generation remain local correlation metadata.
+                "viewport": {
+                    "width": request.metadata.viewport_width,
+                    "height": request.metadata.viewport_height,
+                    "device_scale_factor": request.metadata.device_scale_factor,
+                },
+                "targets": [target.model_dump(mode="json") for target in request.targets],
+            }
+            serialized_context = json.dumps(input_context, separators=(",", ":"), ensure_ascii=True)
+            if len(serialized_context) > self._max_input_characters:
+                raise ReasoningProviderProtocolError(
+                    "Vision context exceeds the configured character limit"
+                )
+
+            image_url = (
+                f"data:{request.mime_type};base64,"
+                f"{base64.b64encode(request.screenshot).decode('ascii')}"
+            )
+            self._record_debug_call(
+                "provider.request",
+                call_id,
+                started,
+                model=configured_luna_model() or DEFAULT_LUNA_MODEL,
+                reasoning_effort="low",
+                instructions=_VISION_INSTRUCTIONS,
+                input=input_context,
+                capture_metadata={
+                    "mime_type": request.mime_type,
+                    "byte_length": len(request.screenshot),
+                },
+                response_schema=VisionInterpretation.model_json_schema(),
+                max_output_tokens=self._max_output_tokens,
+                store=False,
+            )
             async with asyncio.timeout(self._timeout_seconds):
                 response = await client.responses.parse(
                     model=configured_luna_model() or DEFAULT_LUNA_MODEL,
@@ -102,23 +124,57 @@ class OpenAILunaVisionProvider:
                         }
                     ],
                     text_format=VisionInterpretation,
+                    store=False,
                     max_output_tokens=self._max_output_tokens,
                     timeout=self._timeout_seconds,
                 )
         except TimeoutError as error:
+            self._record_debug_call(
+                "provider.error",
+                call_id,
+                started,
+                **public_error_payload(error),
+            )
             raise ReasoningProviderTimeout(
                 f"Vision request exceeded {self._timeout_seconds:g} seconds"
             ) from error
-        except ReasoningProviderError:
+        except ReasoningProviderError as error:
+            self._record_debug_call(
+                "provider.error",
+                call_id,
+                started,
+                **public_error_payload(error),
+            )
             raise
         except Exception as error:
+            self._record_debug_call(
+                "provider.error",
+                call_id,
+                started,
+                **public_error_payload(error),
+            )
             raise ReasoningProviderRequestError(
                 f"Vision request failed ({type(error).__name__})"
             ) from error
 
+        self._record_debug_call(
+            "provider.response",
+            call_id,
+            started,
+            response=public_response_payload(response),
+        )
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
-            raise ReasoningProviderProtocolError("Vision response did not contain a parsed finding")
+            error = ReasoningProviderProtocolError(
+                "Vision response did not contain a parsed finding"
+            )
+            self._record_debug_call(
+                "provider.error",
+                call_id,
+                started,
+                **public_error_payload(error),
+            )
+            raise error
         try:
             finding = (
                 parsed
@@ -126,16 +182,48 @@ class OpenAILunaVisionProvider:
                 else VisionInterpretation.model_validate(parsed)
             )
         except (ValidationError, ValueError, TypeError) as error:
-            raise ReasoningProviderProtocolError(
+            protocol_error = ReasoningProviderProtocolError(
                 "Vision response violated the interpretation contract"
-            ) from error
+            )
+            self._record_debug_call(
+                "provider.error",
+                call_id,
+                started,
+                **public_error_payload(protocol_error),
+            )
+            raise protocol_error from error
         if finding.target_ref is not None:
             refs = {target.ref for target in request.targets}
             if finding.target_ref not in refs:
-                raise ReasoningProviderProtocolError(
+                error = ReasoningProviderProtocolError(
                     "Vision response selected a ref absent from supplied target metadata"
                 )
+                self._record_debug_call(
+                    "provider.error",
+                    call_id,
+                    started,
+                    **public_error_payload(error),
+                )
+                raise error
         return finding
+
+    def _record_debug_call(
+        self,
+        event: str,
+        call_id: str,
+        started: float,
+        **payload: object,
+    ) -> None:
+        record_debug(
+            event,
+            {
+                "call_id": call_id,
+                "provider": "openai",
+                "operation": "vision_interpret",
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                **payload,
+            },
+        )
 
     def _create_client(self) -> ResponsesClient:
         api_key = (

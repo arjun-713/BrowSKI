@@ -33,3 +33,11 @@ enabled = false
 
 [browser_code]
 enabled = false
+
+# Explicit local debugging only; files may contain task/page content after redaction.
+[debug]
+enabled = false
+directory = "debug-logs"
+max_session_bytes = 16777216
+max_sessions = 100
+retention_days = 30
