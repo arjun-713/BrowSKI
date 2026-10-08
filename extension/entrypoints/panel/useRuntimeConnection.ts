@@ -57,6 +57,30 @@ export function useRuntimeConnection() {
   }, []);
 
   useEffect(() => {
+    if (snapshot.host !== "connecting") return;
+
+    // Recover a missed port update or a stale connect-command response.
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void chrome.runtime
+        .sendMessage({ type: "panel.snapshot" })
+        .then((result) => {
+          if (!cancelled && isSnapshot(result)) setSnapshot(result);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPanelError("Extension connection was interrupted. Reopen the side panel.");
+          }
+        });
+    }, 1_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [snapshot.host]);
+
+  useEffect(() => {
     if (snapshot.protocolReady) {
       void chrome.runtime.sendMessage({ type: "settings.get" }).catch(() => undefined);
     }

@@ -19,6 +19,7 @@ import {
 
 const NATIVE_HOST_NAME = "com.browski.runtime";
 const MAX_TIMELINE_EVENTS = 80;
+const HOST_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 type NativeHostDependencies = {
   snapshot: ExtensionSnapshot;
@@ -31,6 +32,7 @@ type NativeHostDependencies = {
 
 export class NativeHostController {
   private nativePort: chrome.runtime.Port | null = null;
+  private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private hostNegotiated = false;
   private sequence = 0;
   private readonly negotiatedMethods = new Set<DebuggerMethod>();
@@ -52,6 +54,7 @@ export class NativeHostController {
   };
 
   setHostError = (message: string): void => {
+    this.clearHandshakeTimer();
     const { snapshot, publishSnapshot } = this.dependencies;
     snapshot.host = "error";
     snapshot.hostError = message;
@@ -72,9 +75,19 @@ export class NativeHostController {
     try {
       const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
       this.nativePort = port;
+      this.handshakeTimer = setTimeout(() => {
+        if (this.nativePort !== port || snapshot.protocolReady) return;
+        this.nativePort = null;
+        port.disconnect();
+        this.setHostError(
+          "Local runtime did not complete its connection within 10 seconds. Retry connecting.",
+        );
+      }, HOST_HANDSHAKE_TIMEOUT_MS);
       port.onMessage.addListener(this.onNativeMessage);
       port.onDisconnect.addListener(() => {
         const lastError = chrome.runtime.lastError?.message;
+        if (this.nativePort !== port) return;
+        this.clearHandshakeTimer();
         this.nativePort = null;
         snapshot.protocolReady = false;
         this.hostNegotiated = false;
@@ -103,6 +116,7 @@ export class NativeHostController {
   };
 
   disconnectHost = (): void => {
+    this.clearHandshakeTimer();
     const { snapshot, publishSnapshot } = this.dependencies;
     void this.dependencies.detachOwnedTab(
       "Disconnected from the runtime by the user.",
@@ -122,6 +136,13 @@ export class NativeHostController {
 
   getNegotiatedMethods(): ReadonlySet<DebuggerMethod> {
     return this.negotiatedMethods;
+  }
+
+  private clearHandshakeTimer(): void {
+    if (this.handshakeTimer !== null) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = null;
+    }
   }
 
   getNegotiatedEvents(): ReadonlySet<string> {
@@ -251,6 +272,7 @@ export class NativeHostController {
     }
     snapshot.session = session;
     snapshot.protocolReady = true;
+    this.clearHandshakeTimer();
     snapshot.events = events.slice(-MAX_TIMELINE_EVENTS);
     snapshot.pendingApproval = pendingApproval;
     if (snapshot.attachment && snapshot.attachment.sessionId !== session?.sessionId) {
