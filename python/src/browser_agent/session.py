@@ -22,6 +22,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from browser_agent._types import BrowserAction, ElementRef, SemanticSnapshot, SnapshotDelta, TabInfo
+from browser_agent.browser_code import BrowserCodeProposal, BrowserCodeResult, BrowserCodeTool
 
 MAX_VIEWPORT_SCREENSHOT_BYTES = 4 * 1024 * 1024
 
@@ -29,24 +30,27 @@ MAX_VIEWPORT_SCREENSHOT_BYTES = 4 * 1024 * 1024
 class BrowserSession:
     """Live Chromium session owned by the Rust browser core."""
 
-    def __init__(self, headless: bool = True) -> None:
+    def __init__(self, headless: bool = True, *, browser_code_enabled: bool = False) -> None:
         self._headless = headless
+        self._browser_code_enabled = browser_code_enabled
         self._native: Any = None
 
     # -- lifecycle ------------------------------------------------------
     @classmethod
-    def launch(cls, headless: bool = True) -> Self:
+    def launch(cls, headless: bool = True, *, browser_code_enabled: bool = False) -> Self:
         """Create a session; use as ``async with BrowserSession.launch(): ...``.
 
         Opening (spawning Chromium) happens on ``__aenter__`` so the call
         itself stays synchronous and composable in ``async with``.
         """
-        return cls(headless=headless)
+        return cls(headless=headless, browser_code_enabled=browser_code_enabled)
 
     async def _open(self) -> None:
         from browser_agent import _core
 
-        self._native = await asyncio.to_thread(_core.PyBrowserSession.launch, self._headless)
+        self._native = await asyncio.to_thread(
+            _core.PyBrowserSession.launch, self._headless, self._browser_code_enabled
+        )
 
     @classmethod
     async def attach_extension(
@@ -59,11 +63,12 @@ class BrowserSession:
         target_id: str,
         title: str,
         url: str,
+        browser_code_enabled: bool = False,
     ) -> Self:
         """Use the shared Rust browser core through an attached extension tab."""
         from browser_agent import _core
 
-        session = cls()
+        session = cls(browser_code_enabled=browser_code_enabled)
         session._native = await asyncio.to_thread(
             _core.PyBrowserSession.attach_extension,
             socket_path,
@@ -77,6 +82,7 @@ class BrowserSession:
                     "url": url,
                 }
             ),
+            browser_code_enabled,
         )
         return session
 
@@ -150,6 +156,11 @@ class BrowserSession:
             json.dumps(payload),
         )
         return json.loads(raw)
+
+    async def execute_browser_code(self, proposal: BrowserCodeProposal) -> BrowserCodeResult:
+        """Run an explicitly enabled, isolated transform over Rust-owned data."""
+        tool = BrowserCodeTool(enabled=self._browser_code_enabled)
+        return await asyncio.to_thread(tool.execute, proposal, self._require_open())
 
     async def close(self) -> None:
         native, self._native = self._native, None

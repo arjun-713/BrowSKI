@@ -42,20 +42,29 @@ _PII_PATTERNS = (
     re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
 )
 _SECRET_PATTERN = re.compile(
-    r"(?i)\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|"
-    r"AKIA[A-Z0-9]{16})\b"
+    r"(?i)\b(?:sk[-_](?:live|test)[-_][A-Za-z0-9_-]{12,}|sk-[A-Za-z0-9_-]{12,}|"
+    r"gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|"
+    r"xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|"
+    r"glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|"
+    r"hf_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\."
+    r"[A-Za-z0-9_-]{5,})\b"
 )
 _CREDENTIAL_ROLES = frozenset({"password", "passwordbox", "credential"})
 _PRIVATE_KEYS = frozenset(
     {
         "access_token",
         "api_key",
+        "auth_token",
         "authorization",
+        "authorization_header",
+        "bearer_token",
         "cookie",
         "credit_card",
         "credential",
+        "csrf_token",
         "cvv",
         "cvc",
+        "id_token",
         "mfa_code",
         "one_time_code",
         "otp",
@@ -63,23 +72,42 @@ _PRIVATE_KEYS = frozenset(
         "password",
         "passphrase",
         "pin",
+        "private_key",
         "refresh_token",
         "secret",
+        "secret_key",
+        "session_token",
         "session_id",
         "social_security_number",
         "ssn",
         "token",
         "token_value",
+        "client_secret",
+        "set_cookie",
     }
 )
 _PRIVATE_KEY_NAMES = frozenset(re.sub(r"[^a-z0-9]", "", key) for key in _PRIVATE_KEYS)
 _SENSITIVE_LABEL_PATTERN = re.compile(
     r"(?i)\b(?:password|passphrase|passcode|pin|credential|secret|"
+    r"client[\s_-]*secret|private[\s_-]*key|secret[\s_-]*key|"
+    r"auth(?:entication|orization)?|bearer|cookie|session|csrf|"
     r"api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|"
-    r"one[\s_-]*time(?:[\s_-]*code)?|mfa[\s_-]*code|otp|"
-    r"security[\s_-]*code|verification[\s_-]*code|"
+    r"id[\s_-]*token|one[\s_-]*time(?:[\s_-]*code)?|mfa[\s_-]*code|otp|"
+    r"security[\s_-]*code|verification[\s_-]*code|recovery[\s_-]*code|"
     r"credit[\s_-]*card|cvv|cvc)\b"
 )
+
+
+def has_recognized_sensitive_label(label: str) -> bool:
+    """Best-effort check for common credential labels; not universal detection."""
+    return _SENSITIVE_LABEL_PATTERN.search(label) is not None
+
+
+def has_recognized_sensitive_content(value: str) -> bool:
+    """Best-effort check for supported token and PII patterns."""
+    if _SECRET_PATTERN.search(value) is not None:
+        return True
+    return any(pattern.search(value) is not None for pattern in _PII_PATTERNS)
 
 
 def _normalized_key(key: str) -> str:
@@ -216,14 +244,17 @@ class ProviderBoundary:
     ) -> object:
         if isinstance(value, dict):
             object_values = cast(dict[str, object], value)
-            role = str(object_values.get("role", "")).casefold().replace("_", "")
-            semantic_kind = str(object_values.get("semantic_kind", "")).casefold()
+            role = _normalized_key(str(object_values.get("role", "")))
+            semantic_kind = _normalized_key(str(object_values.get("semantic_kind", "")))
             label_fields = ("name", "accessible_name", "label", "placeholder", "input_type")
             labels: list[str] = []
             for field_name in label_fields:
                 label = object_values.get(field_name)
                 if isinstance(label, str):
                     labels.append(label)
+            record_key = object_values.get("key")
+            if "value" in object_values and isinstance(record_key, str):
+                labels.append(record_key)
             has_sensitive_label = any(
                 _SENSITIVE_LABEL_PATTERN.search(label) is not None for label in labels
             )

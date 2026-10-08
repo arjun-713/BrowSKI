@@ -20,6 +20,7 @@ from browser_agent.decisions import (
     DecisionResult,
 )
 from browser_agent.persistence import SQLiteRunMetadataStore
+from browser_agent.persistence.run_metrics import RunMetrics
 
 pytestmark = pytest.mark.asyncio
 
@@ -288,6 +289,52 @@ async def test_pause_checkpoints_before_action_and_resume_continues() -> None:
         assert (await browser.observe()).url == FIXTURE.as_uri()
 
 
+async def test_sqlite_pause_resume_does_not_authorize_high_risk_action(tmp_path: Path) -> None:
+    fixture = tmp_path / "pause-confirmation.html"
+    fixture.write_text(
+        """<!doctype html>
+<html lang="en"><head><title>Review order</title></head>
+<body><form><input name="reference" value="synthetic">
+<button type="submit">Submit order</button></form></body></html>""",
+        encoding="utf-8",
+    )
+
+    class DelayedSubmitAgent(SubmitFixtureAgent):
+        def __init__(self, url: str) -> None:
+            super().__init__(url)
+            self.deciding = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def decide(
+            self, snapshot: SemanticSnapshot, task: TaskState, memory: WorkingMemory
+        ) -> AgentDecision:
+            self.deciding.set()
+            await self.release.wait()
+            return await super().decide(snapshot, task, memory)
+
+    agent = DelayedSubmitAgent(fixture.as_uri())
+    database = tmp_path / "pause.sqlite"
+    async with BrowserSession.launch() as browser:
+        await browser.navigate(fixture.as_uri())
+        async with AgentRuntime.open_sqlite(agent, browser, database=database) as runtime:
+            running = asyncio.create_task(runtime.run("Submit order", run_id="paused-order"))
+            await agent.deciding.wait()
+            runtime.pause("paused-order")
+            agent.release.set()
+            assert (await running).status == "paused"
+
+        # Reconstruct the graph and controls from SQLite, keeping browser truth live.
+        async with AgentRuntime.open_sqlite(agent, browser, database=database) as reopened:
+            pending = await reopened.resume("paused-order")
+            assert pending.status == "pending_confirmation"
+            assert (await browser.observe()).title == "Review order"
+            with pytest.raises(ValueError, match="explicit confirmation"):
+                await reopened.resume("paused-order")
+            denied = await reopened.resume_with_confirmation("paused-order", approved=False)
+            assert denied.status == "failed"
+            assert (await browser.observe()).title == "Review order"
+
+
 async def test_stop_while_deciding_does_not_execute_the_pending_action() -> None:
     agent = BlockingNavigationAgent()
     async with BrowserSession.launch() as browser:
@@ -387,6 +434,10 @@ async def test_sqlite_runtime_records_safe_run_metadata(tmp_path: Path) -> None:
     assert records[0].run_id == "metadata-run"
     assert records[0].status == "completed"
     assert records[0].steps == result.steps_taken
+    assert records[0].metrics.action_count == 1
+    assert records[0].metrics.task_duration_ms >= 0
+    reopened = SQLiteRunMetadataStore(database)
+    assert (await reopened.load_metrics("metadata-run")).action_count == 1
 
 
 async def test_long_horizon_counts_text_only_changes_as_progress() -> None:
@@ -448,6 +499,12 @@ async def test_graph_checkpoint_resumes_with_same_thread_state(tmp_path: Path) -
             assert not pending.done
             state = await first.graph.aget_state({"configurable": {"thread_id": "resume-test"}})
             assert state.next
+            assert first.run_metadata_store is not None
+            await first.run_metadata_store.record_metrics(
+                "resume-test",
+                RunMetrics(action_count=7, luna_calls=3, luna_low_effort_calls=3),
+                event_at="2026-10-08T00:00:00+00:00",
+            )
 
         async with AgentRuntime.open_sqlite(
             CompleteAfterObserveAgent(), browser, database
@@ -456,6 +513,9 @@ async def test_graph_checkpoint_resumes_with_same_thread_state(tmp_path: Path) -
 
         assert completed.done
         assert completed.task == "Finish after observing."
+        resumed_metrics = await SQLiteRunMetadataStore(database).load_metrics("resume-test")
+        assert resumed_metrics.action_count == 8
+        assert resumed_metrics.luna_calls == 3
 
 
 async def test_model_done_claim_without_verified_browser_evidence_is_rejected() -> None:

@@ -14,7 +14,6 @@ from typing import Any, cast
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
 from browser_agent._types import (
@@ -23,15 +22,24 @@ from browser_agent._types import (
     TaskState,
     WorkingMemory,
 )
-from browser_agent.agent.events import RuntimeEvent, RuntimeEventType
+from browser_agent.agent.events import (
+    BrowserCodeEventMetadata,
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from browser_agent.agent.graph import build_agent_graph
 from browser_agent.agent.state import AgentState
+from browser_agent.browser_code import BrowserCodeResult
 from browser_agent.decisions.base import DecisionProvider
+from browser_agent.persistence.checkpoint_cipher import encrypted_sqlite_saver
+from browser_agent.persistence.run_identity import resolve_run_id, validate_run_id
 from browser_agent.persistence.run_metadata import SQLiteRunMetadataStore
+from browser_agent.persistence.run_metrics import RunMetricKind, RunMetricsAggregator
 from browser_agent.session import BrowserSession
 
 logger = logging.getLogger(__name__)
 RuntimeEventSink = Callable[[RuntimeEvent], Awaitable[None]]
+RunMetricRecorder = Callable[[str, RunMetricKind], None]
 
 
 @dataclass
@@ -72,6 +80,25 @@ class Agent(ABC):
     ) -> AgentDecision:
         raise NotImplementedError
 
+    def accept_browser_code_result(self, result: BrowserCodeResult) -> None:
+        """Only agents explicitly supporting the optional tool may consume it."""
+        del result
+        raise ValueError("this agent does not support browser-code results")
+
+    def clear_browser_code_result(self) -> None:
+        """Discard ephemeral tool data at a lifecycle boundary."""
+        return None
+
+    def bind_run_metric_recorder(self, recorder: RunMetricRecorder) -> None:
+        """Bind a content-free metrics callback owned by the runtime."""
+        self._run_metric_recorder = recorder
+
+    def record_run_metric(self, run_id: str | None, kind: RunMetricKind) -> None:
+        """Report one known internal operation without passing its content."""
+        recorder = getattr(self, "_run_metric_recorder", None)
+        if run_id is not None and recorder is not None:
+            recorder(run_id, kind)
+
 
 class AgentRuntime:
     """Owns the graph lifecycle while Rust owns browser action mechanics."""
@@ -96,8 +123,10 @@ class AgentRuntime:
         self.session_id = str(uuid.uuid4())
         self._event_sink = event_sink
         self._event_sequence = 0
+        self._run_metrics = RunMetricsAggregator()
         self._run_controls: dict[str, _RunControl] = {}
         self._active_runs: set[str] = set()
+        self.agent.bind_run_metric_recorder(self._run_metrics.increment)
         self.graph = build_agent_graph(
             self.agent,
             self.browser,
@@ -106,7 +135,8 @@ class AgentRuntime:
             decision_provider=decision_provider,
             interrupt_before=interrupt_before,
             control_for_run=self._control_for_run,
-            emit_event=self._emit_graph_event if event_sink is not None else None,
+            emit_event=self._emit_graph_event,
+            emit_browser_code_event=self._emit_graph_browser_code_event,
         )
 
     @classmethod
@@ -127,7 +157,7 @@ class AgentRuntime:
         SQLite connections are owned by the asynchronous context and must not
         outlive it. Reopen the same database and run id to resume a task.
         """
-        async with AsyncSqliteSaver.from_conn_string(str(database)) as checkpointer:
+        async with encrypted_sqlite_saver(database) as checkpointer:
             yield cls(
                 agent,
                 browser,
@@ -141,13 +171,14 @@ class AgentRuntime:
 
     async def run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
         """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""
-        thread_id = run_id or str(uuid.uuid4())
+        thread_id = resolve_run_id(run_id)
         if thread_id in self._active_runs:
             raise ValueError(f"run {thread_id!r} is already active")
         task_state = (
             task.model_copy(deep=True) if isinstance(task, TaskState) else TaskState(task=task)
         )
         task_state.run_id = thread_id
+        self._run_metrics.ensure(thread_id)
         initial_state: AgentState = {
             "task": task_state.user_goal or task_state.task,
             "task_state": task_state.model_dump(mode="json"),
@@ -207,6 +238,7 @@ class AgentRuntime:
             raise
         finally:
             self._active_runs.discard(thread_id)
+            self.agent.clear_browser_code_result()
         task_state = self._task_state_from_result(result)
         await self._emit_terminal_event(task_state)
         await self._record_run_state(task_state)
@@ -216,12 +248,14 @@ class AgentRuntime:
 
     def pause(self, run_id: str) -> None:
         """Pause after the current graph node and before another action starts."""
+        run_id = validate_run_id(run_id)
         if run_id not in self._active_runs:
             raise ValueError(f"run {run_id!r} is not active")
         self._control_for_run(run_id).pause_requested = True
 
     async def stop(self, run_id: str) -> TaskState:
         """Stop at a safe boundary; an in-flight action is verified first."""
+        run_id = validate_run_id(run_id)
         config = self._graph_config(run_id)
         if run_id not in self._run_controls:
             checkpoint = await self.graph.aget_state(config)
@@ -266,6 +300,7 @@ class AgentRuntime:
 
     async def resume(self, run_id: str) -> TaskState:
         """Resume a checkpoint, requiring explicit input for safety interrupts."""
+        run_id = validate_run_id(run_id)
         if run_id in self._active_runs:
             raise ValueError(f"run {run_id!r} is already active")
         control = self._control_for_run(run_id)
@@ -276,6 +311,7 @@ class AgentRuntime:
 
     async def resume_with_confirmation(self, run_id: str, *, approved: bool) -> TaskState:
         """Resume a pending consequential action with an explicit user decision."""
+        run_id = validate_run_id(run_id)
         if run_id in self._active_runs:
             raise ValueError(f"run {run_id!r} is already active")
         control = self._control_for_run(run_id)
@@ -286,6 +322,7 @@ class AgentRuntime:
 
     async def pending_confirmation_details(self, run_id: str) -> dict[str, str]:
         """Return a bounded action and target summary for a pending approval."""
+        run_id = validate_run_id(run_id)
         checkpoint = await self.graph.aget_state(self._graph_config(run_id))
         if not checkpoint.values or checkpoint.values.get("pending_confirmation") is not True:
             raise ValueError(f"run {run_id!r} has no pending confirmation")
@@ -331,9 +368,29 @@ class AgentRuntime:
         pending = checkpoint.values.get("pending_confirmation") is True
         if pending and confirmation is None:
             raise ValueError("pending high-risk actions require explicit confirmation")
-        graph_input: Any = Command(resume=confirmation) if pending else None
+        paused = any(
+            _interrupt_kind(item) == "user_pause"
+            for task in checkpoint.tasks
+            for item in task.interrupts
+        )
+        graph_input: Any = None
+        if paused:
+            graph_input = Command(resume=True)
+        elif pending:
+            graph_input = Command(resume=confirmation)
         checkpoint_task = TaskState.model_validate(checkpoint.values["task_state"])
         checkpoint_task.status = "running"
+        if self.run_metadata_store is not None:
+            try:
+                self._run_metrics.restore(
+                    run_id,
+                    await self.run_metadata_store.load_metrics(run_id),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "run metrics could not be restored",
+                    extra={"error_type": type(exc).__name__},
+                )
         await self._emit_event(
             RuntimeEventType.RUN_RESUMED,
             run_id,
@@ -368,6 +425,7 @@ class AgentRuntime:
             raise
         finally:
             self._active_runs.discard(run_id)
+            self.agent.clear_browser_code_result()
         task_state = self._task_state_from_result(result)
         await self._emit_terminal_event(task_state)
         await self._record_run_state(task_state)
@@ -417,6 +475,16 @@ class AgentRuntime:
     ) -> None:
         await self._emit_event(event_type, run_id, step, status)
 
+    async def _emit_graph_browser_code_event(
+        self,
+        event_type: RuntimeEventType,
+        run_id: str,
+        step: int,
+        status: str,
+        browser_code: BrowserCodeEventMetadata,
+    ) -> None:
+        await self._emit_event(event_type, run_id, step, status, browser_code=browser_code)
+
     async def _emit_terminal_event(self, task_state: TaskState) -> None:
         terminal_events = {
             "paused": RuntimeEventType.RUN_PAUSED,
@@ -442,10 +510,10 @@ class AgentRuntime:
         run_id: str,
         step: int,
         status: str,
+        *,
+        browser_code: BrowserCodeEventMetadata | None = None,
     ) -> None:
         sink = self._event_sink
-        if sink is None:
-            return
         self._event_sequence += 1
         event = RuntimeEvent.create(
             session_id=self.session_id,
@@ -454,7 +522,23 @@ class AgentRuntime:
             step=step,
             event_type=event_type,
             status=status,
+            browser_code=browser_code,
         )
+        metrics = self._run_metrics.observe_event(event)
+        if self.run_metadata_store is not None:
+            try:
+                await self.run_metadata_store.record_metrics(
+                    run_id,
+                    metrics,
+                    event_at=event.created_at,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "run metrics could not be persisted",
+                    extra={"error_type": type(exc).__name__},
+                )
+        if sink is None:
+            return
         try:
             await asyncio.wait_for(sink(event), timeout=0.5)
         except asyncio.CancelledError:
@@ -488,6 +572,7 @@ class AgentRuntime:
         )
 
     def _graph_config(self, thread_id: str) -> dict[str, object]:
+        thread_id = validate_run_id(thread_id)
         return {
             "configurable": {"thread_id": thread_id},
             "recursion_limit": max(25, self.config.max_steps * 5),

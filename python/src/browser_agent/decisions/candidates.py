@@ -24,11 +24,15 @@ class ActionCandidate(BaseModel):
     candidate_id: str
     kind: CandidateKind
     description: str
-    action_type: Literal["click", "type", "select", "check", "scroll"] | None = None
+    action_type: (
+        Literal["click", "type", "select", "check", "scroll", "new_tab", "activate_tab"] | None
+    ) = None
     target_ref: str | None = None
     text: str | None = None
     value: str | None = None
     checked: bool | None = None
+    url: str | None = None
+    tab: str | None = None
     dx: int = 0
     dy: int = 0
     observed_generation: int = 0
@@ -56,6 +60,8 @@ class ActionCandidate(BaseModel):
             text=self.text,
             value=self.value,
             checked=self.checked,
+            url=self.url,
+            tab=self.tab,
             dx=self.dx,
             dy=self.dy,
         )
@@ -151,7 +157,7 @@ def build_action_candidates(
                         candidate_id="",
                         kind=CandidateKind.BROWSER_ACTION,
                         description=describe(
-                            f"type the task-provided value into {label} at {element.ref}"
+                            f"type the permitted value into {label} at {element.ref}"
                         ),
                         action_type="type",
                         text=text,

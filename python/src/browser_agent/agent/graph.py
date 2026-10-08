@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any, Protocol, cast
@@ -36,10 +37,13 @@ from browser_agent.agent.checkpoint_state import (
     snapshot_from_checkpoint,
     stagnation_detector,
 )
-from browser_agent.agent.events import RuntimeEventType
+from browser_agent.agent.events import BrowserCodeEventMetadata, RuntimeEventType
+from browser_agent.agent.interference import same_decision_state
 from browser_agent.agent.safety import ActionRiskPolicy, RiskCategory
 from browser_agent.agent.state import AgentState
+from browser_agent.browser_code import BrowserCodeError, BrowserCodeResult, BrowserCodeTool
 from browser_agent.decisions.base import DecisionProvider
+from browser_agent.decisions.task_transfers import record_transfer_evidence
 from browser_agent.progress.task_state import (
     ProgressTracker,
     check_completion,
@@ -49,6 +53,10 @@ from browser_agent.session import BrowserSession
 
 
 class DecisionAgent(Protocol):
+    def accept_browser_code_result(self, result: BrowserCodeResult) -> None: ...
+
+    def clear_browser_code_result(self) -> None: ...
+
     async def decide(
         self,
         snapshot: SemanticSnapshot,
@@ -83,6 +91,9 @@ def build_agent_graph(
     interrupt_before: Sequence[str] = (),
     control_for_run: Callable[[str], RunControl] | None = None,
     emit_event: Callable[[RuntimeEventType, str, int, str], Any] | None = None,
+    emit_browser_code_event: (
+        Callable[[RuntimeEventType, str, int, str, BrowserCodeEventMetadata], Any] | None
+    ) = None,
 ) -> Any:
     """Build the workflow around one live browser session.
 
@@ -127,8 +138,9 @@ def build_agent_graph(
         state: AgentState,
         event_type: RuntimeEventType,
         status: str,
+        browser_code: BrowserCodeEventMetadata | None = None,
     ) -> None:
-        if emit_event is None:
+        if emit_event is None and emit_browser_code_event is None:
             return
         raw_task_state = state["task_state"]
         steps_taken = raw_task_state.get("steps_taken", 0)
@@ -137,15 +149,20 @@ def build_agent_graph(
             RuntimeEventType.OBSERVATION_COMPLETED,
             RuntimeEventType.DECISION_MADE,
             RuntimeEventType.ACTION_STARTED,
+            RuntimeEventType.BROWSER_CODE_STARTED,
         }:
             step += 1
-        await emit_event(event_type, cache_key(state), step, status)
+        if browser_code is not None and emit_browser_code_event is not None:
+            await emit_browser_code_event(event_type, cache_key(state), step, status, browser_code)
+        elif emit_event is not None:
+            await emit_event(event_type, cache_key(state), step, status)
 
     def control_result(state: AgentState) -> dict[str, Any] | None:
         if control_for_run is None:
             return None
         control: RunControl = control_for_run(cache_key(state))
         if control.stop_requested:
+            agent.clear_browser_code_result()
             task_state = TaskState.model_validate(state["task_state"])
             task_state.status = "stopped"
             task_state.result_summary = "Stopped by the user at a safe action boundary."
@@ -159,8 +176,32 @@ def build_agent_graph(
                 "confirmation_approved": False,
             }
         if control.pause_requested:
-            interrupt({"kind": "user_pause"})
+            agent.clear_browser_code_result()
+            task_state = TaskState.model_validate(state["task_state"])
+            task_state.status = "paused"
+            decision_cache.pop(cache_key(state), None)
+            return {
+                "task_state": task_state.model_dump(mode="json"),
+                "status": "paused",
+                "decision": None,
+                "pending_confirmation": False,
+                "confirmation_approved": False,
+            }
         return None
+
+    async def pause_node(state: AgentState) -> dict[str, Any]:
+        # A dedicated interrupt keeps pause acknowledgments separate from
+        # high-risk approval values, including after a process restart.
+        interrupt({"kind": "user_pause"})
+        task_state = TaskState.model_validate(state["task_state"])
+        task_state.status = "running"
+        return {
+            "task_state": task_state.model_dump(mode="json"),
+            "status": "running",
+            "decision": None,
+            "pending_confirmation": False,
+            "confirmation_approved": False,
+        }
 
     async def current_snapshot(
         state: AgentState,
@@ -215,6 +256,38 @@ def build_agent_graph(
         # current browser instead of rebuilding a full snapshot from checkpoint data.
         snapshot = await current_snapshot(state)
 
+        previous_outcome = state["outcome"]
+        previous_verification = (
+            cast(dict[str, Any], previous_outcome.get("verification", {}))
+            if previous_outcome
+            else {}
+        )
+        if previous_verification.get("status") == "SUCCESS":
+            visible_text = _visible_text(snapshot).casefold()
+            for milestone in task_state.required_milestones:
+                evidence = task_state.milestone_evidence.get(milestone)
+                if (
+                    milestone not in task_state.completed
+                    and evidence
+                    and evidence.casefold() in visible_text
+                ):
+                    task_state.completed.append(milestone)
+                    memory.complete_milestone(milestone)
+            remaining_milestones = [
+                milestone
+                for milestone in task_state.required_milestones
+                if milestone not in task_state.completed
+            ]
+            if task_state.current_subgoal in task_state.completed:
+                task_state.current_subgoal = (
+                    remaining_milestones[0] if remaining_milestones else None
+                )
+                task_state.next_milestone = (
+                    remaining_milestones[1] if len(remaining_milestones) > 1 else None
+                )
+                memory.current_subgoal = task_state.current_subgoal
+                memory.next_milestone = task_state.next_milestone
+
         task_state.llm_calls += 1
         control = control_for_run(cache_key(state)) if control_for_run is not None else None
         if control is None:
@@ -245,11 +318,140 @@ def build_agent_graph(
                         return controlled
                 decision = await decision_task
             finally:
-                if not stop_task.done():
-                    stop_task.cancel()
-                    await asyncio.gather(stop_task, return_exceptions=True)
+                owned_tasks = (decision_task, stop_task)
+                for owned_task in owned_tasks:
+                    if not owned_task.done():
+                        owned_task.cancel()
+                await asyncio.gather(*owned_tasks, return_exceptions=True)
         await notify(state, RuntimeEventType.DECISION_MADE, "completed")
+        controlled = control_result(state)
+        if controlled is not None:
+            return controlled
+        if decision.browser_code is not None:
+            request = BrowserCodeTool(enabled=True).prepare(decision.browser_code)
+            trace = request.trace
+            browser_code_metadata = BrowserCodeEventMetadata.from_trace(trace)
+            transform_started = time.perf_counter()
+            await notify(
+                state,
+                RuntimeEventType.BROWSER_CODE_STARTED,
+                "running",
+                browser_code=browser_code_metadata,
+            )
+            execution_task = asyncio.create_task(
+                browser.execute_browser_code(decision.browser_code)
+            )
+            try:
+                code_result = await asyncio.shield(execution_task)
+            except asyncio.CancelledError:
+                # asyncio.to_thread cannot stop an in-flight Rust call. Let its
+                # own QuickJS deadline finish before reporting the cancellation.
+                try:
+                    await asyncio.shield(execution_task)
+                except BrowserCodeError:
+                    pass
+                elapsed_ms = max(0.0, (time.perf_counter() - transform_started) * 1000)
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "failed",
+                    browser_code=BrowserCodeEventMetadata.from_trace(
+                        trace,
+                        duration_ms=elapsed_ms,
+                    ),
+                )
+                agent.clear_browser_code_result()
+                raise
+            except BrowserCodeError:
+                agent.clear_browser_code_result()
+                elapsed_ms = max(0.0, (time.perf_counter() - transform_started) * 1000)
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "failed",
+                    browser_code=BrowserCodeEventMetadata.from_trace(
+                        trace,
+                        duration_ms=elapsed_ms,
+                    ),
+                )
+                return {
+                    "task_state": task_state.model_dump(mode="json"),
+                    "status": "failed",
+                    "decision": None,
+                    "result_summary": "The bounded browser-code transform could not be verified.",
+                }
+            controlled = control_result(state)
+            if controlled is not None:
+                elapsed_ms = max(0.0, (time.perf_counter() - transform_started) * 1000)
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "failed",
+                    browser_code=BrowserCodeEventMetadata.from_trace(
+                        trace,
+                        duration_ms=elapsed_ms,
+                    ),
+                )
+                return controlled
+            try:
+                fresh_snapshot = await browser.observe()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                agent.clear_browser_code_result()
+                elapsed_ms = max(0.0, (time.perf_counter() - transform_started) * 1000)
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "failed",
+                    browser_code=BrowserCodeEventMetadata.from_trace(
+                        trace,
+                        duration_ms=elapsed_ms,
+                    ),
+                )
+                return {
+                    "task_state": task_state.model_dump(mode="json"),
+                    "status": "failed",
+                    "decision": None,
+                    "result_summary": "The bounded browser-code transform could not be verified.",
+                }
+            save_snapshot(state, fresh_snapshot)
+            task_state.steps_taken += 1
+            task_state.stagnant_steps += 1
+            elapsed_ms = max(0.0, (time.perf_counter() - transform_started) * 1000)
+            completed_metadata = BrowserCodeEventMetadata.from_trace(
+                trace,
+                duration_ms=elapsed_ms,
+            )
+            if code_result.state_generation == fresh_snapshot.state_generation:
+                agent.accept_browser_code_result(code_result)
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "completed",
+                    browser_code=completed_metadata,
+                )
+            else:
+                agent.clear_browser_code_result()
+                await notify(
+                    state,
+                    RuntimeEventType.BROWSER_CODE_COMPLETED,
+                    "failed",
+                    browser_code=completed_metadata,
+                )
+            # Source, result, and invocation text stay outside all graph channels.
+            # A transform never supplies browser-action completion evidence.
+            return {
+                "task_state": task_state.model_dump(mode="json"),
+                "snapshot": snapshot_checkpoint(fresh_snapshot),
+                "decision": None,
+                "status": "running",
+                "pending_confirmation": False,
+                "confirmation_approved": False,
+            }
         if decision.action is not None:
+            if decision.evidence_ref is not None:
+                record_transfer_evidence(task_state, memory, snapshot, decision)
             save_decision(state, decision)
         if decision.ask_user:
             task_state.status = "awaiting_user"
@@ -283,38 +485,6 @@ def build_agent_graph(
             memory.completed_milestones = list(task_state.completed)
             memory.current_subgoal = task_state.current_subgoal
             memory.next_milestone = task_state.next_milestone
-
-        previous_outcome = state["outcome"]
-        previous_verification = (
-            cast(dict[str, Any], previous_outcome.get("verification", {}))
-            if previous_outcome
-            else {}
-        )
-        if previous_verification.get("status") == "SUCCESS":
-            visible_text = _visible_text(snapshot).casefold()
-            for milestone in task_state.required_milestones:
-                evidence = task_state.milestone_evidence.get(milestone)
-                if (
-                    milestone not in task_state.completed
-                    and evidence
-                    and evidence.casefold() in visible_text
-                ):
-                    task_state.completed.append(milestone)
-                    memory.complete_milestone(milestone)
-            remaining_milestones = [
-                milestone
-                for milestone in task_state.required_milestones
-                if milestone not in task_state.completed
-            ]
-            if task_state.current_subgoal in task_state.completed:
-                task_state.current_subgoal = (
-                    remaining_milestones[0] if remaining_milestones else None
-                )
-                task_state.next_milestone = (
-                    remaining_milestones[1] if len(remaining_milestones) > 1 else None
-                )
-                memory.current_subgoal = task_state.current_subgoal
-                memory.next_milestone = task_state.next_milestone
 
         if decision.done:
             outcome = state["outcome"]
@@ -376,6 +546,7 @@ def build_agent_graph(
         needs_confirmation = limits.confirm_high_risk and risk.category == RiskCategory.HIGH
         return {
             "task_state": task_state.model_dump(mode="json"),
+            "memory": memory.model_dump(mode="json"),
             "decision": decision_checkpoint(decision),
             "status": "running",
             "pending_confirmation": needs_confirmation,
@@ -515,6 +686,18 @@ def build_agent_graph(
         if snapshot.active_tab is None:
             decision_cache.pop(key, None)
             return {"status": "failed", "result_summary": "No active browser tab was observed."}
+
+        fresh_snapshot = await browser.observe()
+        if not same_decision_state(snapshot, fresh_snapshot):
+            save_snapshot(state, fresh_snapshot)
+            decision_cache.pop(key, None)
+            return {
+                "snapshot": snapshot_checkpoint(fresh_snapshot),
+                "decision": None,
+                "confirmation_approved": False,
+                "pending_confirmation": False,
+                "result_summary": "Browser state changed; selecting a fresh action.",
+            }
 
         controlled = control_result(state)
         if controlled is not None:
@@ -847,6 +1030,8 @@ def build_agent_graph(
         }
 
     def route_decision(state: AgentState) -> str:
+        if state["status"] == "paused":
+            return "pause"
         if state["status"] != "running":
             return END
         decision = state["decision"]
@@ -855,13 +1040,24 @@ def build_agent_graph(
         return "safety" if decision.get("action") else END
 
     def route_safety(state: AgentState) -> str:
+        if state["status"] == "paused":
+            return "pause"
         return "execute" if state["status"] == "running" else END
 
     def route_verification(state: AgentState) -> str:
         return "observe" if state["status"] == "running" else END
 
     def route_execution(state: AgentState) -> str:
+        if state["status"] == "paused":
+            return "pause"
+        if state["status"] != "running":
+            return END
         return "decide" if state["decision"] is None else "verify"
+
+    def route_observation(state: AgentState) -> str:
+        if state["status"] == "paused":
+            return "pause"
+        return "decide" if state["status"] == "running" else END
 
     # LangGraph currently ships partial typing for its graph builder API.
     graph_builder = cast(Any, StateGraph)
@@ -871,18 +1067,20 @@ def build_agent_graph(
     builder.add_node("safety", safety_node)
     builder.add_node("execute", execute_node)
     builder.add_node("verify", verify_node)
+    builder.add_node("pause", pause_node)
     builder.add_edge(START, "observe")
-    builder.add_edge("observe", "decide")
+    builder.add_conditional_edges("observe", route_observation)
+    builder.add_edge("pause", "observe")
     builder.add_conditional_edges("decide", route_decision)
     builder.add_conditional_edges(
         "safety",
         route_safety,
-        {"execute": "execute", END: END},
+        {"execute": "execute", "pause": "pause", END: END},
     )
     builder.add_conditional_edges(
         "execute",
         route_execution,
-        {"decide": "decide", "verify": "verify"},
+        {"decide": "decide", "verify": "verify", "pause": "pause", END: END},
     )
     builder.add_conditional_edges("verify", route_verification)
     return builder.compile(

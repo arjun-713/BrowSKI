@@ -70,6 +70,8 @@ CHECKPOINT_SECRET = "checkpoint-private-marker-unique@example.invalid"
 CHECKPOINT_URL_SECRET = "checkpoint-url-marker-unique"
 CHECKPOINT_REASONING_SECRET = "checkpoint-reasoning-marker-unique"
 CHECKPOINT_RESULT_SECRET = "checkpoint-result-marker-unique"
+CHECKPOINT_TASK_SECRET = "checkpoint-task-marker-unique"
+CHECKPOINT_MEMORY_SECRET = "checkpoint-memory-marker-unique"
 
 
 class ResumeProgressAgent(Agent):
@@ -117,7 +119,12 @@ async def run_privacy_runtime(database: Path, phase: str, fixture: Path) -> None
         ) as runtime:
             if phase == "privacy-write":
                 await runtime.run(
-                    "Enter an email and submit the signup form.",
+                    TaskState(
+                        task=(
+                            f"Enter an email and submit the signup form. {CHECKPOINT_TASK_SECRET}"
+                        ),
+                        constraints=[CHECKPOINT_MEMORY_SECRET],
+                    ),
                     run_id="privacy-restart",
                 )
                 os._exit(74)

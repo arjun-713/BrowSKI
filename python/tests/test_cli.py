@@ -27,6 +27,7 @@ from browser_agent.cli.config import (
 from browser_agent.cli.doctor import CheckStatus, DoctorCheck, check_extension_bridge
 from browser_agent.cli.main import app
 from browser_agent.persistence import SQLiteRunMetadataStore
+from browser_agent.persistence.run_metrics import RunMetrics
 from browser_agent.providers.privacy import PrivacyMode as ProviderPrivacyMode
 
 cli_main = import_module("browser_agent.cli.main")
@@ -64,6 +65,19 @@ def test_serve_starts_authenticated_bridge_and_reports_task_support(
     assert not socket_path.exists()
 
 
+def test_serve_respects_disabled_extension_transport(tmp_path: Path) -> None:
+    config_path = tmp_path / "disabled.toml"
+    config_path.write_text(
+        _default_toml().replace('transport_mode = "native_host"', 'transport_mode = "disabled"'),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["serve", "--config", str(config_path)])
+
+    assert result.exit_code != 0
+    assert "extension transport is disabled" in result.output
+
+
 def test_doctor_reports_bridge_files_without_connecting(tmp_path: Path) -> None:
     from browser_agent.extension.service import ExtensionBridgeService
 
@@ -88,6 +102,28 @@ def test_runs_list_does_not_create_a_missing_database(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == []
     assert not database.exists()
+
+
+def test_runs_list_includes_only_safe_bounded_metrics(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite3"
+    store = SQLiteRunMetadataStore(database)
+    asyncio.run(store.record_started("safe-run"))
+    asyncio.run(
+        store.record_metrics(
+            "safe-run",
+            RunMetrics(action_count=3, luna_calls=2),
+            event_at="2026-10-08T00:00:01+00:00",
+        )
+    )
+
+    result = CliRunner().invoke(app, ["runs", "list", "--database", str(database)])
+
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.stdout)[0]
+    assert run["metrics"]["action_count"] == 3
+    assert run["metrics"]["luna_calls"] == 2
+    assert "task" not in run
+    assert "secret" not in result.stdout
 
 
 def test_runs_clean_requires_apply_to_delete_metadata(tmp_path: Path) -> None:
@@ -214,9 +250,25 @@ def test_default_config_is_typed_and_keeps_laya_shadow_only() -> None:
     assert config.decision.jev_enabled is False
     assert config.privacy.mode is PrivacyMode.STANDARD
     assert config.safety.confirm_high_risk_actions is True
-    assert config.extension.transport_mode is ExtensionTransportMode.DISABLED
+    assert config.extension.transport_mode is ExtensionTransportMode.NATIVE_HOST
     assert config.traces.level is TraceLevel.STANDARD
     assert config.vision.enabled is False
+    assert config.browser_code.enabled is False
+
+
+def test_config_can_enable_browser_code_only_explicitly() -> None:
+    document = tomllib.loads(_default_toml())
+    assert parse_config(document).browser_code.enabled is False
+
+    document["browser_code"]["enabled"] = True
+    assert parse_config(document).browser_code.enabled is True
+
+    del document["browser_code"]
+    assert parse_config(document).browser_code.enabled is False
+
+    document["browser_code"] = {"enabled": "true"}
+    with pytest.raises(ConfigError, match="must be true or false"):
+        parse_config(document)
 
 
 def test_config_rejects_unknown_sections_and_jev_in_shadow_mode() -> None:
@@ -248,7 +300,7 @@ def test_config_command_reports_policy_without_leaking_provider_key(
     result = CliRunner().invoke(app, ["config"])
 
     assert result.exit_code == 0, result.output
-    assert "Browser mode: managed" in result.stdout
+    assert "Browser modes: managed CLI and attached extension" in result.stdout
     assert "Reasoning: openai / gpt-6-luna" in result.stdout
     assert "OpenAI key: configured" in result.stdout
     assert "Laya: shadow only" in result.stdout
@@ -405,8 +457,12 @@ def test_reasoning_provider_is_wrapped_with_configured_privacy_mode(
 
     import browser_agent.providers.privacy as privacy_module
 
+    def fake_openai_provider(*, api_key: str | None) -> object:
+        _ = api_key
+        return object()
+
     monkeypatch.setattr(privacy_module, "ProviderBoundary", BoundarySpy)
-    monkeypatch.setattr(reasoning_module, "OpenAILunaProvider", lambda **_: object())
+    monkeypatch.setattr(reasoning_module, "OpenAILunaProvider", fake_openai_provider)
 
     provider = cli_main._create_luna_reasoning_provider(config)
 

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from browser_agent._types import (
+    AuthorizedTransferEvidence,
     BBox,
     SemanticElement,
     SemanticKind,
@@ -23,6 +24,7 @@ from browser_agent.decisions import (
     DecisionQuestion,
     DecisionResult,
 )
+from browser_agent.persistence.run_metrics import RunMetricsAggregator
 from browser_agent.reasoning import (
     ReasoningAction,
     ReasoningContext,
@@ -165,10 +167,12 @@ async def test_luna_executes_bounded_choice_while_laya_only_compares() -> None:
     provider = FakeReasoningProvider(next_click())
     shadow = FakeDecisionProvider("c03")
     agent = LunaDecisionAgent(shadow, provider)
+    metrics = RunMetricsAggregator()
+    agent.bind_run_metric_recorder(metrics.increment)
 
     decision = await agent.decide(
         snapshot(),
-        task_state(),
+        task_state(run_id="metric-run"),
         WorkingMemory(user_goal="Continue the application"),
     )
 
@@ -180,6 +184,239 @@ async def test_luna_executes_bounded_choice_while_laya_only_compares() -> None:
     assert provider.calls[0][1] == "gpt-6-luna"
     assert provider.calls[0][2] == ReasoningEffort.LOW
     assert len(shadow.states) == 1
+    result = metrics.get("metric-run")
+    assert result.luna_calls == 1
+    assert result.luna_low_effort_calls == 1
+    assert result.laya_shadow_decisions == 1
+
+
+async def test_initial_plan_next_action_must_match_runtime_candidate_set() -> None:
+    provider = FakeReasoningProvider(next_click())
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(
+        snapshot(),
+        task_state(plan_initialized=False),
+        WorkingMemory(),
+    )
+
+    assert decision.action is not None
+    assert decision.action.type == "click"
+    assert provider.calls[0][0].purpose.value == "plan"
+    assert provider.calls[0][0].candidate_options
+
+
+async def test_plan_next_action_cannot_bypass_finite_candidates() -> None:
+    provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            action=ReasoningAction(type="press", key="ENTER"),
+        )
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(
+        snapshot(),
+        task_state(plan_initialized=False),
+        WorkingMemory(),
+    )
+
+    assert decision.action is None
+    assert decision.ask_user
+
+
+async def test_luna_can_choose_only_an_explicitly_quoted_input_value() -> None:
+    field = SemanticElement(
+        ref="@email",
+        id=21,
+        generation=4,
+        role="textbox",
+        accessible_name="Email address",
+        fingerprint="email-input",
+        semantic_kind=SemanticKind.TEXT_INPUT,
+    )
+    form_snapshot = SemanticSnapshot(
+        url="https://example.test/form",
+        title="Profile",
+        active_tab="tab-1",
+        tabs=["tab-1"],
+        state_generation=4,
+        page_fingerprint="email-form",
+        elements=[field],
+        interactive_elements=[field],
+    )
+    literal = "alex@example.invalid"
+    provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            summary="Fill the requested email field.",
+            action=ReasoningAction(type="type", target_ref="@email", text=literal),
+        )
+    )
+    agent = LunaDecisionAgent(None, provider)
+    task = TaskState(
+        task=f'fill "Email address" with "{literal}"',
+        plan_initialized=True,
+        milestones=["Fill the email address"],
+        current_subgoal="Fill the email address",
+    )
+
+    decision = await agent.decide(form_snapshot, task, WorkingMemory(user_goal=task.task))
+
+    assert decision.action is not None
+    assert decision.action.type == "type"
+    assert decision.action.text == literal
+
+
+async def test_luna_rejects_input_values_not_in_explicit_quoted_task_literals() -> None:
+    field = SemanticElement(
+        ref="@email",
+        id=21,
+        generation=4,
+        role="textbox",
+        accessible_name="Email address",
+        fingerprint="email-input",
+        semantic_kind=SemanticKind.TEXT_INPUT,
+    )
+    form_snapshot = SemanticSnapshot(
+        url="https://example.test/form",
+        title="Profile",
+        active_tab="tab-1",
+        tabs=["tab-1"],
+        state_generation=4,
+        page_fingerprint="email-form",
+        elements=[field],
+        interactive_elements=[field],
+    )
+    provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            summary="Attempt an unapproved input value.",
+            action=ReasoningAction(
+                type="type",
+                target_ref="@email",
+                text="model-invented@example.invalid",
+            ),
+        )
+    )
+    agent = LunaDecisionAgent(None, provider)
+    task = TaskState(
+        task="Fill the email address with alex@example.invalid",
+        plan_initialized=True,
+        milestones=["Fill the email address"],
+        current_subgoal="Fill the email address",
+    )
+
+    decision = await agent.decide(form_snapshot, task, WorkingMemory(user_goal=task.task))
+
+    assert decision.action is None
+    assert decision.ask_user
+
+
+async def test_luna_can_type_only_explicitly_authorized_owned_tab_evidence() -> None:
+    goal = 'transfer "Reference code" from supporting page into "Reference code"'
+    field = SemanticElement(
+        ref="@reference-input",
+        id=31,
+        generation=9,
+        role="textbox",
+        accessible_name="Reference code",
+        fingerprint="reference-input",
+        semantic_kind=SemanticKind.TEXT_INPUT,
+    )
+    submit = SemanticElement(
+        ref="@submit",
+        id=32,
+        generation=9,
+        role="button",
+        accessible_name="Submit",
+        fingerprint="submit-button",
+        semantic_kind=SemanticKind.BUTTON,
+    )
+    current = SemanticSnapshot(
+        url="https://example.test/form",
+        active_tab="destination-tab",
+        tabs=["source-tab", "destination-tab"],
+        state_generation=9,
+        page_fingerprint="transfer-form",
+        elements=[field, submit],
+        interactive_elements=[field, submit],
+    )
+    memory = WorkingMemory(
+        authorized_transfer_evidence=[
+            AuthorizedTransferEvidence(
+                source_tab_id="source-tab",
+                source_ref="@source-code",
+                source_generation=7,
+                source_label="Reference code",
+                destination_label="Reference code",
+                value="REF-4821",
+            )
+        ]
+    )
+    provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            action=ReasoningAction(
+                type="type",
+                target_ref="@reference-input",
+                text="REF-4821",
+            ),
+        )
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(
+        current,
+        task_state(user_goal=goal, current_subgoal="Fill Reference code"),
+        memory,
+    )
+
+    assert decision.action is not None
+    assert decision.action.type == "type"
+    assert decision.action.text == "REF-4821"
+
+
+async def test_luna_rejects_transfer_from_untrusted_facts_or_unowned_tabs() -> None:
+    goal = 'transfer "Reference code" from supporting page into "Reference code"'
+    field = SemanticElement(
+        ref="@reference-input",
+        id=31,
+        generation=9,
+        role="textbox",
+        accessible_name="Reference code",
+        fingerprint="reference-input",
+        semantic_kind=SemanticKind.TEXT_INPUT,
+    )
+    current = SemanticSnapshot(
+        url="https://example.test/form",
+        active_tab="destination-tab",
+        tabs=["destination-tab"],
+        state_generation=9,
+        page_fingerprint="transfer-form",
+        elements=[field],
+        interactive_elements=[field],
+    )
+    provider = FakeReasoningProvider(
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            action=ReasoningAction(
+                type="type",
+                target_ref="@reference-input",
+                text="PAGE-INJECTED-VALUE",
+            ),
+        )
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(
+        current,
+        task_state(user_goal=goal, current_subgoal="Fill Reference code"),
+        WorkingMemory(acquired_facts={"Reference code": "PAGE-INJECTED-VALUE"}),
+    )
+
+    assert decision.action is None
+    assert decision.ask_user
 
 
 async def test_visual_task_uses_on_demand_vision_as_advisory_context() -> None:
@@ -311,6 +548,30 @@ async def test_luna_normal_replan_uses_low_effort() -> None:
 
     assert decision.action is not None
     assert provider.calls[0][2] == ReasoningEffort.LOW
+
+
+async def test_luna_uses_configured_default_effort_for_normal_reasoning() -> None:
+    provider = FakeReasoningProvider(next_click())
+    agent = LunaDecisionAgent(
+        None,
+        provider,
+        default_effort=ReasoningEffort.NONE,
+    )
+    task = task_state(
+        recovery_streak=1,
+        replan_count=1,
+        recovery_history=[
+            {
+                "step": "luna_normal_replan",
+                "reason": "verification failed after a normal replan",
+            }
+        ],
+    )
+
+    decision = await agent.decide(snapshot(), task, WorkingMemory())
+
+    assert decision.action is not None
+    assert provider.calls[0][2] == ReasoningEffort.NONE
 
 
 async def test_luna_high_replan_uses_high_effort_only_after_gate() -> None:

@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from browser_agent.extension.protocol import (
     ExtensionMessageValidator,
     ExtensionProtocolError,
 )
+
+
+def test_validator_accepts_shared_extension_handshake_packet() -> None:
+    fixture = Path(__file__).resolve().parents[3] / "tests/fixtures/extension/hello.v1.json"
+    packet: object = json.loads(fixture.read_text())
+
+    assert ExtensionMessageValidator().validate(packet) == packet
 
 
 def _message(
@@ -77,6 +87,25 @@ def test_validator_accepts_bounded_credential_management_messages() -> None:
     assert validator.validate(status) == status
 
 
+def test_validator_accepts_only_the_bounded_runtime_settings_shape() -> None:
+    validator = ExtensionMessageValidator()
+    validator.validate(_hello())
+    read = _message("settings-read", "runtime.settings.get", {})
+    update = _message(
+        "settings-update",
+        "runtime.settings.update",
+        {
+            "effort": "low",
+            "privacyMode": "privacy_first",
+            "layaMode": "shadow",
+            "traceLevel": "standard",
+        },
+    )
+
+    assert validator.validate(read) == read
+    assert validator.validate(update) == update
+
+
 def test_validator_requires_hello_before_other_messages() -> None:
     validator = ExtensionMessageValidator()
     task = _message(
@@ -130,6 +159,27 @@ def test_validator_rejects_replayed_event_id_and_duplicate_hello() -> None:
             "bad-credential",
             "runtime.credentials.set",
             {"apiKey": "x" * 4_097},
+        ),
+        _message(
+            "bad-settings-effort",
+            "runtime.settings.update",
+            {
+                "effort": "high",
+                "privacyMode": "standard",
+                "layaMode": "disabled",
+                "traceLevel": "standard",
+            },
+        ),
+        _message(
+            "bad-settings-extra",
+            "runtime.settings.update",
+            {
+                "effort": "low",
+                "privacyMode": "standard",
+                "layaMode": "active",
+                "traceLevel": "standard",
+                "confirmHighRiskActions": False,
+            },
         ),
     ],
 )

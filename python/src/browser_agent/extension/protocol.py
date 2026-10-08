@@ -138,6 +138,24 @@ def _valid_payload(message_type: str, payload: object) -> bool:
             )
         case "runtime.credentials.clear" | "runtime.credentials.status.request":
             return _has_only_keys(fields, set())
+        case "runtime.settings.get":
+            return _has_only_keys(fields, set())
+        case "runtime.settings.update":
+            effort = fields.get("effort")
+            privacy_mode = fields.get("privacyMode")
+            laya_mode = fields.get("layaMode")
+            trace_level = fields.get("traceLevel")
+            return (
+                _has_only_keys(fields, {"effort", "privacyMode", "layaMode", "traceLevel"})
+                and isinstance(effort, str)
+                and effort in {"none", "low"}
+                and isinstance(privacy_mode, str)
+                and privacy_mode in {"standard", "privacy_first", "offline"}
+                and isinstance(laya_mode, str)
+                and laya_mode in {"disabled", "shadow"}
+                and isinstance(trace_level, str)
+                and trace_level in {"standard", "detailed"}
+            )
         case "browser.tab.attached":
             tab_id = fields.get("tabId")
             return (

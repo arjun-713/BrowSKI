@@ -1,8 +1,8 @@
-"""BROWSKI browser runtime and M4 LangGraph orchestration package.
+"""BROWSKI browser runtime and agent orchestration package.
 
 The Rust core owns Chromium observation and action execution. The Python graph
-orchestrates a typed decision agent; model integrations and long-horizon
-memory/recovery arrive in later milestones.
+orchestrates typed decisions, bounded memory and recovery, provider policy,
+and the local product service. The browser extension remains a UI and bridge.
 """
 
 from browser_agent._types import (

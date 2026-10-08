@@ -14,6 +14,7 @@ from browser_agent._types import (
     TaskState,
     WorkingMemory,
 )
+from browser_agent.browser_code.contracts import BrowserCodeProposal, BrowserCodeResult
 
 
 class ReasoningEffort(StrEnum):
@@ -35,6 +36,7 @@ class ReasoningOutcome(StrEnum):
     NEXT_ACTION = "next_action"
     ASK_USER = "ask_user"
     INTERPRETATION = "interpretation"
+    BROWSER_CODE = "browser_code"
 
 
 BrowserActionType = Literal[
@@ -131,6 +133,8 @@ class ReasoningDecision(BaseModel):
     milestone_evidence: dict[str, str] = Field(default_factory=dict[str, str], max_length=10)
     current_subgoal: str | None = Field(default=None, max_length=500)
     action: ReasoningAction | None = None
+    evidence_ref: str | None = Field(default=None, min_length=2, max_length=200)
+    browser_code: BrowserCodeProposal | None = None
     candidate_actions: list[ReasoningAction] = Field(
         default_factory=list[ReasoningAction], max_length=8
     )
@@ -145,8 +149,31 @@ class ReasoningDecision(BaseModel):
                 )
             if self.milestones:
                 raise ValueError("next_action cannot contain a milestone plan")
-        elif self.action is not None or self.candidate_actions:
+            if self.browser_code is not None:
+                raise ValueError("next_action cannot contain a browser-code proposal")
+            if self.evidence_ref is not None and self.action is None:
+                raise ValueError("evidence_ref requires one next_action")
+        elif self.outcome == ReasoningOutcome.BROWSER_CODE:
+            if self.browser_code is None:
+                raise ValueError("browser_code outcome requires one proposal")
+            if (
+                self.action is not None
+                or self.candidate_actions
+                or self.milestones
+                or self.milestone_evidence
+                or self.current_subgoal is not None
+                or self.questions
+            ):
+                raise ValueError("browser_code cannot combine with action, plan, or user control")
+        elif (
+            self.action is not None
+            or self.candidate_actions
+            or self.browser_code is not None
+            or self.evidence_ref is not None
+        ):
             raise ValueError("only next_action decisions may contain browser actions")
+        if self.evidence_ref is not None and not self.evidence_ref.startswith("@"):
+            raise ValueError("evidence_ref must be a semantic reference")
 
         if self.outcome == ReasoningOutcome.MILESTONE_PLAN and not self.milestones:
             raise ValueError("milestone_plan requires at least one milestone")
@@ -188,6 +215,8 @@ class ReasoningContext(BaseModel):
     visual_observation: str | None = Field(default=None, max_length=1_200)
     failure_summary: str | None = Field(default=None, max_length=1_000)
     candidate_options: dict[str, str] = Field(default_factory=dict, max_length=16)
+    browser_code_enabled: bool = False
+    browser_code_result: BrowserCodeResult | None = None
 
 
 class ReasoningProvider(Protocol):

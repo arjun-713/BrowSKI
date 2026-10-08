@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 import os
 import stat
 import struct
@@ -12,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlsplit
 
 from browser_agent.extension.native_messaging import (
     MAX_NATIVE_HOST_MESSAGE_BYTES,
@@ -20,9 +22,12 @@ from browser_agent.extension.native_messaging import (
 PROTOCOL_VERSION = 1
 MAX_BACKEND_FRAME_BYTES = 8 * 1024 * 1024
 MAX_IN_FLIGHT_COMMANDS = 128
+MAX_OWNED_TAB_COUNT = 8
+MAX_OWNED_TAB_URL_BYTES = 2048
 _HEADER = struct.Struct("<I")
 _ATTACHMENT_WAIT_SECONDS = 5
 _COMMAND_TIMEOUT_SECONDS = 35
+logger = logging.getLogger(__name__)
 
 _CDP_METHODS = frozenset(
     {
@@ -40,6 +45,7 @@ _CDP_METHODS = frozenset(
         "Input.dispatchMouseEvent",
         "Input.insertText",
         "Page.enable",
+        "Page.captureScreenshot",
         "Page.getLayoutMetrics",
         "Page.getNavigationHistory",
         "Page.handleJavaScriptDialog",
@@ -47,6 +53,20 @@ _CDP_METHODS = frozenset(
         "Page.navigateToHistoryEntry",
         "Page.reload",
         "Runtime.enable",
+        "Runtime.evaluate",
+        "Runtime.callFunctionOn",
+        "BROWSKI.tabs.create",
+        "BROWSKI.tabs.activate",
+        "BROWSKI.tabs.close",
+        "BROWSKI.tabs.stop",
+    }
+)
+_OWNED_TAB_METHODS = frozenset(
+    {
+        "BROWSKI.tabs.create",
+        "BROWSKI.tabs.activate",
+        "BROWSKI.tabs.close",
+        "BROWSKI.tabs.stop",
     }
 )
 
@@ -95,8 +115,73 @@ async def _write_backend_frame(
     await writer.drain()
 
 
+def _valid_opaque_id(value: str, prefix: str) -> bool:
+    if not value.startswith(prefix):
+        return False
+    try:
+        identifier = uuid.UUID(value.removeprefix(prefix))
+    except (ValueError, AttributeError):
+        return False
+    return str(identifier) == value.removeprefix(prefix).lower()
+
+
+def _valid_owned_tab_url(value: str) -> bool:
+    if (
+        not value
+        or len(value.encode("utf-8")) > MAX_OWNED_TAB_URL_BYTES
+        or any(
+            character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+            for character in value
+        )
+    ):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except ValueError:
+        return False
+
+
+def _validate_owned_tab_command(
+    method: str,
+    params: dict[str, object],
+    owned_sessions: dict[str, str],
+) -> None:
+    owned_targets = set(owned_sessions.values())
+    root_target = next(
+        (target for target in owned_sessions.values() if target.startswith("extension-tab-")),
+        None,
+    )
+    if method == "BROWSKI.tabs.create":
+        url = params.get("url")
+        if set(params) != {"url"} or not isinstance(url, str) or not _valid_owned_tab_url(url):
+            raise ExtensionBackendError("new-tab URL must be a bounded credential-free HTTP(S) URL")
+        if len(owned_sessions) >= MAX_OWNED_TAB_COUNT:
+            raise ExtensionBackendError("the attachment-owned tab limit has been reached")
+    elif method in {"BROWSKI.tabs.activate", "BROWSKI.tabs.close"}:
+        target_id = params.get("targetId")
+        if (
+            set(params) != {"targetId"}
+            or not isinstance(target_id, str)
+            or target_id not in owned_targets
+        ):
+            raise ExtensionBackendError("requested tab is not owned by this attachment")
+        if method == "BROWSKI.tabs.close" and target_id == root_target:
+            raise ExtensionBackendError(
+                "the initially attached user tab cannot be closed by the agent"
+            )
+    elif method == "BROWSKI.tabs.stop":
+        if params:
+            raise ExtensionBackendError("tab stop accepts no parameters")
+
+
 class ExtensionCdpBackend:
-    """Forward bounded CDP commands/events for one explicitly attached tab."""
+    """Forward bounded CDP operations for one attachment-owned tab set."""
 
     def __init__(self, socket_path: Path, token: str) -> None:
         self.socket_path = socket_path
@@ -107,13 +192,19 @@ class ExtensionCdpBackend:
         self._extension_methods: frozenset[str] = frozenset()
         self._extension_events: frozenset[str] = frozenset()
         self._attachment: Attachment | None = None
+        self._owned_sessions: dict[str, str] = {}
         self._attachment_ready = asyncio.Event()
         self._backend_writer: asyncio.StreamWriter | None = None
         self._backend_write_lock = asyncio.Lock()
         self._extension_write_lock = asyncio.Lock()
         self._pending: dict[int, asyncio.Future[None]] = {}
+        self._pending_methods: dict[int, str] = {}
+        self._pending_sessions: dict[int, str] = {}
         self._last_request_id = 0
         self._command_tasks: set[asyncio.Task[None]] = set()
+        # The MV3 proxy accepts at most eight outstanding debugger commands.
+        # Backpressure here preserves observation completeness during bursts.
+        self._command_capacity = asyncio.Semaphore(4)
         self._closed = False
 
     @property
@@ -164,16 +255,30 @@ class ExtensionCdpBackend:
         if self._attachment is not None and self._attachment != attachment:
             raise ExtensionBackendError("another browser attachment already owns the backend")
         self._attachment = attachment
+        self._owned_sessions = {attachment.session_id: f"extension-tab-{attachment.attachment_id}"}
         self._attachment_ready.set()
 
-    async def detach_attachment(self, attachment_id: str) -> None:
+    async def detach_attachment(
+        self,
+        attachment_id: str,
+        *,
+        notify_browser: bool = True,
+    ) -> None:
         attachment = self._attachment
         if attachment is None or attachment.attachment_id != attachment_id:
             return
-        await self._write_backend({"type": "backend.detached", "reason": "browser tab detached"})
-        self._attachment = None
-        self._attachment_ready.clear()
-        self._fail_pending()
+        try:
+            if notify_browser:
+                await self._write_backend(
+                    {"type": "backend.detached", "reason": "browser tab detached"}
+                )
+        except (OSError, ExtensionBackendError):
+            logger.debug("Attached browser transport was already disconnected")
+        finally:
+            self._attachment = None
+            self._owned_sessions.clear()
+            self._attachment_ready.clear()
+            self._fail_pending()
 
     async def handle_extension_message(self, message: dict[str, object]) -> bool:
         message_type = message["type"]
@@ -182,10 +287,7 @@ class ExtensionCdpBackend:
         if message_type == "debugger.command.result":
             if attachment is None or not self.is_connected:
                 return True
-            if (
-                payload.get("attachmentId") != attachment.attachment_id
-                or payload.get("sessionId") != attachment.session_id
-            ):
+            if payload.get("attachmentId") != attachment.attachment_id:
                 raise ExtensionBackendError("debugger response belongs to a different attachment")
             command_id = payload.get("commandId")
             if not isinstance(command_id, str) or not command_id.startswith("browski-"):
@@ -197,6 +299,35 @@ class ExtensionCdpBackend:
             future = self._pending.get(request_id)
             if future is None:
                 return True
+            if payload.get("sessionId") != self._pending_sessions.get(request_id):
+                raise ExtensionBackendError("debugger response belongs to a different tab session")
+            if "error" not in payload:
+                result_payload = payload.get("result", {})
+                if not isinstance(result_payload, dict):
+                    raise ExtensionBackendError("debugger result must be an object")
+                result_fields = cast(dict[str, object], result_payload)
+                if self._pending_methods.get(request_id) == "BROWSKI.tabs.create":
+                    target_id = result_fields.get("targetId")
+                    tab_session_id = result_fields.get("tabSessionId")
+                    if (
+                        not isinstance(target_id, str)
+                        or not _valid_opaque_id(target_id, "browser-tab-")
+                        or not isinstance(tab_session_id, str)
+                        or not _valid_opaque_id(tab_session_id, "browser-session-")
+                        or tab_session_id in self._owned_sessions
+                        or len(self._owned_sessions) >= MAX_OWNED_TAB_COUNT
+                    ):
+                        raise ExtensionBackendError("owned-tab creation result is invalid")
+                    title = result_fields.get("title", "")
+                    url = result_fields.get("url")
+                    if (
+                        not isinstance(title, str)
+                        or len(title) > 512
+                        or not isinstance(url, str)
+                        or not _valid_owned_tab_url(url)
+                    ):
+                        raise ExtensionBackendError("owned-tab creation metadata is invalid")
+                    self._owned_sessions[tab_session_id] = target_id
             result: dict[str, object] = {
                 "type": "backend.response",
                 "requestId": request_id,
@@ -212,20 +343,36 @@ class ExtensionCdpBackend:
         if message_type == "debugger.event":
             if attachment is None or not self.is_connected:
                 return True
-            if (
-                payload.get("attachmentId") != attachment.attachment_id
-                or payload.get("sessionId") != attachment.session_id
-            ):
+            if payload.get("attachmentId") != attachment.attachment_id:
                 raise ExtensionBackendError("debugger event belongs to a different attachment")
+            target_session_id = payload.get("sessionId")
+            if (
+                not isinstance(target_session_id, str)
+                or target_session_id not in self._owned_sessions
+            ):
+                return True
             method = payload.get("method")
             if not isinstance(method, str) or method not in self._extension_events:
                 return True
+            params = payload.get("params", {})
+            if method == "Target.targetDestroyed":
+                params_fields = cast(dict[str, object], params) if isinstance(params, dict) else {}
+                target_id = params_fields.get("targetId")
+                if (
+                    target_session_id == attachment.session_id
+                    or not isinstance(target_id, str)
+                    or self._owned_sessions.get(target_session_id) != target_id
+                ):
+                    raise ExtensionBackendError(
+                        "target-destroyed event does not match an owned tab"
+                    )
+                self._owned_sessions.pop(target_session_id, None)
             await self._write_backend(
                 {
                     "type": "backend.event",
                     "method": method,
-                    "params": payload.get("params", {}),
-                    "sessionId": attachment.session_id,
+                    "params": params,
+                    "sessionId": target_session_id,
                 }
             )
             return True
@@ -238,6 +385,7 @@ class ExtensionCdpBackend:
                     }
                 )
                 self._attachment = None
+                self._owned_sessions.clear()
                 self._attachment_ready.clear()
             return True
         return False
@@ -308,11 +456,24 @@ class ExtensionCdpBackend:
             while True:
                 message = await _read_backend_frame(reader)
                 self._validate_backend_message(message, current)
+                await self._command_capacity.acquire()
                 task = asyncio.create_task(self._dispatch_command(message, current))
                 self._command_tasks.add(task)
-                task.add_done_callback(self._command_tasks.discard)
-        except (TimeoutError, asyncio.IncompleteReadError, OSError, ValueError, TypeError):
-            pass
+                task.add_done_callback(self._command_finished)
+        except (
+            TimeoutError,
+            asyncio.IncompleteReadError,
+            OSError,
+            ValueError,
+            TypeError,
+            ExtensionBackendError,
+        ) as exc:
+            logger.info(
+                "Attached browser backend connection closed",
+                extra={"error_type": type(exc).__name__},
+            )
+            if isinstance(exc, ExtensionBackendError):
+                logger.debug("Backend protocol refusal: %s", exc)
         finally:
             if self._backend_writer is writer:
                 self._backend_writer = None
@@ -328,6 +489,20 @@ class ExtensionCdpBackend:
                 await writer.wait_closed()
             except OSError:
                 pass
+
+    def _command_finished(self, task: asyncio.Task[None]) -> None:
+        self._command_tasks.discard(task)
+        self._command_capacity.release()
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error(
+                "Attached browser command task failed",
+                extra={"error_type": type(error).__name__},
+            )
+            if self._backend_writer is not None:
+                self._backend_writer.close()
 
     async def _authenticate(self, reader: asyncio.StreamReader) -> None:
         auth = await asyncio.wait_for(_read_backend_frame(reader), timeout=3)
@@ -358,16 +533,36 @@ class ExtensionCdpBackend:
         fields = cast(dict[str, object], payload)
         if set(fields) != {"attachmentId", "sessionId", "method", "params"}:
             raise ExtensionBackendError("backend command payload fields are invalid")
-        if (
-            fields.get("attachmentId") != attachment.attachment_id
-            or fields.get("sessionId") != attachment.session_id
-        ):
+        if fields.get("attachmentId") != attachment.attachment_id:
             raise ExtensionBackendError("backend command does not match the attached tab")
+        session_id = fields.get("sessionId")
+        if not isinstance(session_id, str) or session_id not in self._owned_sessions:
+            raise ExtensionBackendError("backend command targets an unowned tab session")
         method = fields.get("method")
-        if not isinstance(method, str) or method not in self._extension_methods:
-            raise ExtensionBackendError("backend command method was not negotiated")
+        if not isinstance(method, str) or not method or len(method) > 128:
+            raise ExtensionBackendError("backend command method is invalid")
         if not isinstance(fields.get("params"), dict):
             raise ExtensionBackendError("backend command params must be an object")
+        params = cast(dict[str, object], fields["params"])
+        if method == "Page.captureScreenshot" and params != {
+            "format": "png",
+            "fromSurface": True,
+            "captureBeyondViewport": False,
+        }:
+            raise ExtensionBackendError(
+                "screenshot parameters exceed the supported viewport capture"
+            )
+        if method in _OWNED_TAB_METHODS:
+            if session_id != attachment.session_id:
+                raise ExtensionBackendError(
+                    "owned-tab lifecycle commands require the owner session"
+                )
+            _validate_owned_tab_command(method, params, self._owned_sessions)
+        elif method not in self._extension_methods:
+            # The later dispatch path will return the same bounded refusal;
+            # reject malformed ownership here before allocating a task.
+            if session_id != attachment.session_id:
+                raise ExtensionBackendError("unsupported command targets a non-root session")
         if len(self._pending) >= MAX_IN_FLIGHT_COMMANDS:
             raise ExtensionBackendError("backend command queue is full")
         self._last_request_id = request_id
@@ -379,8 +574,21 @@ class ExtensionCdpBackend:
     ) -> None:
         request_id = cast(int, message["requestId"])
         payload = cast(dict[str, object], message["payload"])
+        if payload["method"] not in self._extension_methods:
+            # Valid framing does not imply permission. Refuse this request
+            # without destroying the browser session used by other commands.
+            await self._write_backend(
+                {
+                    "type": "backend.response",
+                    "requestId": request_id,
+                    "error": "Unsupported attached-browser capability",
+                }
+            )
+            return
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
+        self._pending_methods[request_id] = cast(str, payload["method"])
+        self._pending_sessions[request_id] = cast(str, payload["sessionId"])
         command_id = f"browski-{request_id}"
         try:
             await self._send_extension(
@@ -390,7 +598,7 @@ class ExtensionCdpBackend:
                     "eventId": str(uuid.uuid4()),
                     "payload": {
                         "attachmentId": attachment.attachment_id,
-                        "sessionId": attachment.session_id,
+                        "sessionId": payload["sessionId"],
                         "commandId": command_id,
                         "method": payload["method"],
                         "params": payload["params"],
@@ -409,6 +617,8 @@ class ExtensionCdpBackend:
                 )
         finally:
             self._pending.pop(request_id, None)
+            self._pending_methods.pop(request_id, None)
+            self._pending_sessions.pop(request_id, None)
 
     async def _send_extension(self, message: dict[str, object]) -> None:
         writer = self._extension_writer
@@ -428,3 +638,5 @@ class ExtensionCdpBackend:
         for future in self._pending.values():
             if not future.done():
                 future.set_result(None)
+        self._pending_methods.clear()
+        self._pending_sessions.clear()

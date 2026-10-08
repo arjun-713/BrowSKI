@@ -1,9 +1,8 @@
-"""Fail-closed policy surface for the M9 browser-code escape hatch.
+"""Bounded policy for isolated transforms over Rust-owned semantic snapshots.
 
-The current Rust binding does not expose evaluation. Its internal evaluator
-runs in the page realm, where code can mutate the page or use network APIs.
-Until the Rust runtime provides an isolated, bounded read-only evaluator, this
-module only validates requests and results; it never executes JavaScript.
+The policy requires an explicit capability and delegates execution to the
+session-owned PyO3 helper. The helper builds the input projection in Rust and
+does not expose page-realm code evaluation or browser APIs.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -35,6 +34,14 @@ class BrowserCodeUnavailable(BrowserCodeError):
     """No safe browser-code executor is available."""
 
 
+class BrowserCodeTimeout(BrowserCodeError):
+    """The isolated transform exceeded its execution deadline."""
+
+
+class BrowserCodeExecutionFailed(BrowserCodeError):
+    """The isolated transform failed before producing a valid JSON result."""
+
+
 class BrowserCodeValidationError(BrowserCodeError):
     """The request or returned payload violates the bounded contract."""
 
@@ -50,8 +57,8 @@ class BrowserCodeCapability:
 class BrowserCodeTrace:
     """Safe trace metadata that omits source code and result content."""
 
-    purpose: str
-    reason: str
+    purpose_category: str
+    reason_category: str
     script_sha256: str
     script_bytes: int
     timeout_ms: int
@@ -70,8 +77,27 @@ class BrowserCodeRequest:
     trace: BrowserCodeTrace
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserCodeExecution:
+    """Schema-checked result tied to the source snapshot generation."""
+
+    state_generation: int
+    result: BaseModel
+
+
+class BrowserCodeExecutor(Protocol):
+    """The narrow Rust binding surface; input data stays session-owned."""
+
+    def transform_snapshot_json(
+        self,
+        script: str,
+        timeout_ms: int = 750,
+        max_result_bytes: int = MAX_RESULT_BYTES,
+    ) -> str: ...
+
+
 class BrowserCodePolicy:
-    """Validate bounded browser-code requests without providing execution."""
+    """Validate a transform request and its typed result at the Python boundary."""
 
     def __init__(self, capability: BrowserCodeCapability | None = None) -> None:
         self._capability = capability or BrowserCodeCapability()
@@ -107,8 +133,8 @@ class BrowserCodePolicy:
         validated_schema = result_schema
 
         trace = BrowserCodeTrace(
-            purpose=purpose.strip(),
-            reason=reason.strip(),
+            purpose_category="semantic_data_transform",
+            reason_category="explicit_capability_request",
             script_sha256=hashlib.sha256(script.encode("utf-8")).hexdigest(),
             script_bytes=script_bytes,
             timeout_ms=timeout_ms,
@@ -138,9 +164,60 @@ class BrowserCodePolicy:
             raise BrowserCodeValidationError("result does not match its declared schema") from exc
 
     @staticmethod
-    def execute(_request: BrowserCodeRequest) -> None:
-        """Fail closed until the Rust runtime offers a safe bounded evaluator."""
-        raise BrowserCodeUnavailable(
-            "browser-code execution is unavailable: Rust exposes no isolated, "
-            "read-only page evaluator with enforceable timeout and network limits"
+    def execute(
+        request: BrowserCodeRequest,
+        executor: BrowserCodeExecutor,
+    ) -> BrowserCodeExecution:
+        """Run a data-only transform through a session-owned Rust binding."""
+        try:
+            encoded = executor.transform_snapshot_json(
+                request.script,
+                timeout_ms=request.timeout_ms,
+                max_result_bytes=request.max_result_bytes,
+            )
+        except PermissionError as exc:
+            raise BrowserCodeDisabled("browser-code capability is disabled") from exc
+        except TimeoutError as exc:
+            raise BrowserCodeTimeout("browser-code execution timed out") from exc
+        except Exception as exc:
+            raise BrowserCodeExecutionFailed("isolated browser-code execution failed") from exc
+
+        if type(encoded) is not str:
+            raise BrowserCodeValidationError("executor response must be JSON text")
+        if len(encoded.encode("utf-8")) > MAX_RESULT_BYTES + 256:
+            raise BrowserCodeValidationError("executor response exceeds the byte limit")
+        try:
+            envelope = json.loads(encoded, parse_constant=_reject_json_constant)
+        except (TypeError, ValueError) as exc:
+            raise BrowserCodeValidationError(
+                "isolated executor returned malformed JSON metadata"
+            ) from exc
+        if not isinstance(envelope, dict):
+            raise BrowserCodeValidationError("executor response has an invalid shape")
+        typed_envelope = cast(dict[str, object], envelope)
+        if set(typed_envelope) != {
+            "state_generation",
+            "result_json",
+        }:
+            raise BrowserCodeValidationError("executor response has an invalid shape")
+        generation = typed_envelope["state_generation"]
+        result_json = typed_envelope["result_json"]
+        if type(generation) is not int or generation < 0:
+            raise BrowserCodeValidationError("executor generation is invalid")
+        if type(result_json) is not str:
+            raise BrowserCodeValidationError("executor result is not JSON text")
+        if len(result_json.encode("utf-8")) > request.max_result_bytes:
+            raise BrowserCodeValidationError("result exceeds the configured byte limit")
+        try:
+            payload = json.loads(result_json, parse_constant=_reject_json_constant)
+        except (TypeError, ValueError) as exc:
+            raise BrowserCodeValidationError("executor result is malformed JSON") from exc
+
+        return BrowserCodeExecution(
+            state_generation=generation,
+            result=BrowserCodePolicy.validate_result(request, payload),
         )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")

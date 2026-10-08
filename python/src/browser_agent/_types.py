@@ -14,7 +14,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+
+from browser_agent.browser_code.contracts import BrowserCodeProposal
 
 
 class ElementRef(BaseModel):
@@ -101,6 +103,22 @@ class FormSummary(BaseModel):
     controls: list[str] = Field(default_factory=list[str])
     submit: str | None = None
     frame_path: list[str] = Field(default_factory=list[str])
+
+
+class AuthorizedTransferEvidence(BaseModel):
+    """Bounded browser text captured for one explicit user transfer request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: Literal["explicit_user_transfer_from_visible_text"] = (
+        "explicit_user_transfer_from_visible_text"
+    )
+    source_tab_id: str = Field(min_length=1, max_length=200)
+    source_ref: str = Field(min_length=1, max_length=200)
+    source_generation: int = Field(ge=0)
+    source_label: str = Field(min_length=1, max_length=120)
+    destination_label: str = Field(min_length=1, max_length=120)
+    value: str = Field(min_length=1, max_length=256)
 
 
 class DialogSummary(BaseModel):
@@ -398,6 +416,9 @@ class WorkingMemory(BaseModel):
         default_factory=lambda: dict[str, str](),
         validation_alias=AliasChoices("acquired_facts", "facts"),
     )
+    authorized_transfer_evidence: list[AuthorizedTransferEvidence] = Field(
+        default_factory=list[AuthorizedTransferEvidence], max_length=8
+    )
     relevant_entities: list[str] = Field(default_factory=list[str], max_length=100)
     failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
     irreversible_actions: list[str] = Field(default_factory=list[str], max_length=50)
@@ -427,6 +448,24 @@ class WorkingMemory(BaseModel):
             oldest_key = next(iter(self.acquired_facts))
             del self.acquired_facts[oldest_key]
         self.acquired_facts[normalized_key] = value.strip()[:1_000]
+
+    def remember_authorized_transfer_evidence(
+        self,
+        evidence: AuthorizedTransferEvidence,
+    ) -> None:
+        """Keep separate, source-bound evidence; legacy acquired facts stay untrusted."""
+        self.authorized_transfer_evidence = [
+            existing
+            for existing in self.authorized_transfer_evidence
+            if not (
+                existing.source_tab_id == evidence.source_tab_id
+                and existing.source_ref == evidence.source_ref
+                and existing.destination_label.casefold() == evidence.destination_label.casefold()
+            )
+        ]
+        self.authorized_transfer_evidence.append(evidence)
+        if len(self.authorized_transfer_evidence) > 8:
+            del self.authorized_transfer_evidence[: len(self.authorized_transfer_evidence) - 8]
 
     def _append_bounded(self, field_name: str, value: str, limit: int) -> None:
         values = getattr(self, field_name)
@@ -459,8 +498,11 @@ class WorkingMemory(BaseModel):
 
 
 class AgentDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     reasoning: str = ""
     action: BrowserAction | None = None
+    browser_code: BrowserCodeProposal | None = Field(default=None, exclude=True)
     done: bool = False
     completed_milestone: str | None = None
     result_summary: str | None = None
@@ -472,6 +514,30 @@ class AgentDecision(BaseModel):
     ask_user: list[str] = Field(default_factory=list[str], max_length=10)
     reasoning_effort: str | None = None
     replace_plan: bool = False
+    evidence_ref: str | None = Field(default=None, min_length=1, max_length=200, exclude=True)
+
+    @model_validator(mode="after")
+    def validate_browser_code_decision(self) -> AgentDecision:
+        if self.evidence_ref is not None and self.action is None:
+            raise ValueError("transfer evidence requires a finite accepted browser action")
+        if self.browser_code is not None:
+            if (
+                self.action is not None
+                or self.done
+                or self.completed_milestone is not None
+                or self.result_summary is not None
+                or self.milestones
+                or self.milestone_evidence
+                or self.plan_initialized is not None
+                or self.current_subgoal is not None
+                or self.next_milestone is not None
+                or self.ask_user
+                or self.replace_plan
+            ):
+                raise ValueError(
+                    "browser-code decisions cannot combine with actions or task control"
+                )
+        return self
 
 
 class TraceEvent(BaseModel):

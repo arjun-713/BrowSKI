@@ -106,6 +106,8 @@ def test_checkpoint_omits_form_values_and_url_across_process_resume(
         b"checkpoint-url-marker-unique",
         b"checkpoint-reasoning-marker-unique",
         b"checkpoint-result-marker-unique",
+        b"checkpoint-task-marker-unique",
+        b"checkpoint-memory-marker-unique",
     )
     for path in (database, Path(f"{database}-wal")):
         if path.exists():

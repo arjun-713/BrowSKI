@@ -15,6 +15,7 @@ from browser_agent.cli.config import (
     BrowskiConfig,
     ConfigError,
     DecisionMode,
+    ExtensionTransportMode,
     load_config,
 )
 from browser_agent.cli.doctor import doctor
@@ -71,6 +72,12 @@ def serve(
         ExtensionBridgeService,
         default_socket_path,
     )
+
+    config = load_config(config_path)
+    if config.extension.transport_mode is ExtensionTransportMode.DISABLED:
+        raise typer.BadParameter(
+            "extension transport is disabled; set extension.transport_mode = 'native_host'"
+        )
 
     service = ExtensionBridgeService(
         socket_path or default_socket_path(),
@@ -168,7 +175,7 @@ def show_config(config_path: ConfigPathOption = None) -> None:
         else "disabled"
     )
     rprint("[bold]BROWSKI configuration[/bold]")
-    rprint("Browser mode: managed")
+    rprint("Browser modes: managed CLI and attached extension")
     rprint(f"Reasoning: {config.reasoning.provider} / {config.reasoning.model}")
     rprint(f"OpenAI key: {'configured' if key_configured else 'not configured'}")
     rprint(f"Laya: {laya_status}")
@@ -201,6 +208,7 @@ def list_runs(
                     "status": record.status,
                     "steps": record.steps,
                     "reasoning_calls": record.reasoning_calls,
+                    "metrics": record.metrics.to_dict(),
                 }
                 for record in records
             ],
@@ -339,7 +347,9 @@ def task(
                 )
             )
         reasoning = _create_luna_reasoning_provider(config)
-        async with BrowserSession.launch(headless=headless) as browser:
+        async with BrowserSession.launch(
+            headless=headless, browser_code_enabled=config.browser_code.enabled
+        ) as browser:
             if url:
                 await browser.navigate(url)
             agent = LunaDecisionAgent(
@@ -348,6 +358,7 @@ def task(
                 model=config.reasoning.model,
                 vision_provider=_create_luna_vision_provider(config),
                 screenshot_capture=browser.capture_viewport_screenshot,
+                browser_code_enabled=config.browser_code.enabled,
             )
             async with AgentRuntime.open_sqlite(
                 agent,
@@ -418,7 +429,9 @@ def resume(
                 )
             )
         reasoning = _create_luna_reasoning_provider(config)
-        async with BrowserSession.launch(headless=headless) as browser:
+        async with BrowserSession.launch(
+            headless=headless, browser_code_enabled=config.browser_code.enabled
+        ) as browser:
             if url:
                 await browser.navigate(url)
             agent = LunaDecisionAgent(
@@ -427,6 +440,7 @@ def resume(
                 model=config.reasoning.model,
                 vision_provider=_create_luna_vision_provider(config),
                 screenshot_capture=browser.capture_viewport_screenshot,
+                browser_code_enabled=config.browser_code.enabled,
             )
             async with AgentRuntime.open_sqlite(
                 agent,

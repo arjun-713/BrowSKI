@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from types import SimpleNamespace
 
 import pytest
 
 from browser_agent._types import AgentObservation, PrunedElement, TaskState, WorkingMemory
+from browser_agent.browser_code.contracts import (
+    BrowserCodePayload,
+    BrowserCodeRecord,
+    BrowserCodeResult,
+)
 from browser_agent.reasoning import (
     ReasoningAction,
     ReasoningContext,
@@ -99,6 +105,60 @@ async def test_luna_adapter_uses_bounded_structured_responses_request() -> None:
     assert call["max_output_tokens"] == 640
     assert call["timeout"] == 30.0
     assert "Continue through the form" in str(call["input"])
+    serialized_context = json.loads(str(call["input"]))
+    assert "browser_code_enabled" not in serialized_context
+    assert "browser_code_result" not in serialized_context
+
+
+async def test_luna_adapter_advertises_browser_code_only_when_enabled() -> None:
+    context = make_context().model_copy(update={"browser_code_enabled": True})
+    responses = FakeResponses(SimpleNamespace(output_parsed=make_decision()))
+    provider = OpenAILunaProvider(FakeClient(responses))
+
+    await provider.reason(context, model=DEFAULT_LUNA_MODEL, effort=ReasoningEffort.LOW)
+
+    serialized_context = json.loads(str(responses.calls[0]["input"]))
+    assert serialized_context["browser_code_enabled"] is True
+    assert "browser_code_result" not in serialized_context
+
+
+async def test_luna_adapter_sends_bounded_browser_code_result_when_enabled() -> None:
+    result = BrowserCodeResult(
+        state_generation=7,
+        payload=BrowserCodePayload(
+            summary="Found one visible reference.",
+            records=[BrowserCodeRecord(key="reference", value="BROWSKI-42")],
+        ),
+    )
+    context = make_context().model_copy(
+        update={"browser_code_enabled": True, "browser_code_result": result}
+    )
+    responses = FakeResponses(SimpleNamespace(output_parsed=make_decision()))
+
+    await OpenAILunaProvider(FakeClient(responses)).reason(context)
+
+    serialized_context = json.loads(str(responses.calls[0]["input"]))
+    assert serialized_context["browser_code_result"]["state_generation"] == 7
+    assert serialized_context["browser_code_result"]["payload"]["records"] == [
+        {"key": "reference", "value": "BROWSKI-42"}
+    ]
+
+
+async def test_luna_adapter_drops_browser_code_result_when_capability_is_disabled() -> None:
+    result = BrowserCodeResult(
+        state_generation=7,
+        payload=BrowserCodePayload(
+            records=[BrowserCodeRecord(key="reference", value="private-result-marker")]
+        ),
+    )
+    context = make_context().model_copy(update={"browser_code_result": result})
+    responses = FakeResponses(SimpleNamespace(output_parsed=make_decision()))
+
+    await OpenAILunaProvider(FakeClient(responses)).reason(context)
+
+    serialized_context = json.loads(str(responses.calls[0]["input"]))
+    assert "browser_code_result" not in serialized_context
+    assert "private-result-marker" not in str(responses.calls[0]["input"])
 
 
 async def test_luna_prompt_treats_instruction_like_page_text_as_untrusted() -> None:

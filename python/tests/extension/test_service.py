@@ -7,10 +7,12 @@ import io
 import os
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 
+from browser_agent._types import TaskState
+from browser_agent.extension.backend import Attachment, ExtensionCdpBackend
 from browser_agent.extension.native_messaging import read_native_message, write_native_message
 from browser_agent.extension.service import BridgeServiceError, ExtensionBridgeService
 
@@ -37,6 +39,103 @@ def _envelope(event_id: str, message_type: str, payload: dict[str, object]) -> d
         "eventId": event_id,
         "payload": payload,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["paused", "stopped"])
+async def test_runtime_reports_pause_and_stop_as_distinct_states(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: Literal["paused", "stopped"],
+) -> None:
+    from importlib import import_module
+
+    service = ExtensionBridgeService(tmp_path / "bridge.sock")
+    # Direct state setup isolates wire reporting from browser/model work.
+    service._runtime_session = {  # pyright: ignore[reportPrivateUsage]
+        "sessionId": "test-session",
+        "status": "running",
+        "updatedAt": "2026-10-08T00:00:00+00:00",
+    }
+    frames: list[dict[str, object]] = []
+
+    class WriterStub:
+        def is_closing(self) -> bool:
+            return False
+
+    async def capture_frame(writer: asyncio.StreamWriter, message: dict[str, object]) -> None:
+        del writer
+        frames.append(message)
+
+    monkeypatch.setattr(
+        import_module("browser_agent.extension.service"), "_write_native_frame", capture_frame
+    )
+    await service._handle_task_result(  # pyright: ignore[reportPrivateUsage]
+        cast(asyncio.StreamWriter, WriterStub()), TaskState(task="Synthetic task", status=status)
+    )
+    assert service.runtime_session is not None
+    assert service.runtime_session["status"] == status
+    assert service._runtime_suspended is (status == "paused")  # pyright: ignore[reportPrivateUsage]
+    results = [frame for frame in frames if frame["type"] == "runtime.task.result"]
+    if status == "paused":
+        assert not results
+    else:
+        assert len(results) == 1
+        assert cast(dict[str, object], results[0]["payload"])["outcome"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_user_stop_persists_terminal_result_before_detaching_browser(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from importlib import import_module
+
+    service = ExtensionBridgeService(tmp_path / "bridge.sock")
+    service._runtime_session = {  # pyright: ignore[reportPrivateUsage]
+        "sessionId": "test-session",
+        "status": "running",
+        "updatedAt": "2026-10-08T00:00:00+00:00",
+    }
+    service._run_id = "test-run"  # pyright: ignore[reportPrivateUsage]
+    events: list[str] = []
+
+    class WriterStub:
+        def is_closing(self) -> bool:
+            return False
+
+    class RuntimeStub:
+        async def stop(self, run_id: str) -> TaskState:
+            assert run_id == "test-run"
+            return TaskState(task="Synthetic task", run_id=run_id, status="stopped")
+
+    class ContextStub:
+        async def __aexit__(self, *args: object) -> None:
+            events.append("context-closed")
+
+    class BrowserSessionStub:
+        async def close(self) -> None:
+            events.append("browser-detached")
+
+    async def capture_frame(writer: asyncio.StreamWriter, message: dict[str, object]) -> None:
+        del writer
+        if message["type"] == "runtime.task.result":
+            events.append("terminal-result")
+
+    monkeypatch.setattr(
+        import_module("browser_agent.extension.service"), "_write_native_frame", capture_frame
+    )
+    service._agent_runtime = RuntimeStub()  # pyright: ignore[reportPrivateUsage]
+    service._runtime_context = ContextStub()  # pyright: ignore[reportPrivateUsage]
+    service._browser_session = BrowserSessionStub()  # pyright: ignore[reportPrivateUsage]
+
+    await service._stop_attached_task(  # pyright: ignore[reportPrivateUsage]
+        cast(asyncio.StreamWriter, WriterStub()), "test-run"
+    )
+
+    assert events == ["terminal-result", "context-closed", "browser-detached"]
+    assert service.runtime_session is None
+    assert service._browser_session is None  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio
@@ -260,13 +359,13 @@ async def test_confirmed_attachment_starts_shared_browser_session(
 ) -> None:
     from browser_agent.session import BrowserSession
 
-    calls: list[dict[str, str]] = []
+    calls: list[dict[str, object]] = []
 
     class FakeBrowserSession:
         async def close(self) -> None:
             return None
 
-    async def attach_extension(cls: type[BrowserSession], **kwargs: str) -> FakeBrowserSession:
+    async def attach_extension(cls: type[BrowserSession], **kwargs: object) -> FakeBrowserSession:
         del cls
         calls.append(kwargs)
         return FakeBrowserSession()
@@ -324,9 +423,10 @@ async def test_confirmed_attachment_starts_shared_browser_session(
                 "token": token,
                 "attachment_id": "attachment-1",
                 "session_id": "runtime-session-1",
-                "target_id": "extension-tab-9",
+                "target_id": "extension-tab-attachment-1",
                 "title": "Attached browser tab",
                 "url": "about:blank",
+                "browser_code_enabled": False,
             }
         ]
 
@@ -346,6 +446,170 @@ async def test_confirmed_attachment_starts_shared_browser_session(
         writer.close()
         await writer.wait_closed()
         await service.close()
+
+
+@pytest.mark.asyncio
+async def test_attachment_initialization_failure_clears_owner_before_notifications(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from browser_agent.session import BrowserSession
+
+    service = ExtensionBridgeService(tmp_path / "bridge.sock")
+    attachment = Attachment("attachment-failed", 12, "session-failed")
+    backend = ExtensionCdpBackend(tmp_path / "backend.sock", "token")
+    backend.set_attachment(attachment)
+    service._backend = backend  # pyright: ignore[reportPrivateUsage]
+    service._attachment_task = asyncio.current_task()  # pyright: ignore[reportPrivateUsage]
+    service._runtime_session = {  # pyright: ignore[reportPrivateUsage]
+        "sessionId": attachment.session_id,
+        "status": "idle",
+    }
+    notifications: list[str] = []
+
+    async def fail_attach(
+        cls: type[BrowserSession],
+        **kwargs: object,
+    ) -> BrowserSession:
+        del cls, kwargs
+        raise RuntimeError("synthetic browser initialization failure")
+
+    class WriterStub:
+        def is_closing(self) -> bool:
+            return False
+
+    async def fail_detach(
+        writer: asyncio.StreamWriter,
+        attachment_id: str,
+        reason: str,
+    ) -> None:
+        del writer, reason
+        assert attachment_id == attachment.attachment_id
+        assert service._attachment_task is None  # pyright: ignore[reportPrivateUsage]
+        assert service.runtime_session is None
+        assert backend.attachment is None
+        notifications.append("detach")
+        raise ConnectionResetError("synthetic native writer reset")
+
+    async def fail_snapshot(writer: asyncio.StreamWriter) -> None:
+        del writer
+        notifications.append("snapshot")
+        raise ConnectionResetError("synthetic native writer reset")
+
+    monkeypatch.setattr(BrowserSession, "attach_extension", fail_attach)
+    monkeypatch.setattr(service, "_send_detach", fail_detach)
+    monkeypatch.setattr(service, "_send_runtime_snapshot", fail_snapshot)
+
+    await service._open_attached_browser(  # pyright: ignore[reportPrivateUsage]
+        cast(asyncio.StreamWriter, WriterStub()), attachment
+    )
+
+    assert notifications == ["detach", "snapshot"]
+    assert service._attachment_task is None  # pyright: ignore[reportPrivateUsage]
+    assert service._backend.attachment is None  # pyright: ignore[reportPrivateUsage]
+    assert service.runtime_session is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_settings_get_and_update_use_typed_config_without_model_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    service = ExtensionBridgeService(tmp_path / "bridge.sock")
+    frames: list[dict[str, object]] = []
+
+    class WriterStub:
+        def is_closing(self) -> bool:
+            return False
+
+    async def capture_frame(writer: asyncio.StreamWriter, message: dict[str, object]) -> None:
+        del writer
+        frames.append(message)
+
+    monkeypatch.setattr(
+        service._settings_service,  # pyright: ignore[reportPrivateUsage]
+        "_write_frame",
+        capture_frame,
+    )
+    writer = cast(asyncio.StreamWriter, WriterStub())
+    await service._handle_message(  # pyright: ignore[reportPrivateUsage]
+        writer,
+        {"type": "runtime.settings.get", "payload": {}},
+    )
+    initial = cast(dict[str, object], frames[-1]["payload"])
+    assert frames[-1]["type"] == "runtime.settings.status"
+    assert initial["effort"] == "low"
+    assert initial["layaMode"] == "shadow"
+    assert initial["confirmHighRiskActions"] is True
+    assert initial["extensionTransport"] == "native_host"
+
+    await service._handle_message(  # pyright: ignore[reportPrivateUsage]
+        writer,
+        {
+            "type": "runtime.settings.update",
+            "payload": {
+                "effort": "none",
+                "privacyMode": "offline",
+                "layaMode": "disabled",
+                "traceLevel": "detailed",
+            },
+        },
+    )
+    updated = cast(dict[str, object], frames[-1]["payload"])
+    assert frames[-1]["type"] == "runtime.settings.status"
+    assert updated["effort"] == "none"
+    assert updated["privacyMode"] == "offline"
+    assert updated["layaMode"] == "disabled"
+    assert updated["traceLevel"] == "detailed"
+    assert updated["confirmHighRiskActions"] is True
+    assert (tmp_path / "xdg/browski/config.toml").is_file()
+
+
+@pytest.mark.asyncio
+async def test_runtime_settings_cannot_change_while_a_task_is_active(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    service = ExtensionBridgeService(tmp_path / "bridge.sock", config_path=config_path)
+    service._runtime_session = {  # pyright: ignore[reportPrivateUsage]
+        "sessionId": "session-1",
+        "status": "paused",
+    }
+    service._runtime_suspended = True  # pyright: ignore[reportPrivateUsage]
+    frames: list[dict[str, object]] = []
+
+    class WriterStub:
+        def is_closing(self) -> bool:
+            return False
+
+    async def capture_frame(writer: asyncio.StreamWriter, message: dict[str, object]) -> None:
+        del writer
+        frames.append(message)
+
+    monkeypatch.setattr(
+        service._settings_service,  # pyright: ignore[reportPrivateUsage]
+        "_write_frame",
+        capture_frame,
+    )
+    await service._handle_message(  # pyright: ignore[reportPrivateUsage]
+        cast(asyncio.StreamWriter, WriterStub()),
+        {
+            "type": "runtime.settings.update",
+            "payload": {
+                "effort": "low",
+                "privacyMode": "standard",
+                "layaMode": "shadow",
+                "traceLevel": "standard",
+            },
+        },
+    )
+
+    response = cast(dict[str, object], frames[-1]["payload"])
+    assert frames[-1]["type"] == "runtime.settings.status"
+    assert response["error"] == "Runtime settings cannot be changed while a task is active."
+    assert not config_path.exists()
 
 
 @pytest.mark.asyncio

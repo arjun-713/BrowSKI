@@ -5,6 +5,7 @@ orchestrator = "langgraph"
 provider = "openai"
 model = "gpt-6-luna"
 enabled = true
+effort = "low"
 
 [decision]
 provider = "laya"
@@ -20,7 +21,7 @@ mode = "standard"
 confirm_high_risk_actions = true
 
 [extension]
-transport_mode = "disabled"
+transport_mode = "native_host"
 package_path = ""
 native_host_manifest = ""
 
@@ -28,4 +29,7 @@ native_host_manifest = ""
 level = "standard"
 
 [vision]
+enabled = false
+
+[browser_code]
 enabled = false

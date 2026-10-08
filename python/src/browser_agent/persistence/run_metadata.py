@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from browser_agent.persistence.run_metrics import RunMetrics
+
 RunStatus = Literal[
     "running",
     "paused",
@@ -32,6 +34,7 @@ class RunRecord:
     status: str
     steps: int
     reasoning_calls: int
+    metrics: RunMetrics = RunMetrics()
 
 
 class SQLiteRunMetadataStore:
@@ -63,6 +66,18 @@ class SQLiteRunMetadataStore:
         if not 1 <= limit <= 1_000:
             raise ValueError("run list limit must be between 1 and 1000")
         return await asyncio.to_thread(self._list_runs, limit)
+
+    async def record_metrics(
+        self,
+        run_id: str,
+        metrics: RunMetrics,
+        *,
+        event_at: str,
+    ) -> None:
+        await asyncio.to_thread(self._record_metrics, run_id, metrics, event_at)
+
+    async def load_metrics(self, run_id: str) -> RunMetrics:
+        return await asyncio.to_thread(self._load_metrics, run_id)
 
     async def clean_before(
         self,
@@ -97,6 +112,26 @@ class SQLiteRunMetadataStore:
                 status TEXT NOT NULL,
                 steps INTEGER NOT NULL DEFAULT 0 CHECK (steps >= 0),
                 reasoning_calls INTEGER NOT NULL DEFAULT 0 CHECK (reasoning_calls >= 0)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS browski_run_metrics (
+                run_id TEXT PRIMARY KEY,
+                task_duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (task_duration_ms >= 0),
+                action_count INTEGER NOT NULL DEFAULT 0 CHECK (action_count >= 0),
+                verification_failures INTEGER NOT NULL DEFAULT 0 CHECK (verification_failures >= 0),
+                recoveries INTEGER NOT NULL DEFAULT 0 CHECK (recoveries >= 0),
+                browser_code_calls INTEGER NOT NULL DEFAULT 0 CHECK (browser_code_calls >= 0),
+                vision_calls INTEGER NOT NULL DEFAULT 0 CHECK (vision_calls >= 0),
+                luna_calls INTEGER NOT NULL DEFAULT 0 CHECK (luna_calls >= 0),
+                luna_none_effort_calls INTEGER NOT NULL DEFAULT 0
+                    CHECK (luna_none_effort_calls >= 0),
+                luna_low_effort_calls INTEGER NOT NULL DEFAULT 0 CHECK (luna_low_effort_calls >= 0),
+                luna_high_effort_calls INTEGER NOT NULL DEFAULT 0
+                    CHECK (luna_high_effort_calls >= 0),
+                laya_shadow_decisions INTEGER NOT NULL DEFAULT 0 CHECK (laya_shadow_decisions >= 0)
             )
             """
         )
@@ -153,18 +188,80 @@ class SQLiteRunMetadataStore:
             with self._connect() as connection:
                 if not _table_exists(connection, "browski_runs"):
                     return []
-                rows = connection.execute(
-                    """
-                    SELECT run_id, started_at, updated_at, status, steps, reasoning_calls
-                    FROM browski_runs
-                    ORDER BY updated_at DESC, run_id
-                    LIMIT ?
-                    """,
-                    (limit,),
-                ).fetchall()
+                if _table_exists(connection, "browski_run_metrics"):
+                    rows = connection.execute(
+                        """
+                        SELECT r.run_id, r.started_at, r.updated_at, r.status, r.steps,
+                            r.reasoning_calls, m.*
+                        FROM browski_runs AS r
+                        LEFT JOIN browski_run_metrics AS m ON m.run_id = r.run_id
+                        ORDER BY r.updated_at DESC, r.run_id
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT run_id, started_at, updated_at, status, steps, reasoning_calls
+                        FROM browski_runs ORDER BY updated_at DESC, run_id LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
             return [_record_from_row(row) for row in rows]
         except sqlite3.Error as exc:
             raise RunMetadataError("could not read BROWSKI run metadata") from exc
+
+    def _record_metrics(self, run_id: str, metrics: RunMetrics, event_at: str) -> None:
+        try:
+            occurred = datetime.fromisoformat(event_at)
+            if occurred.tzinfo is None:
+                raise ValueError("event time must be timezone-aware")
+            event_time = occurred.astimezone(UTC).isoformat()
+            with self._connect() as connection:
+                self._ensure_schema(connection)
+                row = connection.execute(
+                    "SELECT started_at FROM browski_runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if row is None:
+                    return
+                started = datetime.fromisoformat(str(row[0])).astimezone(UTC)
+                duration_ms = max(
+                    0,
+                    min(
+                        2**31 - 1, int((occurred.astimezone(UTC) - started).total_seconds() * 1000)
+                    ),
+                )
+                values = metrics.to_dict()
+                values["task_duration_ms"] = duration_ms
+                columns = tuple(values)
+                connection.execute(
+                    f"""INSERT INTO browski_run_metrics (run_id, {", ".join(columns)})
+                    VALUES ({", ".join("?" for _ in range(len(columns) + 1))})
+                    ON CONFLICT(run_id) DO UPDATE SET
+                    {", ".join(f"{column}=excluded.{column}" for column in columns)}""",
+                    (run_id, *(values[column] for column in columns)),
+                )
+                connection.execute(
+                    "UPDATE browski_runs SET updated_at = ? WHERE run_id = ?",
+                    (event_time, run_id),
+                )
+        except (sqlite3.Error, ValueError, OverflowError) as exc:
+            raise RunMetadataError("could not update BROWSKI run metrics") from exc
+
+    def _load_metrics(self, run_id: str) -> RunMetrics:
+        if not self.database.is_file():
+            return RunMetrics()
+        try:
+            with self._connect() as connection:
+                if not _table_exists(connection, "browski_run_metrics"):
+                    return RunMetrics()
+                row = connection.execute(
+                    "SELECT * FROM browski_run_metrics WHERE run_id = ?", (run_id,)
+                ).fetchone()
+            return _metrics_from_row(row) if row is not None else RunMetrics()
+        except sqlite3.Error as exc:
+            raise RunMetadataError("could not read BROWSKI run metrics") from exc
 
     def _clean_before(self, cutoff: str, apply: bool, include_running: bool) -> list[RunRecord]:
         if not self.database.is_file():
@@ -206,6 +303,8 @@ class SQLiteRunMetadataStore:
                     raise RunMetadataError(f"refusing to clean unexpected SQLite table {table!r}")
                 _delete_thread_rows(connection, table, run_ids)
             _delete_thread_rows(connection, "browski_runs", run_ids, key="run_id")
+            if _table_exists(connection, "browski_run_metrics"):
+                _delete_thread_rows(connection, "browski_run_metrics", run_ids, key="run_id")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -219,7 +318,7 @@ def _delete_thread_rows(
     *,
     key: str = "thread_id",
 ) -> None:
-    if table not in {"writes", "checkpoints", "browski_runs"}:
+    if table not in {"writes", "checkpoints", "browski_runs", "browski_run_metrics"}:
         raise RunMetadataError(f"refusing to clean unexpected SQLite table {table!r}")
     for start in range(0, len(run_ids), 500):
         batch = run_ids[start : start + 500]
@@ -254,7 +353,13 @@ def _record_from_row(row: sqlite3.Row) -> RunRecord:
         status=str(row["status"]),
         steps=int(row["steps"]),
         reasoning_calls=int(row["reasoning_calls"]),
+        metrics=_metrics_from_row(row),
     )
+
+
+def _metrics_from_row(row: sqlite3.Row) -> RunMetrics:
+    names = RunMetrics.__dataclass_fields__
+    return RunMetrics.from_dict({name: row[name] for name in names if name in row.keys()})
 
 
 def _utc_now() -> str:

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from browser_agent._types import (
     BrowserAction,
     ElementRef,
     FailureKind,
     FormSummary,
+    SemanticElement,
     SemanticSnapshot,
     SnapshotDelta,
     TaskState,
@@ -202,6 +205,59 @@ def test_risk_policy_flags_submission_and_keeps_navigation_low_risk() -> None:
     assert submit.category == RiskCategory.HIGH
     assert navigation.category == RiskCategory.LOW
     assert enter.category == RiskCategory.HIGH
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Place order",
+        "Authorize payment",
+        "Donate",
+        "Confirm purchase",
+        "Cancel subscription",
+        "Update account security",
+        "Modify security settings",
+    ],
+)
+def test_risk_policy_flags_common_consequential_labels(label: str) -> None:
+    page = snapshot()
+    page.elements.append(
+        SemanticElement(
+            ref="@control",
+            fingerprint="test-control",
+            role="button",
+            accessible_name=label,
+            interactable=True,
+        )
+    )
+
+    risk = ActionRiskPolicy().assess(
+        BrowserAction(type="click", target=ElementRef(ref="@control", id=2, generation=1)),
+        page,
+    )
+
+    assert risk.category == RiskCategory.HIGH
+
+
+@pytest.mark.parametrize("label", ["Review order history", "Confirm email"])
+def test_risk_policy_does_not_flag_unrelated_labels_as_high_risk(label: str) -> None:
+    page = snapshot()
+    page.elements.append(
+        SemanticElement(
+            ref="@control",
+            fingerprint="test-control",
+            role="button",
+            accessible_name=label,
+            interactable=True,
+        )
+    )
+
+    risk = ActionRiskPolicy().assess(
+        BrowserAction(type="click", target=ElementRef(ref="@control", id=2, generation=1)),
+        page,
+    )
+
+    assert risk.category == RiskCategory.MEDIUM
 
 
 def test_action_history_summary_does_not_retain_sensitive_action_values() -> None:

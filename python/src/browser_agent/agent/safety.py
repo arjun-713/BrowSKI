@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
@@ -38,6 +39,25 @@ class ActionRiskPolicy:
             "financial",
             "transfer",
             "pay",
+            "authorize",
+            "donate",
+        }
+    )
+    _HIGH_RISK_PHRASES = frozenset(
+        {
+            "place order",
+            "place an order",
+            "confirm purchase",
+            "cancel subscription",
+            "change account",
+            "update account",
+            "modify account",
+            "delete account",
+            "close account",
+            "change security",
+            "update security",
+            "modify security",
+            "security settings",
         }
     )
     _LOW_RISK_ACTIONS = frozenset(
@@ -72,8 +92,13 @@ class ActionRiskPolicy:
             )
             if part
         ).casefold()
-        words = set(label.replace("/", " ").replace("-", " ").split())
+        normalized_label = re.sub(r"[^a-z0-9]+", " ", label).strip()
+        words = set(normalized_label.split())
         matched = sorted(words & self._HIGH_RISK_WORDS)
+        matched_phrases = sorted(
+            phrase for phrase in self._HIGH_RISK_PHRASES if f" {phrase} " in f" {normalized_label} "
+        )
+        matched.extend(matched_phrases)
         if matched:
             return RiskAssessment(
                 category=RiskCategory.HIGH,

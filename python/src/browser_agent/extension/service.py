@@ -34,6 +34,7 @@ from browser_agent.extension.protocol import (
     ExtensionMessageValidator,
     ExtensionProtocolError,
 )
+from browser_agent.extension.settings_service import ExtensionSettingsService
 
 if TYPE_CHECKING:
     from browser_agent.session import BrowserSession
@@ -101,7 +102,11 @@ class ExtensionBridgeService:
         self.socket_path = (socket_path or default_socket_path()).expanduser()
         self.config_path = config_path
         self.database_path = database_path.expanduser()
-        self._credential_store = credential_store or SystemCredentialStore()
+        self._settings_service = ExtensionSettingsService(
+            config_path=self.config_path,
+            credential_store=credential_store or SystemCredentialStore(),
+            write_frame=_write_native_frame,
+        )
         self.token_path = self.socket_path.with_suffix(".token")
         self.lock_path = self.socket_path.with_suffix(".lock")
         self.backend_socket_path = self.socket_path.with_suffix(".backend.sock")
@@ -201,6 +206,7 @@ class ExtensionBridgeService:
         if task_task is not None and not task_task.done():
             task_task.cancel()
             await asyncio.gather(task_task, return_exceptions=True)
+        await self._close_runtime_context()
         attach_task, self._attachment_task = self._attachment_task, None
         if attach_task is not None and not attach_task.done():
             attach_task.cancel()
@@ -313,8 +319,10 @@ class ExtensionBridgeService:
             return
         self._active_connection = True
         self._writers.add(writer)
+        phase = "authentication"
         try:
             await self._authenticate(reader)
+            phase = "handshake"
             validator = ExtensionMessageValidator()
             hello_value = await asyncio.wait_for(
                 _read_native_frame(reader), timeout=_HELLO_TIMEOUT_SECONDS
@@ -332,8 +340,9 @@ class ExtensionBridgeService:
                 self._backend.set_extension_connection(writer, methods=methods, events=events)
             await self._send_host_hello(writer, methods, events)
             await self._send_runtime_snapshot(writer)
-            await self._send_credentials_status(writer)
+            await self._settings_service.send_credentials_status(writer)
 
+            phase = "connected"
             while True:
                 value = await asyncio.wait_for(
                     _read_native_frame(reader), timeout=_MESSAGE_TIMEOUT_SECONDS
@@ -346,8 +355,11 @@ class ExtensionBridgeService:
             OSError,
             ValueError,
             ExtensionBackendError,
-        ):
-            pass
+        ) as exc:
+            logger.info(
+                "Extension bridge connection closed",
+                extra={"phase": phase, "error_type": type(exc).__name__},
+            )
         finally:
             attachment = self._backend.attachment if self._backend is not None else None
             if attachment is not None and self._backend is not None:
@@ -444,6 +456,8 @@ class ExtensionBridgeService:
                 raise ExtensionProtocolError("task belongs to a different browser session")
             if self._task_task is not None and not self._task_task.done():
                 raise ExtensionProtocolError("a browser task is already running")
+            if self._runtime_suspended:
+                raise ExtensionProtocolError("resume or stop the suspended task first")
             self._task_label = cast(str, payload["task"])[:160]
             self._run_id = str(uuid.uuid4())
             self._pending_approval_id = None
@@ -505,35 +519,28 @@ class ExtensionBridgeService:
                 )
             else:
                 self._runtime_suspended = False
-                self._task_task = asyncio.create_task(
-                    self._stop_attached_task(writer, self._run_id),
-                    name=f"browski-stop-{self._run_id}",
-                )
+                if self._task_task is not None and not self._task_task.done():
+                    # Keep ownership of the active graph task. Stop requests
+                    # cancellation at its safe boundary; it reports completion.
+                    await self._stop_attached_task(writer, self._run_id)
+                else:
+                    await self._stop_attached_task(writer, self._run_id)
             await self._send_runtime_status(writer)
-        elif message_type == "runtime.credentials.set":
-            payload = cast(dict[str, object], message["payload"])
-            api_key = cast(str, payload["apiKey"])
-            try:
-                self._credential_store.set_openai_api_key(api_key)
-                await self._send_credentials_status(writer)
-            except Exception:
-                logger.warning("BROWSKI could not save an OpenAI key in the system keyring")
-                await self._send_credentials_status(
-                    writer,
-                    error="The operating system credential store is unavailable.",
-                )
-        elif message_type == "runtime.credentials.clear":
-            try:
-                self._credential_store.delete_openai_api_key()
-                await self._send_credentials_status(writer)
-            except Exception:
-                logger.warning("BROWSKI could not remove an OpenAI key from the system keyring")
-                await self._send_credentials_status(
-                    writer,
-                    error="The operating system credential store is unavailable.",
-                )
-        elif message_type == "runtime.credentials.status.request":
-            await self._send_credentials_status(writer)
+        elif message_type in {
+            "runtime.credentials.set",
+            "runtime.credentials.clear",
+            "runtime.credentials.status.request",
+            "runtime.settings.get",
+            "runtime.settings.update",
+        }:
+            handled = await self._settings_service.handle_message(
+                writer,
+                cast(str, message_type),
+                message["payload"],
+                active_task=self._has_active_task(),
+            )
+            if not handled:
+                raise ExtensionProtocolError("settings service did not handle a supported message")
         elif message_type == "browser.event.dropped":
             return
         else:
@@ -566,16 +573,20 @@ class ExtensionBridgeService:
         attachment: Attachment,
     ) -> None:
         try:
+            from browser_agent.cli.config import load_config
             from browser_agent.session import BrowserSession
+
+            config = load_config(self.config_path)
 
             browser_session = await BrowserSession.attach_extension(
                 socket_path=str(self.backend_socket_path),
                 token=self._token or "",
                 attachment_id=attachment.attachment_id,
                 session_id=attachment.session_id,
-                target_id=f"extension-tab-{attachment.tab_id}",
+                target_id=f"extension-tab-{attachment.attachment_id}",
                 title="Attached browser tab",
                 url="about:blank",
+                browser_code_enabled=config.browser_code.enabled,
             )
             if (
                 self._closed
@@ -589,17 +600,44 @@ class ExtensionBridgeService:
         except asyncio.CancelledError:
             raise
         except Exception:
-            if not writer.is_closing():
-                await self._send_detach(
-                    writer,
-                    attachment.attachment_id,
-                    "BROWSKI could not initialize the attached browser session.",
-                )
+            task = asyncio.current_task()
+            if self._attachment_task is task:
+                self._attachment_task = None
+            self._browser_session = None
             self._runtime_session = None
-            if not writer.is_closing():
-                await self._send_runtime_snapshot(writer)
-            if self._backend is not None:
-                await self._backend.detach_attachment(attachment.attachment_id)
+            backend = self._backend
+            if backend is not None:
+                try:
+                    await backend.detach_attachment(
+                        attachment.attachment_id,
+                        notify_browser=False,
+                    )
+                except Exception:
+                    logger.debug("Could not clear failed attached browser ownership")
+            try:
+                if not writer.is_closing():
+                    try:
+                        await self._send_detach(
+                            writer,
+                            attachment.attachment_id,
+                            "BROWSKI could not initialize the attached browser session.",
+                        )
+                    except Exception:
+                        logger.debug("Could not report attached browser initialization failure")
+                if not writer.is_closing():
+                    try:
+                        await self._send_runtime_snapshot(writer)
+                    except Exception:
+                        logger.debug("Could not publish attached browser cleanup state")
+            finally:
+                if backend is not None and backend.attachment is not None:
+                    try:
+                        await backend.detach_attachment(
+                            attachment.attachment_id,
+                            notify_browser=False,
+                        )
+                    except Exception:
+                        logger.debug("Could not clear failed attached browser ownership")
 
     async def _run_attached_task(
         self,
@@ -644,6 +682,8 @@ class ExtensionBridgeService:
                 model=config.reasoning.model,
                 vision_provider=create_luna_vision_provider(config),
                 screenshot_capture=browser.capture_viewport_screenshot,
+                browser_code_enabled=config.browser_code.enabled,
+                default_effort=config.reasoning.effort,
             )
 
             async def event_sink(event: object) -> None:
@@ -666,7 +706,7 @@ class ExtensionBridgeService:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Attached browser task failed")
+            logger.error("Attached browser task failed safely")
             await self._finish_task(
                 writer,
                 success=False,
@@ -701,7 +741,7 @@ class ExtensionBridgeService:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Attached browser task could not resume")
+            logger.error("Attached browser task could not resume safely")
             await self._finish_task(
                 writer, success=False, summary="The task could not resume safely."
             )
@@ -711,21 +751,49 @@ class ExtensionBridgeService:
         runtime = self._agent_runtime
         if runtime is None:
             return
+        graph_task = self._task_task
         try:
             result = await cast(Any, runtime).stop(run_id)
-            if result.status != "running":
-                await self._handle_task_result(writer, result)
-                await self._close_runtime_context()
+            if result.status == "running" and graph_task is not None:
+                await graph_task
+                if (self._runtime_session or {}).get("status") == "stopped":
+                    await self._detach_stopped_browser()
+                return
+            if graph_task is not None and not graph_task.done():
+                await graph_task
+                if (self._runtime_session or {}).get("status") == "stopped":
+                    await self._detach_stopped_browser()
+                return
+            await self._handle_task_result(writer, result)
+            await self._close_runtime_context()
+            if result.status == "stopped":
+                await self._detach_stopped_browser()
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Attached browser task could not stop")
+            logger.error("Attached browser task could not stop safely")
             await self._finish_task(
                 writer,
                 success=False,
                 summary="The task could not stop safely.",
             )
             await self._close_runtime_context()
+
+    async def _detach_stopped_browser(self) -> None:
+        """Detach the stopped run's owned debuggers while leaving Chrome open."""
+        browser_session, self._browser_session = self._browser_session, None
+        self._runtime_session = None
+        backend = self._backend
+        attachment = backend.attachment if backend is not None else None
+        try:
+            if browser_session is not None:
+                await cast(Any, browser_session).close()
+        finally:
+            if backend is not None and attachment is not None:
+                await backend.detach_attachment(
+                    attachment.attachment_id,
+                    notify_browser=False,
+                )
 
     async def _close_runtime_context(self) -> None:
         context, self._runtime_context = self._runtime_context, None
@@ -746,7 +814,7 @@ class ExtensionBridgeService:
                         self._run_id
                     )
                 except Exception:
-                    logger.exception("Could not summarize pending confirmation")
+                    logger.error("Could not summarize pending confirmation safely")
             self._pending_approval_id = approval_id
             self._runtime_suspended = True
             self._runtime_session["status"] = "awaiting_approval"  # type: ignore[index]
@@ -760,25 +828,39 @@ class ExtensionBridgeService:
             return
         if status == "paused":
             self._runtime_suspended = True
-            self._runtime_session["status"] = "idle"  # type: ignore[index]
+            self._runtime_session["status"] = "paused"  # type: ignore[index]
             await self._send_runtime_status(writer)
             return
         self._runtime_suspended = False
         await self._finish_task(
             writer,
             success=status == "completed",
+            stopped=status == "stopped",
             summary=state.result_summary
             or ("Task completed." if status == "completed" else "Task stopped."),
         )
 
     async def _finish_task(
-        self, writer: asyncio.StreamWriter, *, success: bool, summary: str
+        self,
+        writer: asyncio.StreamWriter,
+        *,
+        success: bool,
+        summary: str,
+        stopped: bool = False,
     ) -> None:
         session = self._runtime_session
         if session is None or writer.is_closing():
             return
         session_id = cast(str, session["sessionId"])
-        session["status"] = "completed" if success else "failed"
+        status = "failed"
+        outcome = "failed"
+        if success:
+            status = "completed"
+            outcome = "verified_success"
+        elif stopped:
+            status = "stopped"
+            outcome = "stopped"
+        session["status"] = status
         session["updatedAt"] = datetime.now(UTC).isoformat()
         await self._send_runtime_status(writer)
         await _write_native_frame(
@@ -789,7 +871,7 @@ class ExtensionBridgeService:
                 "eventId": str(uuid.uuid4()),
                 "payload": {
                     "sessionId": session_id,
-                    "outcome": "verified_success" if success else "failed",
+                    "outcome": outcome,
                     "summary": summary[:2_000],
                     "finishedAt": datetime.now(UTC).isoformat(),
                 },
@@ -869,33 +951,14 @@ class ExtensionBridgeService:
             },
         )
 
-    async def _send_credentials_status(
-        self,
-        writer: asyncio.StreamWriter,
-        *,
-        error: str | None = None,
-    ) -> None:
-        configured = False
-        try:
-            configured = bool(
-                os.environ.get("OPENAI_API_KEY")
-                or os.environ.get("BROWSKI_OPENAI_API_KEY")
-                or self._credential_store.get_openai_api_key()
-            )
-
-        except Exception:
-            configured = False
-        payload: dict[str, object] = {"openAiKeyConfigured": configured}
-        if error is not None:
-            payload["error"] = error
-        await _write_native_frame(
-            writer,
-            {
-                "protocolVersion": PROTOCOL_VERSION,
-                "type": "runtime.credentials.status",
-                "eventId": str(uuid.uuid4()),
-                "payload": payload,
-            },
+    def _has_active_task(self) -> bool:
+        if self._task_task is not None and not self._task_task.done():
+            return True
+        if self._runtime_suspended:
+            return True
+        return bool(
+            self._runtime_session
+            and self._runtime_session.get("status") in {"running", "paused", "awaiting_approval"}
         )
 
     async def _send_host_hello(

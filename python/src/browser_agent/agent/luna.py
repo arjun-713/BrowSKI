@@ -20,15 +20,21 @@ from browser_agent._types import (
     WorkingMemory,
 )
 from browser_agent.agent.runtime import Agent
+from browser_agent.browser_code.contracts import BrowserCodeProposal, BrowserCodeResult
 from browser_agent.decisions import (
     ActionCandidate,
     CandidatePolicy,
     DecisionProvider,
     build_action_candidates,
 )
+from browser_agent.decisions.task_tabs import with_owned_tab_candidates
+from browser_agent.decisions.task_transfers import candidate_policy_for_authorized_transfers
+from browser_agent.decisions.task_values import candidate_policy_for_task_literals
+from browser_agent.persistence.run_metrics import RunMetricKind
 from browser_agent.progress.task_state import check_completion
 from browser_agent.reasoning import (
     ComplexityGate,
+    ComplexityLevel,
     ComplexityResult,
     ComplexitySignals,
     ReasoningContext,
@@ -89,6 +95,8 @@ class LunaDecisionAgent(Agent):
         complexity_gate: ComplexityGate | None = None,
         vision_provider: VisionProvider | None = None,
         screenshot_capture: Callable[[str], Awaitable[bytes]] | None = None,
+        browser_code_enabled: bool = False,
+        default_effort: ReasoningEffort = ReasoningEffort.LOW,
     ) -> None:
         self.decision_provider = decision_provider
         self.reasoning_provider = reasoning_provider
@@ -97,7 +105,20 @@ class LunaDecisionAgent(Agent):
         self.complexity_gate = complexity_gate or ComplexityGate()
         self.vision_provider = vision_provider
         self.screenshot_capture = screenshot_capture
+        self.browser_code_enabled = browser_code_enabled
+        self.default_effort = default_effort
+        self._pending_browser_code_result: BrowserCodeResult | None = None
         self._vision_cache: dict[str, VisionInterpretation] = {}
+
+    def accept_browser_code_result(self, result: BrowserCodeResult) -> None:
+        """Stage one ephemeral transform result for exactly the next Luna call."""
+        if not self.browser_code_enabled:
+            raise ValueError("browser-code capability is disabled")
+        self._pending_browser_code_result = result
+
+    def clear_browser_code_result(self) -> None:
+        """Discard pending transform output on pause, stop, or stale-generation paths."""
+        self._pending_browser_code_result = None
 
     async def decide(
         self,
@@ -119,6 +140,15 @@ class LunaDecisionAgent(Agent):
         if isinstance(visual_context, AgentDecision):
             return visual_context
 
+        candidates = _action_candidates(
+            snapshot=snapshot,
+            task=task,
+            memory=memory,
+            observation=observation,
+            candidate_policy=self.candidate_policy,
+        )
+        options = _candidate_options(candidates)
+
         if not task.plan_initialized:
             return await self._ask_luna(
                 observation,
@@ -126,6 +156,8 @@ class LunaDecisionAgent(Agent):
                 memory,
                 snapshot=snapshot,
                 purpose=ReasoningPurpose.PLAN,
+                candidate_options=options,
+                bounded_candidates=candidates,
                 visual_context=visual_context,
             )
 
@@ -142,20 +174,10 @@ class LunaDecisionAgent(Agent):
                 snapshot=snapshot,
                 purpose=ReasoningPurpose.REPLAN,
                 failure_summary=str(last_recovery.get("reason", "Recovery requested a replan.")),
+                candidate_options=options,
+                bounded_candidates=candidates,
                 visual_context=visual_context,
             )
-
-        candidates = build_action_candidates(
-            task.user_goal or task.task,
-            task.current_subgoal or task.next_milestone or task.task,
-            observation,
-            {"click", "check", "scroll", "type", "select"},
-            self.candidate_policy,
-        )
-        options = {
-            f"c{index:02d}": candidate.description
-            for index, candidate in enumerate(candidates, start=1)
-        }
         return await self._ask_luna(
             observation,
             task,
@@ -202,6 +224,7 @@ class LunaDecisionAgent(Agent):
                     observation=observation,
                     screenshot=screenshot,
                 )
+                self.record_run_metric(task.run_id, RunMetricKind.VISION_CALL)
                 finding = await interpret_if_semantics_insufficient(
                     self.vision_provider,
                     lambda: request,
@@ -297,12 +320,16 @@ class LunaDecisionAgent(Agent):
 
         gate_result = self.complexity_for_recovery(task, snapshot)
         effort = gate_result.effort
+        if gate_result.level == ComplexityLevel.NORMAL:
+            effort = self.default_effort
         if purpose == ReasoningPurpose.REPLAN and task.recovery_history:
             latest_recovery_step = task.recovery_history[-1].get("step")
             if latest_recovery_step == "luna_normal_replan":
-                effort = ReasoningEffort.LOW
+                effort = self.default_effort
             elif latest_recovery_step == "luna_high_replan":
                 effort = ReasoningEffort.HIGH
+        browser_code_result = self._pending_browser_code_result
+        self._pending_browser_code_result = None
         context = ReasoningContext(
             purpose=purpose,
             task=task,
@@ -312,9 +339,12 @@ class LunaDecisionAgent(Agent):
             visual_observation=visual_context,
             failure_summary=failure_summary,
             candidate_options=candidate_options or {},
+            browser_code_enabled=self.browser_code_enabled,
+            browser_code_result=browser_code_result,
         )
         try:
             # Provider implementations can cross an untyped SDK/plugin boundary.
+            self.record_run_metric(task.run_id, _luna_metric_kind(effort))
             result: Any = await provider.reason(context, model=self.model, effort=effort)
             if not isinstance(result, ReasoningDecision):
                 raise TypeError("reasoning provider returned an invalid decision")
@@ -334,6 +364,22 @@ class LunaDecisionAgent(Agent):
             )
 
         reasoning = result.summary[:2_000]
+        if result.outcome == ReasoningOutcome.BROWSER_CODE:
+            proposal: BrowserCodeProposal | None = result.browser_code
+            if (
+                not self.browser_code_enabled
+                or purpose != ReasoningPurpose.CHOOSE_ACTION
+                or proposal is None
+            ):
+                return AgentDecision(
+                    ask_user=["Browser-code transforms are unavailable for this decision."],
+                    reasoning_effort=effort.value,
+                )
+            return AgentDecision(
+                browser_code=proposal,
+                reasoning=reasoning,
+                reasoning_effort=effort.value,
+            )
         if result.outcome == ReasoningOutcome.ASK_USER:
             return AgentDecision(
                 ask_user=result.questions,
@@ -358,60 +404,16 @@ class LunaDecisionAgent(Agent):
                 reasoning_effort=effort.value,
             )
 
-        if purpose == ReasoningPurpose.CHOOSE_ACTION:
-            return await self._bounded_luna_action(
-                result,
-                observation=observation,
-                snapshot=snapshot,
-                task=task,
-                candidates=bounded_candidates or [],
-                options=candidate_options or {},
-                reasoning=reasoning,
-                effort=effort,
-            )
-
-        try:
-            actions = result.bind_actions(observation)
-        except ValueError as exc:
-            return AgentDecision(
-                ask_user=[
-                    "Luna proposed a target that is not available in the current "
-                    "semantic observation. Please review the page."
-                ],
-                reasoning=f"Unbound semantic action: {type(exc).__name__}.",
-                reasoning_effort=effort.value,
-            )
-
-        action = (
-            actions[0]
-            if result.action is not None
-            else await self._choose_luna_candidate(
-                actions,
-                result.candidate_actions,
-                task,
-                memory,
-                observation,
-                prior_summary=memory.checkpoint_summary or "",
-                visual_observation=visual_context,
-                failure_summary=failure_summary,
-                effort=effort,
-            )
-        )
-        if action is None:
-            return AgentDecision(
-                ask_user=["System One abstained from Luna's bounded action candidates."],
-                reasoning=reasoning,
-                reasoning_effort=effort.value,
-            )
-        return AgentDecision(
-            milestones=result.milestones,
-            milestone_evidence=result.milestone_evidence,
-            plan_initialized=True,
-            current_subgoal=result.current_subgoal or task.current_subgoal,
-            replace_plan=purpose == ReasoningPurpose.REPLAN and bool(result.milestones),
-            action=action,
+        return await self._bounded_luna_action(
+            result,
+            observation=observation,
+            snapshot=snapshot,
+            task=task,
+            candidates=bounded_candidates or [],
+            options=candidate_options or {},
             reasoning=reasoning,
-            reasoning_effort=effort.value,
+            effort=effort,
+            purpose=purpose,
         )
 
     async def _bounded_luna_action(
@@ -425,6 +427,7 @@ class LunaDecisionAgent(Agent):
         options: dict[str, str],
         reasoning: str,
         effort: ReasoningEffort,
+        purpose: ReasoningPurpose,
     ) -> AgentDecision:
         if result.outcome != ReasoningOutcome.NEXT_ACTION or result.action is None:
             return AgentDecision(
@@ -472,12 +475,18 @@ class LunaDecisionAgent(Agent):
         if self.decision_provider is None:
             return AgentDecision(
                 action=action,
+                evidence_ref=(
+                    result.evidence_ref if purpose == ReasoningPurpose.CHOOSE_ACTION else None
+                ),
+                plan_initialized=True,
+                current_subgoal=task.current_subgoal,
                 reasoning=reasoning or "Selected by GPT-6 Luna from bounded semantic actions.",
                 reasoning_effort=effort.value,
             )
 
         shadow_started = time.perf_counter()
         try:
+            self.record_run_metric(task.run_id, RunMetricKind.LAYA_SHADOW_DECISION)
             shadow = await self.decision_provider.choose(
                 {
                     "task": task.user_goal or task.task,
@@ -511,133 +520,62 @@ class LunaDecisionAgent(Agent):
             )
         return AgentDecision(
             action=action,
+            evidence_ref=(
+                result.evidence_ref if purpose == ReasoningPurpose.CHOOSE_ACTION else None
+            ),
+            plan_initialized=True,
+            current_subgoal=task.current_subgoal,
             reasoning=reasoning or "Selected by GPT-6 Luna from bounded semantic actions.",
             reasoning_effort=effort.value,
         )
 
-    async def _choose_luna_candidate(
-        self,
-        actions: list[BrowserAction],
-        candidates: list[Any],
-        task: TaskState,
-        memory: WorkingMemory,
-        observation: AgentObservation,
-        *,
-        prior_summary: str,
-        visual_observation: str | None,
-        failure_summary: str | None,
-        effort: ReasoningEffort,
-    ) -> BrowserAction | None:
-        if len(actions) != len(candidates) or not actions or self.reasoning_provider is None:
-            return None
-        options = {
-            f"c{index:02d}": _action_description(candidate)
-            for index, candidate in enumerate(candidates, start=1)
-        }
-        context = ReasoningContext(
-            purpose=ReasoningPurpose.CHOOSE_ACTION,
-            task=task,
-            memory=memory,
-            observation=observation,
-            prior_summary=prior_summary,
-            visual_observation=visual_observation,
-            failure_summary=failure_summary,
-            candidate_options=options,
-        )
-        started = time.perf_counter()
-        try:
-            luna_result = await self.reasoning_provider.reason(
-                context,
-                model=self.model,
-                effort=effort,
-            )
-        except Exception as exc:
-            _logger.warning(
-                "luna_action_choice_failed",
-                error_type=type(exc).__name__,
-                run_id=task.run_id,
-                step=task.steps_taken + 1,
-            )
-            return None
 
-        selected_action: BrowserAction | None = None
-        if luna_result.outcome == ReasoningOutcome.NEXT_ACTION and luna_result.action is not None:
-            try:
-                proposed = luna_result.action.bind(observation)
-            except ValueError:
-                proposed = None
-            if proposed is not None:
-                selected_action = next(
-                    (
-                        action
-                        for action in actions
-                        if action.model_dump(mode="json", exclude_none=True)
-                        == proposed.model_dump(mode="json", exclude_none=True)
-                    ),
-                    None,
-                )
-        selected_id = next(
-            (
-                candidate_id
-                for index, candidate_id in enumerate(options)
-                if actions[index] is selected_action
-            ),
-            None,
-        )
-        elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000)
-        _logger.info(
-            "luna_action_choice",
-            run_id=task.run_id,
-            step=task.steps_taken + 1,
-            selected_candidate=selected_id,
-            outcome=luna_result.outcome.value,
-            elapsed_ms=round(elapsed_ms, 3),
-        )
-        if selected_action is None:
-            return None
+def _luna_metric_kind(effort: ReasoningEffort) -> RunMetricKind:
+    return {
+        ReasoningEffort.NONE: RunMetricKind.LUNA_NONE_EFFORT_CALL,
+        ReasoningEffort.LOW: RunMetricKind.LUNA_LOW_EFFORT_CALL,
+        ReasoningEffort.HIGH: RunMetricKind.LUNA_HIGH_EFFORT_CALL,
+    }[effort]
 
-        # The bounded provider is observational only. Its result is recorded for
-        # comparison and never changes the action selected by Luna.
-        if self.decision_provider is None:
-            return selected_action
 
-        shadow_started = time.perf_counter()
-        try:
-            shadow_answer = await self.decision_provider.choose(
-                {
-                    "task": task.user_goal or task.task,
-                    "current_subgoal": task.current_subgoal,
-                    "run_id": task.run_id,
-                    "steps_taken": task.steps_taken + 1,
-                    "observation": observation.model_dump(mode="json", exclude={"elements"}),
-                    "candidates": options,
-                },
-                "Choose one supplied candidate for shadow comparison only. "
-                "Do not create an action.",
-                options,
-            )
-            shadow_id = str(shadow_answer.value) if shadow_answer.accepted is True else None
-            _logger.info(
-                "laya_shadow_comparison",
-                run_id=task.run_id,
-                step=task.steps_taken + 1,
-                laya_choice=shadow_id if shadow_id in options else None,
-                luna_choice=selected_id,
-                agreement=(shadow_id == selected_id)
-                if shadow_id in options and selected_id
-                else None,
-                confidence=shadow_answer.confidence_calibrated,
-                elapsed_ms=round((time.perf_counter() - shadow_started) * 1000, 3),
-            )
-        except Exception as exc:
-            _logger.warning(
-                "laya_shadow_comparison_failed",
-                run_id=task.run_id,
-                step=task.steps_taken + 1,
-                error_type=type(exc).__name__,
-            )
+def _action_candidates(
+    *,
+    snapshot: SemanticSnapshot,
+    task: TaskState,
+    memory: WorkingMemory,
+    observation: AgentObservation,
+    candidate_policy: CandidatePolicy,
+) -> list[ActionCandidate]:
+    """Build the one finite set used for every executable Luna decision."""
+    goal = task.user_goal or task.task
+    policy = candidate_policy_for_task_literals(goal, observation, candidate_policy)
+    policy = candidate_policy_for_authorized_transfers(
+        goal,
+        memory,
+        snapshot,
+        observation,
+        policy,
+    )
+    candidates = build_action_candidates(
+        goal,
+        task.current_subgoal or task.next_milestone or task.task,
+        observation,
+        {"click", "check", "scroll", "type", "select"},
+        policy,
+    )
+    return with_owned_tab_candidates(
+        candidates,
+        task=goal,
+        snapshot=snapshot,
+        max_candidates=candidate_policy.max_candidates,
+    )
 
-        return selected_action
+
+def _candidate_options(candidates: list[ActionCandidate]) -> dict[str, str]:
+    return {
+        f"c{index:02d}": candidate.description
+        for index, candidate in enumerate(candidates, start=1)
+    }
 
 
 def _agent_observation(snapshot: SemanticSnapshot) -> AgentObservation:
@@ -781,12 +719,6 @@ def _resolve_target(
         id=element.id,
         generation=snapshot.state_generation,
     )
-
-
-def _action_description(action: Any) -> str:
-    target = getattr(action, "target_ref", None)
-    action_type = getattr(action, "type", "unknown")
-    return f"{action_type} action" + (f" on {target}" if target else "")
 
 
 def _action_signature(action: BrowserAction) -> dict[str, Any]:
