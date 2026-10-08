@@ -1,5 +1,9 @@
 # docs
 
+Read the root [architecture plan](../ARCHITECTURE_PLAN.md),
+[code quality standard](../CODE_QUALITY.md), and [working rules](../AGENTS.md)
+before major implementation work. The plan in this repository is authoritative.
+
 - [`architecture/`](architecture/) — system design: overview, language
   boundaries, agent loop, [decision routing](architecture/decision-routing.md),
   observation model, verification & recovery, privacy & vision, and the

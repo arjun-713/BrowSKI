@@ -1,8 +1,10 @@
 # AGENTS.md — instructions for coding agents working in this repository
 
-Read this file before any other action. It is normative: where it conflicts
-with a plausible alternative, this file wins. Non-trivial deviations require
-an ADR (see “When to write an ADR”).
+Before major work, read this file, [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md),
+and [CODE_QUALITY.md](CODE_QUALITY.md) completely. The architecture plan governs
+design and the roadmap, the quality guide governs implementation quality,
+and this file governs repository workflow. Non-trivial architecture changes
+require an ADR (see “When to write an ADR”).
 
 ## 1. Project mission
 

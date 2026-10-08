@@ -92,6 +92,9 @@ Full picture: [system overview](docs/architecture/system-overview.md) ·
 [observation model](docs/architecture/observation-model.md) ·
 [verification & recovery](docs/architecture/verification-and-recovery.md).
 
+The [architecture plan](ARCHITECTURE_PLAN.md) governs design and milestones;
+[CODE_QUALITY.md](CODE_QUALITY.md) governs implementation quality.
+
 ## Why multiple languages
 
 Each subsystem uses the best tool with a measurable reason
