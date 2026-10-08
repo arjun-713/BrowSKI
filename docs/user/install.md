@@ -100,6 +100,20 @@ then start the local bridge in another terminal:
 uv run --project python browski serve
 ```
 
+To start the installed local CPU Laya server and the extension backend together:
+
+```sh
+./scripts/start-local.sh
+```
+
+The launcher reuses Laya when port 8000 is already listening, waits for its
+health check, and starts the authenticated backend. It uses the existing
+Laya installation in the sibling `Agent-Browser-Benchmark/.venv` by default;
+set `LAYA_SERVE_BIN` for another installed launcher. Model files must already
+be cached locally. Logs are written under `~/.local/state/browski`, or
+`$XDG_STATE_HOME/browski`. Keep the terminal open; Ctrl+C stops the services
+started by that invocation. Start only one backend launcher at a time.
+
 Attach a tab in the extension side panel before submitting a task. The
 attached-browser route and complete local demo have fixture-backed browser
 acceptance tests. They do not establish autonomous model reliability.
