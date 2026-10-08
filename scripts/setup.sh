@@ -32,10 +32,11 @@ cargo build --workspace
 
 echo "==> Python venv + bindings"
 uv sync --project python --extra dev
-uv run --project python maturin develop --manifest-path crates/python-bindings/Cargo.toml
+cd python
+uv run maturin develop
 
 echo "==> Browser extension"
-cd extension
+cd ../extension
 npm ci
 npm run build
 

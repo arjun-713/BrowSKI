@@ -33,7 +33,7 @@ jobs:
         uses: browser-actions/setup-chrome@v1
       - name: sync + build bindings
         working-directory: python
-        run: uv sync --extra test
+        run: uv sync --locked --extra dev --python 3.12
       - name: ruff check
         working-directory: python
         run: uv run ruff check .
@@ -42,7 +42,51 @@ jobs:
         run: uv run ruff format --check .
       - name: pyright
         working-directory: python
-        run: uv run --extra dev pyright || npx --yes pyright .
+        run: uv run pyright
       - name: pytest (includes live-Chromium smoke test)
         working-directory: python
         run: uv run pytest
+
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit
+
+  extension-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - name: build locked product packages
+        run: |
+          uv sync --locked --extra dev --python 3.12 --project python
+          npm ci --prefix extension
+          npm run build --prefix extension
+      - name: install extension-capable Chromium
+        working-directory: python
+        run: uv run playwright install --with-deps chromium
+      - name: real extension and local runtime smoke
+        working-directory: python
+        env:
+          BROWSKI_EXTENSION_E2E: "1"
+        run: uv run pytest -m e2e tests/extension/test_browser_e2e.py

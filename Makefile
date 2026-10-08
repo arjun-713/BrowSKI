@@ -1,4 +1,4 @@
-.PHONY: setup build test lint format bindings example benchmark-smoke clean
+.PHONY: setup build test test-extension-e2e lint format bindings example benchmark-smoke clean
 
 setup:
 	./scripts/setup.sh
@@ -6,19 +6,22 @@ setup:
 build:
 	cargo build --workspace
 	uv sync --project python --extra dev
-	uv run --project python maturin develop --manifest-path crates/python-bindings/Cargo.toml
+	cd python && uv run maturin develop
 	cd extension && npm ci && npm run build
 
 test:
 	cargo test --workspace
 	cd python && uv run pytest
 
+test-extension-e2e:
+	cd python && BROWSKI_EXTENSION_E2E=1 uv run --extra dev pytest -m e2e tests/extension/test_browser_e2e.py
+
 lint:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cd python && uv run ruff check .
 	cd python && uv run ruff format --check .
-	cd python && (uv run --extra dev pyright || npx --yes pyright .)
+	cd python && uv run pyright
 
 format:
 	cargo fmt --all

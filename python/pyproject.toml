@@ -17,6 +17,7 @@ dependencies = [
   "typer>=0.9",
   "rich>=13.0",
   "keyring>=25.0,<26.0",
+  "cryptography>=44.0,<51.0",
   "anyio>=4.0",
   "structlog>=23.0",
   "langgraph>=1.0,<2.0",
@@ -27,7 +28,13 @@ dependencies = [
 llm = ["litellm>=1.0"]
 reasoning-openai = ["openai>=2.54,<3"]
 decisions-cloud = ["typesafe-sdk>=0.1"]
-test = ["pytest>=8.0", "pytest-asyncio>=0.23", "hypothesis>=6.0", "anyio[trio]>=4.0"]
+test = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "hypothesis>=6.0",
+  "anyio[trio]>=4.0",
+  "playwright>=1.62,<2",
+]
 dev = [
   "browser-agent[llm,reasoning-openai,test]",
   "ruff>=0.4",
@@ -47,11 +54,13 @@ python-source = "src"
 module-name = "browser_agent._core"
 manifest-path = "../crates/python-bindings/Cargo.toml"
 features = ["pyo3/extension-module"]
+exclude = ["**/__pycache__/**", "**/*.pyc"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["e2e: launches a real Chromium extension and local runtime"]
 
 [tool.ruff]
 target-version = "py312"
@@ -64,6 +73,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 include = ["src", "tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
 
 [tool.uv]
 package = true
