@@ -115,6 +115,18 @@ Do not create directories with no expected ownership or purpose.
   runtime policy. Do not call Jev without a later explicit architecture change.
 - Commit lockfiles: `Cargo.lock`, `python/uv.lock`, `extension/package-lock.json`.
 
+### Extension versioning
+
+Every extension update must increment its version before rebuilding:
+
+- Small changes: increment the patch by `0.0.1` (for example, `0.1.0` → `0.1.1`).
+- Major rewrites only: increment the minor by `0.1.0` and reset the patch
+  (for example, `0.1.3` → `0.2.0`).
+- Keep `extension/package.json` and the root package version in
+  `extension/package-lock.json` consistent. Rebuild the extension so its
+  generated Chrome manifest carries the new version.
+- Display the manifest version in the side panel; do not hardcode a version label.
+
 ## 7. Test requirements
 
 - Every crate: unit tests for its logic (`cargo test`).

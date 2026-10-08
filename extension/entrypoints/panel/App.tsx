@@ -12,6 +12,7 @@ import {
 import { useRuntimeConnection } from "./useRuntimeConnection";
 
 function App() {
+  const extensionVersion = chrome.runtime.getManifest().version;
   const { snapshot, panelError, busy, autoConnect, dispatch, saveAutoConnect } =
     useRuntimeConnection();
 
@@ -64,7 +65,9 @@ function App() {
       />
       <footer className="panel-footer">
         <span>Local companion</span>
-        <span>v0.1 · protocol {PROTOCOL_VERSION}</span>
+        <span>
+          v{extensionVersion} · protocol {PROTOCOL_VERSION}
+        </span>
       </footer>
     </main>
   );
