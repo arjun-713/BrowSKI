@@ -4,12 +4,14 @@ import { NativeHostController } from "../src/native-host";
 import { createPanelMessageHandler } from "../src/panel-router";
 import { isTrustedPanelSender } from "../src/panel-sender";
 import { OwnedTabs } from "../src/owned-tabs";
+import { StartupGate, withStartupTimeout } from "../src/startup-gate";
 import type { ExtensionSnapshot } from "../src/protocol";
 
 const ATTACHMENT_STORAGE_KEY = "browserAttachment";
 const OWNED_TABS_STORAGE_KEY = "ownedBrowserTabs";
 const SELECTED_TAB_STORAGE_KEY = "selectedBrowserTab";
 const PANEL_CHANNEL = "extension.snapshot";
+const startupGate = new StartupGate();
 
 type Attachment = NonNullable<ExtensionSnapshot["attachment"]>;
 
@@ -112,6 +114,7 @@ async function persistOwnedTabs(): Promise<void> {
 }
 
 async function captureActiveTab(): Promise<void> {
+  await startupGate.wait();
   if (!snapshot.protocolReady) {
     throw new Error("Connect to the local BROWSKI runtime before choosing a tab.");
   }
@@ -128,6 +131,7 @@ async function captureActiveTab(): Promise<void> {
 }
 
 async function attachSelectedTab(): Promise<void> {
+  await startupGate.wait();
   if (!snapshot.protocolReady) {
     throw new Error("Connect to the local BROWSKI runtime before attaching a tab.");
   }
@@ -185,6 +189,11 @@ async function clearSelectedTab(): Promise<void> {
 }
 
 async function detachOwnedTab(reason: string, retainError = false): Promise<void> {
+  try {
+    await startupGate.wait();
+  } catch {
+    // The failed restoration has already cleared persisted ownership.
+  }
   const attachment = snapshot.attachment;
   if (!attachment) {
     return;
@@ -287,21 +296,34 @@ export default defineBackground(() => {
     }),
   );
 
-  void chrome.storage.session
-    .get([ATTACHMENT_STORAGE_KEY, OWNED_TABS_STORAGE_KEY, SELECTED_TAB_STORAGE_KEY])
+  void withStartupTimeout(
+    chrome.storage.session.get([
+      ATTACHMENT_STORAGE_KEY,
+      OWNED_TABS_STORAGE_KEY,
+      SELECTED_TAB_STORAGE_KEY,
+    ]),
+    "Saved browser state read",
+  )
     .then(async (value) => {
       const selected = value[SELECTED_TAB_STORAGE_KEY] as
         { tabId?: unknown; origin?: unknown } | undefined;
       if (typeof selected?.tabId === "number" && typeof selected.origin === "string") {
         try {
-          const tab = await chrome.tabs.get(selected.tabId);
+          const tab = await withStartupTimeout(
+            chrome.tabs.get(selected.tabId),
+            "Saved tab lookup",
+          );
           if (allowedOrigin(tab.url) === selected.origin) {
             snapshot.selectedTab = { tabId: selected.tabId, origin: selected.origin };
           } else {
-            await clearSelectedTab();
+            await withStartupTimeout(clearSelectedTab(), "Saved selection cleanup");
           }
         } catch {
-          await clearSelectedTab();
+          snapshot.selectedTab = null;
+          await withStartupTimeout(
+            chrome.storage.session.remove(SELECTED_TAB_STORAGE_KEY),
+            "Saved selection cleanup",
+          );
         }
       }
 
@@ -310,7 +332,10 @@ export default defineBackground(() => {
         return;
       }
 
-      const targets = await chrome.debugger.getTargets();
+      const targets = await withStartupTimeout(
+        chrome.debugger.getTargets(),
+        "Attached tab lookup",
+      );
       const stillAttached = targets.some(
         (target) => target.tabId === restored.tabId && target.attached,
       );
@@ -335,7 +360,10 @@ export default defineBackground(() => {
                 break;
               }
               try {
-                const tab = await chrome.tabs.get(record.chromeTabId);
+                const tab = await withStartupTimeout(
+                  chrome.tabs.get(record.chromeTabId),
+                  "Owned tab lookup",
+                );
                 const currentOrigin = record.initial
                   ? allowedOrigin(tab.url)
                   : new URL(tab.url ?? "").origin;
@@ -349,12 +377,21 @@ export default defineBackground(() => {
           if (recordsMatch) {
             snapshot.attachment = restored;
           } else {
-            await ownedTabs.detachAll(restored.attachmentId, restored.sessionId);
-            await chrome.storage.session.remove([
-              ATTACHMENT_STORAGE_KEY,
-              OWNED_TABS_STORAGE_KEY,
-            ]);
-            await chrome.debugger.detach({ tabId: restored.tabId }).catch(() => undefined);
+            await withStartupTimeout(
+              ownedTabs.detachAll(restored.attachmentId, restored.sessionId),
+              "Stale owned-tab detach",
+            );
+            await withStartupTimeout(
+              chrome.storage.session.remove([
+                ATTACHMENT_STORAGE_KEY,
+                OWNED_TABS_STORAGE_KEY,
+              ]),
+              "Stale attachment cleanup",
+            );
+            await withStartupTimeout(
+              chrome.debugger.detach({ tabId: restored.tabId }).catch(() => undefined),
+              "Stale debugger detach",
+            );
             snapshot.attachment = {
               ...restored,
               state: "error",
@@ -362,24 +399,59 @@ export default defineBackground(() => {
             };
           }
         } else {
-          await chrome.storage.session.remove([
-            ATTACHMENT_STORAGE_KEY,
-            OWNED_TABS_STORAGE_KEY,
-          ]);
+          await withStartupTimeout(
+            chrome.storage.session.remove([ATTACHMENT_STORAGE_KEY, OWNED_TABS_STORAGE_KEY]),
+            "Stale attachment cleanup",
+          );
           snapshot.attachment = {
             ...restored,
             state: "error",
             message: "The runtime session changed. Attach again to continue.",
           };
-          await chrome.debugger.detach({ tabId: restored.tabId }).catch(() => undefined);
+          await withStartupTimeout(
+            chrome.debugger.detach({ tabId: restored.tabId }).catch(() => undefined),
+            "Stale debugger detach",
+          );
         }
       } else {
-        await chrome.storage.session.remove([
-          ATTACHMENT_STORAGE_KEY,
-          OWNED_TABS_STORAGE_KEY,
-        ]);
+        await withStartupTimeout(
+          chrome.storage.session.remove([ATTACHMENT_STORAGE_KEY, OWNED_TABS_STORAGE_KEY]),
+          "Stale attachment cleanup",
+        );
         snapshot.attachment = null;
       }
       publishSnapshot();
-    });
+    })
+    .catch(async () => {
+      startupGate.fail(
+        "Saved browser state could not be checked. Restart the extension before attaching a tab.",
+      );
+      const owner = ownedTabs.snapshot().find((record) => record.initial);
+      if (owner) {
+        try {
+          await withStartupTimeout(
+            ownedTabs.detachAll(owner.attachmentId, owner.ownerSessionId),
+            "Saved owned-tab detach",
+          );
+        } catch {
+          // The attachment gate stays failed until the extension is restarted.
+        }
+      }
+      snapshot.attachment = null;
+      snapshot.selectedTab = null;
+      try {
+        await withStartupTimeout(
+          chrome.storage.session.remove([
+            ATTACHMENT_STORAGE_KEY,
+            OWNED_TABS_STORAGE_KEY,
+            SELECTED_TAB_STORAGE_KEY,
+          ]),
+          "Saved state cleanup",
+        );
+      } catch {
+        // Keep attaching disabled after a failed best-effort restore.
+      }
+      publishSnapshot();
+    })
+    .finally(() => startupGate.release());
 });
