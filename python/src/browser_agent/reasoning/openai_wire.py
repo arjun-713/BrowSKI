@@ -1,0 +1,52 @@
+"""Closed OpenAI output schema, converted to the provider-neutral contract."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from browser_agent.browser_code.contracts import BrowserCodeProposal
+from browser_agent.reasoning.contracts import (
+    ReasoningAction,
+    ReasoningDecision,
+    ReasoningOutcome,
+)
+
+
+class LunaMilestoneEvidence(BaseModel):
+    """Explicit entries replace arbitrary object keys in strict JSON output."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    milestone: str = Field(min_length=1)
+    evidence: str = Field(min_length=1)
+
+
+class LunaDecisionOutput(BaseModel):
+    """Vendor wire format only; runtime policy still validates ReasoningDecision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: ReasoningOutcome
+    summary: str = Field(default="", max_length=2_000)
+    milestones: list[str] = Field(default_factory=list[str], max_length=10)
+    milestone_evidence: list[LunaMilestoneEvidence] = Field(
+        default_factory=list[LunaMilestoneEvidence], max_length=10
+    )
+    current_subgoal: str | None = Field(default=None, max_length=500)
+    action: ReasoningAction | None = None
+    evidence_ref: str | None = Field(default=None, min_length=2, max_length=200)
+    browser_code: BrowserCodeProposal | None = None
+    candidate_actions: list[ReasoningAction] = Field(
+        default_factory=list[ReasoningAction], max_length=8
+    )
+    questions: list[str] = Field(default_factory=list[str], max_length=10)
+
+    def to_decision(self) -> ReasoningDecision:
+        evidence: dict[str, str] = {}
+        for entry in self.milestone_evidence:
+            if entry.milestone in evidence:
+                raise ValueError("duplicate milestone evidence entry")
+            evidence[entry.milestone] = entry.evidence
+        payload = self.model_dump(mode="json")
+        payload["milestone_evidence"] = evidence
+        return ReasoningDecision.model_validate(payload)

@@ -31,6 +31,7 @@ from browser_agent.reasoning import (
     ReasoningDecision,
     ReasoningEffort,
     ReasoningOutcome,
+    ReasoningProviderRequestError,
 )
 from browser_agent.vision import (
     VisionInterpretation,
@@ -624,3 +625,28 @@ async def test_malformed_reasoning_decision_escalates_safely() -> None:
     assert decision.action is None
     assert decision.ask_user
     assert "unavailable" in decision.ask_user[0]
+
+
+async def test_provider_failure_reaches_user_without_raw_request_content() -> None:
+    class FailingProvider(FakeReasoningProvider):
+        async def reason(
+            self,
+            context: ReasoningContext,
+            *,
+            model: str,
+            effort: ReasoningEffort,
+        ) -> ReasoningDecision:
+            del context, model, effort
+            failure = ReasoningProviderRequestError("Safe provider failure")
+            failure.user_message = "OpenAI rejected BROWSKI's response schema."
+            raise failure
+
+    provider = FailingProvider(
+        ReasoningDecision(outcome=ReasoningOutcome.ASK_USER, questions=["What task?"])
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(snapshot(), task_state(), WorkingMemory())
+
+    assert decision.action is None
+    assert decision.ask_user == ["OpenAI rejected BROWSKI's response schema."]

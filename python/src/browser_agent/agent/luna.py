@@ -42,6 +42,7 @@ from browser_agent.reasoning import (
     ReasoningEffort,
     ReasoningOutcome,
     ReasoningProvider,
+    ReasoningProviderRequestError,
     ReasoningPurpose,
     configured_luna_model,
 )
@@ -355,11 +356,14 @@ class LunaDecisionAgent(Agent):
                 error_type=type(exc).__name__,
                 effort=effort.value,
             )
+            message = (
+                exc.user_message
+                if isinstance(exc, ReasoningProviderRequestError)
+                else "Luna reasoning was unavailable. Review the current browser state "
+                "and provide guidance before continuing."
+            )
             return AgentDecision(
-                ask_user=[
-                    "Luna reasoning was unavailable. Review the current browser state "
-                    "and provide guidance before continuing."
-                ],
+                ask_user=[message],
                 reasoning_effort=effort.value,
             )
 

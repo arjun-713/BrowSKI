@@ -34,7 +34,7 @@ _EVENT_LABELS = {
     RuntimeEventType.RUN_STARTED: "Task started",
     RuntimeEventType.RUN_RESUMED: "Task resumed",
     RuntimeEventType.OBSERVATION_COMPLETED: "Observed browser state",
-    RuntimeEventType.DECISION_MADE: "Selected a bounded action",
+    RuntimeEventType.DECISION_MADE: "Evaluated next browser step",
     RuntimeEventType.ACTION_STARTED: "Executing browser action",
     RuntimeEventType.ACTION_COMPLETED: "Browser action executed",
     RuntimeEventType.VERIFICATION_COMPLETED: "Verified browser result",

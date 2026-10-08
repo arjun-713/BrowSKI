@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -32,6 +33,7 @@ from browser_agent.reasoning.openai_adapter import (
     ReasoningProviderUnavailable,
     ReasoningTelemetryEvent,
 )
+from browser_agent.reasoning.openai_wire import LunaDecisionOutput, LunaMilestoneEvidence
 
 
 class FakeResponses:
@@ -101,13 +103,90 @@ async def test_luna_adapter_uses_bounded_structured_responses_request() -> None:
     call = responses.calls[0]
     assert call["model"] == "gpt-6-luna"
     assert call["reasoning"] == {"effort": "high"}
-    assert call["text_format"] is ReasoningDecision
+    assert call["text_format"] is LunaDecisionOutput
+    assert call["store"] is False
     assert call["max_output_tokens"] == 640
     assert call["timeout"] == 30.0
     assert "Continue through the form" in str(call["input"])
     serialized_context = json.loads(str(call["input"]))
     assert "browser_code_enabled" not in serialized_context
     assert "browser_code_result" not in serialized_context
+
+
+def test_luna_wire_schema_uses_only_closed_objects() -> None:
+    def check_schema(value: object) -> None:
+        if isinstance(value, dict):
+            fields = cast(dict[str, object], value)
+            assert "maxProperties" not in fields
+            if fields.get("type") == "object":
+                assert fields.get("additionalProperties") is False
+            for child in fields.values():
+                check_schema(child)
+        elif isinstance(value, list):
+            for child in cast(list[object], value):
+                check_schema(child)
+
+    check_schema(LunaDecisionOutput.model_json_schema())
+    assert set(LunaDecisionOutput.model_fields) == set(ReasoningDecision.model_fields)
+
+
+async def test_luna_wire_milestones_convert_to_validated_internal_evidence() -> None:
+    output = LunaDecisionOutput(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=["Open blank form"],
+        milestone_evidence=[
+            LunaMilestoneEvidence(milestone="Open blank form", evidence="Untitled form")
+        ],
+    )
+    responses = FakeResponses(SimpleNamespace(output_parsed=output))
+
+    decision = await OpenAILunaProvider(FakeClient(responses)).reason(make_context())
+
+    assert decision.milestone_evidence == {"Open blank form": "Untitled form"}
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+async def test_luna_wire_rejects_missing_or_duplicate_milestone_evidence(
+    duplicate: bool,
+) -> None:
+    entry = LunaMilestoneEvidence(milestone="Open blank form", evidence="Untitled form")
+    output = LunaDecisionOutput(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=["Open blank form"],
+        milestone_evidence=[entry, entry] if duplicate else [],
+    )
+    responses = FakeResponses(SimpleNamespace(output_parsed=output))
+
+    with pytest.raises(ReasoningProviderProtocolError, match="decision contract"):
+        await OpenAILunaProvider(FakeClient(responses)).reason(make_context())
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "message_fragment"),
+    [
+        (400, "invalid_json_schema", "response schema"),
+        (401, "invalid_api_key", "API key"),
+        (429, "insufficient_quota", "credits"),
+        (429, "rate_limit_exceeded", "rate limit"),
+        (404, "model_not_found", "model access"),
+    ],
+)
+async def test_luna_request_failure_provides_safe_actionable_error(
+    status: int, code: str, message_fragment: str
+) -> None:
+    secret = "private-request-data"
+
+    class RejectedRequest(Exception):
+        status_code = status
+        body = {"code": code, "message": secret}
+
+    provider = OpenAILunaProvider(FakeClient(FakeResponses(error=RejectedRequest(secret))))
+    with pytest.raises(ReasoningProviderRequestError) as captured:
+        await provider.reason(make_context())
+
+    assert message_fragment in captured.value.user_message
+    assert secret not in captured.value.user_message
+    assert secret not in str(captured.value)
 
 
 async def test_luna_adapter_advertises_browser_code_only_when_enabled() -> None:
