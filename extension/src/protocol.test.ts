@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
   isAllowedDebuggerCommand,
   isAllowedDebuggerEvent,
+  isExtensionToHostMessage,
   isNativeHostMessage,
 } from "./protocol";
 
@@ -122,13 +123,136 @@ describe("versioned native host envelope", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts only bounded source-free browser-code timeline metadata", () => {
+    const trace = {
+      purposeCategory: "semantic_data_transform",
+      reasonCategory: "explicit_capability_request",
+      scriptSha256: "a".repeat(64),
+      scriptBytes: 123,
+      timeoutMs: 750,
+      maxResultBytes: 16_384,
+      resultSchema: "BrowserCodePayload",
+      durationMs: 12.5,
+    };
+    const event = {
+      eventId: "timeline-code-1",
+      sessionId: "session-1",
+      runId: "run-1",
+      sequence: 1,
+      step: 2,
+      createdAt: "2026-10-07T00:00:00+00:00",
+      type: "BrowserCodeCompleted",
+      label: "Checked semantic data transform",
+      status: "completed",
+      browserCode: trace,
+    };
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.timeline",
+        eventId: "event-code-1",
+        payload: { event },
+      }),
+    ).toBe(true);
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.timeline",
+        eventId: "event-code-2",
+        payload: { event: { ...event, browserCode: { ...trace, script: "raw source" } } },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.timeline",
+        eventId: "event-code-3",
+        payload: { event: { ...event, browserCode: { ...trace, timeoutMs: 1_501 } } },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.timeline",
+        eventId: "event-code-4",
+        payload: { event: { ...event, type: "ActionStarted" } },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates runtime settings messages with fixed values", () => {
+    const envelope = {
+      protocolVersion: PROTOCOL_VERSION,
+      eventId: "settings-1",
+    };
+    expect(
+      isExtensionToHostMessage({
+        ...envelope,
+        type: "runtime.settings.get",
+        payload: {},
+      }),
+    ).toBe(true);
+    expect(
+      isExtensionToHostMessage({
+        ...envelope,
+        type: "runtime.settings.update",
+        payload: {
+          effort: "low",
+          privacyMode: "privacy_first",
+          layaMode: "shadow",
+          traceLevel: "standard",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isExtensionToHostMessage({
+        ...envelope,
+        type: "runtime.settings.update",
+        payload: {
+          effort: "high",
+          privacyMode: "standard",
+          layaMode: "disabled",
+          traceLevel: "detailed",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        ...envelope,
+        type: "runtime.settings.status",
+        payload: {
+          effort: "none",
+          privacyMode: "standard",
+          layaMode: "shadow",
+          traceLevel: "detailed",
+          confirmHighRiskActions: true,
+          extensionTransport: "native_host",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isNativeHostMessage({
+        ...envelope,
+        type: "runtime.settings.status",
+        payload: { error: "Settings could not be loaded." },
+      }),
+    ).toBe(true);
+    expect(
+      isNativeHostMessage({
+        ...envelope,
+        type: "runtime.settings.status",
+        payload: { error: "bad", effort: "high" },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("debugger capability allowlist", () => {
   it("defines only the M2 observation and M3 page/input methods", () => {
     expect(ALLOWED_DEBUGGER_METHODS).toContain("Accessibility.getFullAXTree");
     expect(ALLOWED_DEBUGGER_METHODS).toContain("Input.dispatchMouseEvent");
-    expect(ALLOWED_DEBUGGER_METHODS).not.toContain("Runtime.evaluate");
+    expect(ALLOWED_DEBUGGER_METHODS).toContain("Runtime.evaluate");
     expect(ALLOWED_DEBUGGER_METHODS).not.toContain("Network.enable");
   });
 
@@ -184,7 +308,42 @@ describe("debugger capability allowlist", () => {
 
   it("accepts only known browser events", () => {
     expect(isAllowedDebuggerEvent("Page.frameNavigated")).toBe(true);
+    expect(isAllowedDebuggerEvent("Target.targetDestroyed")).toBe(true);
     expect(isAllowedDebuggerEvent("Network.requestWillBeSent")).toBe(false);
     expect(isAllowedDebuggerEvent("Runtime.consoleAPICalled")).toBe(false);
+  });
+
+  it("allows only fixed screenshot parameters and explicit owned-tab operations", () => {
+    expect(
+      isAllowedDebuggerCommand(
+        command("Page.captureScreenshot", {
+          format: "png",
+          fromSurface: true,
+          captureBeyondViewport: false,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedDebuggerCommand(
+        command("Page.captureScreenshot", {
+          format: "png",
+          fromSurface: true,
+          captureBeyondViewport: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedDebuggerCommand(
+        command("BROWSKI.tabs.create", { url: "https://example.test/login" }),
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedDebuggerCommand(
+        command("BROWSKI.tabs.create", { url: "https://user:secret@example.test/" }),
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedDebuggerCommand(command("BROWSKI.tabs.close", { targetId: "17" })),
+    ).toBe(false);
   });
 });

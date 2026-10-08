@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BROWSKI local application demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font: 16px/1.5 system-ui, sans-serif;
+        background: #f4f5f1;
+        color: #20251f;
+      }
+
+      body {
+        max-width: 42rem;
+        margin: 4rem auto;
+        padding: 0 1.5rem;
+      }
+
+      main {
+        padding: 2rem;
+        border: 1px solid #d4d9d0;
+        border-radius: 1rem;
+        background: white;
+        box-shadow: 0 1rem 3rem #24302012;
+      }
+
+      label {
+        display: grid;
+        gap: 0.35rem;
+        margin: 1rem 0;
+      }
+
+      input {
+        min-height: 2.6rem;
+        padding: 0.4rem 0.65rem;
+        border: 1px solid #aab4a7;
+        border-radius: 0.4rem;
+        font: inherit;
+      }
+
+      button,
+      a.button {
+        display: inline-block;
+        margin: 0.5rem 0.5rem 0 0;
+        padding: 0.65rem 1rem;
+        border: 0;
+        border-radius: 0.45rem;
+        background: #1d5d45;
+        color: white;
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      #status {
+        min-height: 1.5rem;
+        color: #315f48;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p><strong>BROWSKI · LOCAL DEMO</strong></p>
+      <h1>Sample internship application</h1>
+      <p>This fixture uses synthetic values and never submits data to a server.</p>
+
+      <form id="application">
+        <section id="step-contact" aria-labelledby="contact-heading">
+          <h2 id="contact-heading">1. Contact details</h2>
+          <label>
+            Full name
+            <input name="full_name" autocomplete="name" />
+          </label>
+          <label>
+            Email address
+            <input name="email" type="email" autocomplete="email" />
+          </label>
+          <button id="continue" type="button">Continue to role details</button>
+        </section>
+
+        <section id="step-role" aria-labelledby="role-heading" hidden>
+          <h2 id="role-heading">2. Role details</h2>
+          <label>
+            Preferred city
+            <input name="city" />
+          </label>
+          <label>
+            Supporting reference code
+            <input name="reference_code" />
+          </label>
+          <p>
+            <a class="button" href="/guide.html" target="_blank" rel="noreferrer">
+              Open the supporting page
+            </a>
+          </p>
+          <button id="submit-application" type="submit">Submit application</button>
+        </section>
+      </form>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script>
+      const form = document.querySelector("#application");
+      const contactStep = document.querySelector("#step-contact");
+      const roleStep = document.querySelector("#step-role");
+      const status = document.querySelector("#status");
+
+      document.querySelector("#continue").addEventListener("click", () => {
+        contactStep.hidden = true;
+        roleStep.hidden = false;
+        status.textContent = "Contact details saved locally. Role details are ready.";
+      });
+
+      form.addEventListener("input", () => {
+        if (
+          !roleStep.hidden &&
+          form.elements.namedItem("full_name").value &&
+          form.elements.namedItem("email").value &&
+          form.elements.namedItem("city").value &&
+          form.elements.namedItem("reference_code").value
+        ) {
+          status.textContent = "Application ready for review. Nothing has been submitted.";
+        }
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        status.textContent = "Submission is disabled in this demo. No data was sent.";
+      });
+    </script>
+  </body>
+</html>
