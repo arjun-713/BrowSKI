@@ -2,6 +2,12 @@
 
 Date: 2026-10-07 · Status: accepted
 
+Amended by [ADR-012](ADR-012-fixed-browser-mechanics-in-extension-transport.md)
+for fixed Rust-owned observer mechanics. The browser-code decision is narrowed
+by [ADR-014](ADR-014-isolated-semantic-data-transforms.md) for pure transforms
+over a bounded Rust-owned semantic projection only. Model-authored live-page
+code remains disabled under this decision.
+
 ## Context
 
 The M9 request and result policy scaffold has size and time budgets, a

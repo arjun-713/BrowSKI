@@ -12,8 +12,9 @@ Build BROWSKI, an open-source browser agent runtime for reliable short and
 long-running browser tasks. Current runtime policy is GPT-6 Luna for all
 executable decisions, Laya as non-executing shadow only, and Jev disabled.
 GPT-6 Luna is the only generative reasoning model in the baseline. OpenAI
-credentials are needed to run model-backed tasks; doctor must never make a
-provider call.
+credentials are needed to run model-backed tasks. Doctor must never perform
+model inference or make external provider requests. Local loopback health
+checks, including Laya availability, are permitted.
 
 Primary metric: **end-to-end task completion**. Everything else (steps,
 tokens, latency, cost, recovery rate) is secondary but measured — see
@@ -50,7 +51,7 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 |---|---|---|
 | Rust (`crates/`) | CDP, browser events, DOM/AX state, element identity, diffing, action execution, verification primitives, low-level recovery, perf-sensitive infra | LLM calls, prompts, provider logic, planning, memory |
 | Python (`python/`) | Agent loop, planning, orchestration, memory, task state, high-level recovery, decision/reasoning adapters, eval/benchmarks | CDP transport, DOM collection internals, raw browser process management |
-| TypeScript (`web/`) | Extension, trace viewer, browser-facing UI/SDK | Agent internals, browser automation core |
+| TypeScript (`extension/`, `web/`) | Extension, trace viewer, browser-facing UI/SDK | Agent internals, browser automation core |
 | Bun | Dev scripts/tooling where measurably faster | The browser core |
 | Go | Nothing yet; allowed later for isolated high-throughput services with benchmarks | Anything without a benchmark-backed justification |
 
@@ -69,11 +70,20 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/verification/` — postconditions, before/after comparison, evidence.
 - `crates/recovery/` — low-level mechanical retries (bounded). No replanning.
 - `crates/telemetry/` — `TraceEvent` envelope, timing, traces.
+- `crates/browser-code/` — isolated, bounded semantic-data transforms; no live
+  browser, network, filesystem, or shell capability.
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
 - `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
 - `python/src/browser_agent/decisions/` — bounded `DecisionProvider` contract, Laya/Jev adapters, calibration, and shadow comparison. Laya output must not authorize execution.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
+- `python/src/browser_agent/extension/` — authenticated local service, Native
+  Messaging framing, transport broker and product lifecycle.
+- `python/src/browser_agent/providers/` — authoritative outbound privacy gates.
+- `python/src/browser_agent/persistence/` — encrypted checkpoints, safe run
+  metadata, aggregate counters and retention.
+- `extension/` — WXT/React product UI and owned-tab debugger proxy. It must not
+  duplicate the browser semantic engine or agent decisions.
 - `benchmarks/`, `tests/`, `examples/`, `docs/`, `scripts/` — as named.
 
 Do not create directories with no expected ownership or purpose.
@@ -103,7 +113,7 @@ Do not create directories with no expected ownership or purpose.
 - Laya and TypeSafe SDK are optional provider extras; neither may become a
   required dependency of the base browser runtime. Jev is disabled by current
   runtime policy. Do not call Jev without a later explicit architecture change.
-- Commit lockfiles: `Cargo.lock`, `python/uv.lock`.
+- Commit lockfiles: `Cargo.lock`, `python/uv.lock`, `extension/package-lock.json`.
 
 ## 7. Test requirements
 
@@ -113,6 +123,9 @@ Do not create directories with no expected ownership or purpose.
 - Python contracts: `python/tests/test_contracts.py` for schemas, bounds
   (memory caps, retry bounds), and registries.
 - Run the full gates before finishing: `make test`, `make lint`.
+- Extension changes additionally require `npm run check` in `extension/` and
+  actual packaged-Chromium smoke tests (`make test-extension-e2e`). Provider
+  fixtures in software tests do not establish live-model task success.
 - If launching Chromium in an environment is impossible, say so explicitly —
   do not silently skip browser tests.
 

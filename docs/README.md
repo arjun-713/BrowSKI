@@ -16,3 +16,7 @@ before major implementation work. The plan in this repository is authoritative.
 - [`research/`](research/) — competitor and ecosystem notes.
 - [`user/`](user/) — installation, extension, configuration, privacy, and
   troubleshooting guidance, including current product limits.
+
+For product review, start with the [local demo](user/demo.md), the
+[productization validation record](development/productization-validation.md)
+and the [release checklist](development/release-checklist.md).

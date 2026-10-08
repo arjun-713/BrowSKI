@@ -1,9 +1,14 @@
 # ADR-004: Local-first typed System One decision providers
 
-- Status: Accepted
+- Status: Accepted for provider contracts; execution routing superseded by
+  [ADR-008](ADR-008-luna-active-decision-policy.md)
 - Date: 2026-10-02
 
 ## Context
+
+The context and routing decision below record the original M5 policy. Current
+product execution uses Luna, Laya shadow only and no Jev calls under ADR-008.
+The shared provider interface and independent calibration contracts remain valid.
 
 BROWSKI needs fast, bounded classifications for browser state while keeping
 browser execution deterministic. The M4 agent loop had only an injected fake

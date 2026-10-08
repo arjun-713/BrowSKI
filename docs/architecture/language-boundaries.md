@@ -21,10 +21,11 @@ only when browser mechanics or measured performance require it.
 
 ## Why TypeScript (browser-facing)
 
-Extension (if/when required), trace viewer, developer UI, browser-facing
-integrations, JS SDK if useful. Reason: it runs in the browser; nothing else
-does. No React app exists in the scaffold — one appears only when a trace
-viewer or dev UI has a concrete consumer.
+WXT/React Manifest V3 extension, side-panel task controls, trace viewer,
+permission broker and browser-facing integrations. The extension relays an
+allowlisted debugger transport and maintains its owned Chrome-tab mapping;
+Rust interprets browser state and verifies actions. TypeScript does not plan,
+route models, recover tasks, or mirror the semantic engine.
 
 ## When Bun is appropriate
 

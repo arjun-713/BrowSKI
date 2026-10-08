@@ -1,6 +1,6 @@
 # ADR-007: Browser extension CDP proxy and host transport
 
-Date: 2026-10-06 · Status: accepted for product direction; runtime backend in progress
+Date: 2026-10-06 · Status: accepted; Native Messaging and shared runtime backend implemented
 
 ## Context
 

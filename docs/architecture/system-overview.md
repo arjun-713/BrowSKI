@@ -29,8 +29,9 @@ flowchart TB
     Exec --> Verify[Verification\npostconditions]
     Verify --> LLRecovery[Low-level Recovery\nbounded retries]
     Core --> Chromium[(Chromium)]
-    Core -. planned routing .-> Vision[On-demand Vision\ncontract and capture primitive]
-    Extension[MV3 side panel\nUI + debugger proxy] -. planned authenticated relay .-> Runtime
+    Runtime --> Vision[Opt-in Vision\nviewport capture + bounded interpretation]
+    Extension[MV3 side panel\nUI + debugger proxy] --> Native[Native Messaging\nauthenticated Unix relay]
+    Native --> Runtime
     Runtime --> Persist[(Persistence\nSQLite)]
     Runtime --> Telemetry[Telemetry\ntraces, provider-reported tokens]
     Telemetry <--> Core
@@ -52,9 +53,11 @@ flowchart TB
 | Executor | Rust | Validated actions only — no reasoning |
 | Verification | Rust | `SUCCESS / FAILURE / UNCERTAIN` + evidence for every action |
 | Low-level Recovery | Rust | Stale nodes, detached frames, nav races; bounded mechanical retries |
-| Vision fallback | Python+provider | Typed contract and bounded screenshot capture exist; graph routing and screenshot privacy are pending |
-| Checkpointing | Python | LangGraph thread checkpoints; `AgentRuntime.open_sqlite` uses the async SQLite saver and can resume after process exit |
-| Telemetry | both | Trace events, timing, and provider-reported token usage; cost is not estimated |
+| Vision fallback | Python+provider | Opt-in visual-task routing, bounded viewport capture and advisory interpretation; blocked in privacy-first/offline until screenshot sanitation exists |
+| Checkpointing | Python | AES-GCM encrypted LangGraph SQLite checkpoints, bounded state, restart/resume and preview-first retention cleanup |
+| Telemetry | both | Safe trace events, local aggregate run counters, timing, and provider-reported tokens; no external analytics |
+| Browser code | Rust+Python | Opt-in isolated QuickJS transform over bounded semantic data; no live DOM, shell, filesystem, or network |
+| Extension | TypeScript | Side-panel UI, permission broker and owned-tab debugger transport; no duplicate reasoning/verification |
 
 ## Key invariants
 

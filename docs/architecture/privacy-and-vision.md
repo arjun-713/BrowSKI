@@ -22,14 +22,21 @@ browser-native semantics (DOM + accessibility + layout); screenshots and
 local perception attach where they add value without weakening general
 browser intelligence.
 
-## Planned modules (M8/M10)
+## Implemented storage and remaining modules
+
+API credentials use a local OS-keyring abstraction or an explicit environment
+override. There is no plaintext-file fallback for API keys. This store is
+separate from the transient privacy token vault. Durable LangGraph SQLite
+checkpoint values use authenticated encryption; see
+[privacy architecture](privacy.md) and
+[ADR-015](../decisions/ADR-015-encrypted-checkpoints.md).
 
 - **Local PII detector / secret detector** — broader coverage than the current
   pattern-based detection of common PII and secret formats. The current
   provider boundary also recognizes common credential labels on semantic form
   fields such as password and access-token inputs.
-- **Durable secret store** — the current vault is transient and in-memory;
-  durable, platform-backed secret storage remains future work.
+- **Durable token vault** — privacy tokens are transient and request-scoped;
+  multi-request private-value restoration is not promised.
 - **Sanitized screenshots** — redaction pass before any image leaves the host.
 - **Local visual parser** — small on-device model for grounding when AX/DOM
   is insufficient (canvas, custom widgets).

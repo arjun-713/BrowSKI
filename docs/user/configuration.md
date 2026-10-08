@@ -10,8 +10,9 @@ The current policy defaults to:
 - Laya in shadow mode only; it must never select executable actions.
 - Jev disabled.
 - Standard privacy mode and confirmation for high-risk actions.
-- Attached-browser task transport uses the Native Messaging runtime and shared
-  browser core. The side panel can submit and control attached-tab tasks.
+- Native Messaging is the default extension transport; the side panel submits
+  tasks into the shared runtime and browser core.
+- Reasoning effort defaults to low; the extension can select none or low.
 - On-demand vision disabled unless `[vision].enabled` is set to `true`.
 
 Set `OPENAI_API_KEY` or `BROWSKI_OPENAI_API_KEY` in the local runtime's
@@ -38,12 +39,31 @@ redaction is available.
 Run `browski config` to inspect the effective non-secret settings. It reports
 whether an API key is present without printing its value.
 
+The extension Settings panel reads and updates only default reasoning effort,
+privacy mode, Laya comparison mode, and trace detail. Laya can be disabled or
+run in shadow mode, where it never selects or executes browser actions. High-risk
+confirmation remains required and cannot be disabled in the panel. Browser
+transport is shown read-only and remains managed by CLI configuration.
+
+Settings changes are validated by the local runtime, written atomically to the
+selected TOML file with owner-only file permissions, and apply to the next task.
+The panel cannot change them while a task is active. With an explicit `--config`
+or `BROWSKI_CONFIG`, that file is updated. Otherwise, extension changes use
+`$XDG_CONFIG_HOME/browski/config.toml`, or `~/.config/browski/config.toml` when
+`XDG_CONFIG_HOME` is unset. Once created, that file becomes the effective user
+configuration. Settings updates do not make provider requests.
+If the current CLI configuration disables trace detail (`traces.level = "off"`),
+the panel reports that state and asks you to select `standard` or `detailed` in
+the CLI configuration before using its settings controls.
+
 `browski serve` starts the authenticated Native Messaging runtime. It accepts
 an optional `--config` TOML file and `--database` checkpoint path. Connect the
-extension and attach a tab before submitting a task. The full browser-driven
-demo and extension E2E flow remain unvalidated.
+extension and attach a tab before submitting a task. Browser-driven software
+tests and the complete local demo use deterministic provider fixtures; live
+Luna inference and task reliability remain unverified.
 
-Configuration is still evolving; the extension currently edits only the API
-key and Native Messaging auto-connect preference. Privacy-first processing
-remains incomplete and is not a complete end-to-end privacy guarantee. Review
+Configuration is still evolving. The extension edits the settings listed
+above, the API key through the OS keyring, and the local Native Messaging
+auto-connect preference. Privacy-first processing remains incomplete and is
+not a complete end-to-end privacy guarantee. Review
 [privacy modes](privacy.md) before using sensitive page data.

@@ -6,7 +6,7 @@ work until the gate is met (docs and small refactors may proceed in parallel).
 ## M0. Scaffold + research (DONE)
 
 Build the repo, contracts, docs, and minimal executable slice.
-Gate: the Definition of Done in `AGENTS.md` §14 — `make test` and `make
+Gate: the repository rules in `AGENTS.md` — `make test` and `make
 lint` green, Chromium launch/navigate/observe/close proven from Python.
 
 ## M1. Persistent browser runtime (DONE)
@@ -213,38 +213,50 @@ and Luna still selects a bounded semantic action. Vision is disabled by default
 and blocked in privacy-first/offline modes until screenshot sanitization is
 implemented. Semantic observation remains primary.
 
-## M9. Browser-code escape hatch (POLICY SCAFFOLD; EXECUTION DISABLED)
+## M9. Browser-code escape hatch (ISOLATED SEMANTIC TRANSFORMS IMPLEMENTED)
 
-Request validation and capability/size/time limits exist, but no browser-side
-execution route is available. Calls fail closed; no arbitrary shell is exposed.
-The extension explicitly rejects generic `Runtime.evaluate` and
-`Runtime.callFunctionOn` requests. See the
+An opt-in isolated QuickJS capability transforms bounded Rust-owned semantic
+data with source, heap, stack, timeout and result bounds. It has no live DOM,
+browser handles, network, filesystem or shell. Dispatch and transient result
+inspection are integrated with the graph and provider boundary. The extension
+rejects generic model-authored `Runtime.evaluate` and `Runtime.callFunctionOn`
+requests. See the
 [`browser-code boundary`](../architecture/browser-code.md) and
-[`ADR-011`](../decisions/ADR-011-browser-code-remains-disabled.md) for the
-reason execution remains disabled.
+[`ADR-014`](../decisions/ADR-014-isolated-semantic-data-transforms.md).
+Live-page model code remains disabled under ADR-011.
 
-## M10. Privacy mode (EARLY PROVIDER BOUNDARY; INCOMPLETE)
+## M10. Privacy mode (OPTIONAL MODES AND ENCRYPTED CHECKPOINTS IMPLEMENTED)
 
 Standard, privacy-first, and offline policy modes exist. Privacy-first uses
 pattern-based redaction plus a request-scoped token vault that restores values
-only into typed action text/value fields. Detection remains incomplete;
-screenshot redaction, a durable secret store, and full payload coverage remain
-future work. Privacy is optional and is not mandatory middleware for every
-action.
+only into typed action text/value fields. External provider calls pass through
+one provider boundary. API credentials use OS keyring storage or an explicit
+environment override, with no plaintext-file fallback. Checkpoints use
+authenticated encryption with a keyring or owner-only local-key fallback.
+Pattern detection is incomplete. Screenshot redaction remains pending, so
+privacy-first/offline block visual inference. Privacy is optional and is not
+mandatory middleware for every action.
 
-## M11. Product surface (CLI + EXTENSION INTEGRATION; ACCEPTANCE PENDING)
+## M11. Product surface (LOCAL SOFTWARE ACCEPTANCE PASSED; LIVE LUNA PENDING)
 
 The CLI, doctor checks, safe run metadata, preview-first checkpoint cleanup,
-MV3 side-panel UI, protocol tests, and user docs are under development.
+MV3 side-panel UI, protocol tests, and user docs are implemented.
 `AgentRuntime` supports cooperative pause, resume, and stop at safe graph
 boundaries. The side panel now dispatches task controls and receives
 content-minimal lifecycle events. A Linux Native Messaging host relay
 validates caller origin, checks owner-only Unix socket permissions, and
 forwards bounded JSON frames. The authenticated service connects its attached
 browser session through the shared Rust CDP core into the Python task runtime,
-and supports task submission and confirmation responses. The complete
-extension-driven local demo, browser E2E flow, one-command product installer,
-and production install/upgrade path remain pending.
+and supports task submission and confirmation responses. Real packaged-extension
+tests exercise Native Messaging, the shared Rust core, task controls, traces,
+high-risk denial, native side-panel creation and cancellation on tab/host loss.
+Provider responses in these tests are deterministic fixtures; they do not
+establish live Luna task success. A Linux installer builds the mixed
+Rust/Python package and extension locally. The full multi-tab demo passes with
+fixture decisions, source-bound working memory and pause/resume. Final local
+release builds, wheel installation and checksum checks passed. The
+[validation record](productization-validation.md) separates this software
+evidence from live-provider acceptance and agent reliability.
 
 ## M12. Benchmark hardening (DEFERRED)
 

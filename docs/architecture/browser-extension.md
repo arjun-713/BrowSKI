@@ -4,7 +4,9 @@
 framing, caller-origin validation, Linux host-to-Unix-socket relay, attached
 Rust CDP transport, and task dispatch into the Python runtime are implemented.
 The extension has task controls, trace messages, and confirmation responses.
-Full Chrome-driven task acceptance and the local demo are still unvalidated.
+Packaged Chromium tests cover the attached task lifecycle and a complete local
+multi-tab demo using deterministic provider responses. Live Luna task
+acceptance remains unverified.
 
 ## Purpose and ownership
 
@@ -31,8 +33,10 @@ only. Extension code calls `chrome.debugger.attach()`, `sendCommand()`, and
 forwards `onEvent` messages on behalf of `ExtensionCdpBackend`; it does not
 normalize observations or authorize actions. This preserves Rust ownership
 without requiring a raw CDP WebSocket that Chrome does not expose through the
-extension API. Direct attachment is limited to the explicitly selected active
-tab and Chrome's documented debugger domains.
+extension API. Initial attachment is limited to the explicitly selected active
+tab. Supporting tabs use the bounded ownership map in
+[ADR-016](../decisions/ADR-016-extension-owned-tabs.md); Chrome numeric tab IDs
+remain in the extension and Rust receives opaque tab/session identities.
 
 ## Transport decision
 
@@ -42,7 +46,7 @@ relays the typed proxy protocol to the Rust runtime.
 
 ### A. Authenticated localhost HTTP/WebSocket — development
 
-An unpacked extension connects to the development Rust runtime over a local
+A development extension could connect to the local runtime over an authenticated
 HTTP/WebSocket endpoint. This is simple to inspect and iterate on, but creates
 a listener reachable by other local processes and potentially targeted by web
 pages through DNS rebinding, CSRF, or WebSocket-origin mistakes.
@@ -52,9 +56,10 @@ high-entropy per-process credential, bound messages, and support reconnects.
 The extension needs narrowly scoped optional host permissions and an exact
 extension-page CSP `connect-src` entry.
 
-**Decision:** development only. Use a fixed documented loopback port, exact
-unpacked extension ID, and explicit dev build. Never listen on wildcard
-interfaces or expose this endpoint through a tunnel by default.
+**Decision:** permitted for a separately justified development implementation,
+but not implemented in the current product. Both development and installed
+builds use Native Messaging. Any future loopback variant must use an exact
+extension origin, ephemeral authentication and loopback-only binding.
 
 ### B. Native Messaging — production
 
@@ -254,7 +259,7 @@ The `debugger` permission causes a strong install warning because it grants
 powerful page-debugging access. `chrome.debugger` itself does not require host
 permissions, and the API is not scoped by `activeTab`; that permission only
 limits temporary host access such as reading current-tab details. Therefore,
-the service worker must enforce the single-tab attach state machine and fresh
+the service worker must enforce the owned-tab attachment state machine and fresh
 user consent in code, while Rust independently enforces the negotiated
 session/capability allowlist. Avoid broad `host_permissions`, `tabs`, and
 content-script matches unless a concrete UI need requires them. Capture one
@@ -262,7 +267,7 @@ content-script matches unless a concrete UI need requires them. Capture one
 attach confirmation. Do not enumerate or attach tabs in the background. Reject
 restricted browser pages and any target Chrome does not expose.
 
-For localhost development, declare only the selected loopback origin(s) in
+For a future localhost development transport, declare only the selected loopback origin(s) in
 optional host permissions and request them only in the development build. Add
 the exact development WebSocket endpoint to extension-page `connect-src` CSP;
 do not weaken script policy or ship the development endpoint in production.
@@ -312,10 +317,11 @@ transport call; show the Rust/Python runtime's verified terminal result.
 
 - This proposal supports Chrome/Chromium Manifest V3 only. Other browser
   extensions APIs and their permission/lifecycle behavior are unverified.
-- Attached mode targets only the active tab the user invoked the extension
-  for and explicitly confirmed. It does not automatically attach to every
-  tab, restore page-local state after browser restart, or control other
-  extensions' or browser-internal pages.
+- Attached mode begins with the active tab the user explicitly confirmed,
+  and can create at most seven supporting HTTP(S) tabs through typed synthetic
+  lifecycle commands. It does not adopt arbitrary existing tabs or popups,
+  restore page-local state after browser restart, or control other extensions'
+  or browser-internal pages. Stop detaches debuggers and leaves tabs open.
 - `chrome.debugger` does not expose the full CDP surface. Chrome's current
   documented domains are Accessibility, Audits, CacheStorage, Console, CSS,
   Database, Debugger, DOM, DOMDebugger, DOMSnapshot, Emulation, Fetch, IO,

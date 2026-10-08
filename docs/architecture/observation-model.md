@@ -47,6 +47,11 @@ per-candidate geometry (`getBoxModel`, computed style, `getNodeForLocation`
 with a JS `contains()` fallback for text-node hits). Output order is document
 order — deterministic: identical pages yield identical snapshots.
 
+Bounding boxes use viewport CSS coordinates from Chromium's box model. Page
+scroll offsets are recorded separately; subtracting them again would misdirect
+hit tests and pointer input. The managed-browser scrolling regression checks
+that a scrolled control remains interactable and its click is verified.
+
 ## Merge rule
 
 ```text

@@ -7,7 +7,7 @@ Prerequisites:
 - Rust stable toolchain (`rust-toolchain.toml` pins `stable` + `rustfmt`/`clippy`).
 - `uv` (Python package management) and Python ≥ 3.12.
 - A Chrome or Chromium binary (`CHROME_PATH` env var overrides discovery).
-- Node 22+ (only for running Pyright).
+- Node 22+ and npm (extension tooling and Pyright).
 
 ```sh
 make setup     # verify toolchains, create python/.venv, build bindings
@@ -35,6 +35,12 @@ make test      # cargo test --workspace + pytest (python/)
 - Rust: `cargo test --workspace` (includes live-Chromium smoke test
   `crates/browser-core/tests/smoke.rs`; needs Chrome + network).
 - Python: `cd python && uv run pytest` (includes `test_session_smoke.py`).
+- Extension: `cd extension && npm ci && npm run check`.
+- Real extension smoke: install Playwright Chromium from `python/` with
+  `uv run playwright install chromium`, build the extension, then run
+  `make test-extension-e2e`. Native Messaging, Chrome debugger APIs, Rust
+  actions, verification and the graph are real; provider responses are local
+  fixtures and no model API is called.
 
 ## Lint / type-check / format
 
@@ -49,7 +55,7 @@ Manual:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cd python && uv run ruff check . && uv run ruff format --check .
-cd python && uv run pyright   # or: npx pyright python
+cd python && uv run pyright
 ```
 
 ## PR expectations

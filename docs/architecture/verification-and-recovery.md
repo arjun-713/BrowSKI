@@ -20,6 +20,19 @@ Each session carries a monotonic `generation`, bumped on navigation. Actions
 record `before_generation`/`after_generation`; progress and memory key off
 generations so stale observations cannot silently drive decisions.
 
+Before dispatching a planned action, the Python graph re-observes and compares
+document identity, active tab, form values, semantic controls, visibility, and
+layout against the decision's observation. A material change invalidates the
+action and any approval, then triggers a fresh decision. Focus alone is ignored.
+This protects against user edits within the same document generation; Rust
+still owns dispatch validation and post-action verification. A change racing
+with the final dispatch remains a residual risk.
+
+The graph owns both its decision task and stop waiter. Cancellation of the
+parent run cancels and joins both children. Tab closure and Native Messaging
+disconnect tests verify that a blocked provider decision does not outlive the
+attached session.
+
 ## Failure taxonomy
 
 Initial categories (owners in `../development/failure-taxonomy.md`):

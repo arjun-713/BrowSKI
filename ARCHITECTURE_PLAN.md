@@ -4,14 +4,17 @@
 in this repository (`mango`). The separate `Agent-Browser-Benchmark` checkout
 contains historical screenshot and extension benchmark experiments. Production
 code and the active architecture plan belong here.
-M0–M7 foundations exist. Productization M8–M11 is now underway; M12 large-scale
+M0–M7 foundations exist. M8–M11 productization is implemented within the
+documented capability limits and is ready for local review; M12 large-scale
 task-success benchmarking remains deferred. The managed browser path is
 available, and managed-mode on-demand vision is wired behind explicit visual
 need. The Native Messaging relay, attached Rust transport, and extension task
-dispatch are implemented, with real browser acceptance tests in progress.
-Screenshot redaction, browser-code execution, complete privacy controls, and
-supported installation remain incomplete. Do not describe partial contracts
-or UI scaffolds as end-to-end capabilities.
+dispatch are implemented, with real packaged-browser software acceptance passed.
+An opt-in isolated semantic-data transform, optional provider privacy modes,
+encrypted checkpoints, local metrics, settings and Linux source installation
+are implemented. Screenshot redaction and live-provider task acceptance remain
+unverified or unavailable. Do not describe fixture-backed software tests as
+proof of autonomous task reliability.
 
 **Current runtime policy (supersedes older System One routing below):**
 GPT-6 Luna is the only active decision provider permitted to produce
@@ -1812,7 +1815,7 @@ modes because screenshot sanitization is not implemented.
 
 ---
 
-## M9 — Browser-Code Escape Hatch (policy scaffold; execution disabled)
+## M9 — Browser-Code Escape Hatch (isolated semantic transforms implemented)
 
 For difficult deterministic operations, introduce a controlled browser-code tool.
 
@@ -1824,13 +1827,17 @@ Requirements:
 - no silent use.
 - separate benchmark metric.
 
-Mango validates request shape and resource limits, but has no approved browser
-execution path. Requests fail closed until capability enforcement and
-deterministic verification are integrated.
+Mango implements an off-by-default isolated QuickJS transform over fresh,
+bounded Rust-owned semantic data. The evaluator has no browser objects, DOM,
+network, filesystem, shell or process capability. Source, timeout, heap, stack
+and result sizes are bounded. Graph dispatch emits safe paired events; output
+is inspected at the provider boundary and held transiently for one decision.
+Scripts/results are excluded from checkpoints. Live-page model-authored code
+remains disabled. See ADR-014 for the bounded amendment to ADR-011.
 
 ---
 
-## M10 — Privacy Mode (partial provider boundary)
+## M10 — Privacy Mode (optional modes and encrypted checkpoints implemented)
 
 Add optional privacy and perception capabilities as modular features:
 
@@ -1855,13 +1862,19 @@ offline
 Privacy should strengthen the agent without becoming the only architecture.
 
 Mango has standard, privacy-first, and offline policy modes with bounded,
-heuristic text redaction at the reasoning-provider boundary. Durable token
-restoration, complete sensitive-field coverage, screenshot redaction, and
-retention cleanup remain incomplete.
+heuristic text redaction at one provider boundary. Request-scoped token
+restoration is limited to typed action values. API credentials use OS keyring
+storage or an explicit environment override; no plaintext-file fallback is
+provided for API keys. Durable graph checkpoints
+are authenticated/encrypted with an OS-keyring key or owner-only local-key
+fallback; safe metadata and aggregate counters are stored
+separately. Retention cleanup is preview-first and explicit. Complete PII
+detection and screenshot redaction remain unavailable, so privacy-first and
+offline modes block screenshot inference.
 
 ---
 
-## M11 — Product Surface (runtime bridge implemented; product acceptance pending)
+## M11 — Product Surface (local software acceptance passed; live Luna acceptance pending)
 
 Add:
 
@@ -1875,10 +1888,17 @@ documentation
 examples
 ```
 
-Mango has CLI/configuration/doctor work and an MV3 side-panel/protocol
-scaffold. The Native Messaging host, Rust attached-browser backend, local
-runtime relay, complete task streaming/control, one-command installation, and
-extension-driven local demo are not implemented yet.
+Mango has a CLI, typed configuration, doctor, MV3 side panel, Native Messaging
+host and authenticated local relay. The extension delegates observation,
+execution and verification to the shared Rust browser core. Task controls,
+safe trace streaming, high-risk confirmations, settings and Linux source
+installation are implemented. Packaged Chromium tests cover these lifecycle
+boundaries with deterministic provider responses. The full multi-tab local
+demo passes with fixture decisions, including explicit evidence transfer and
+pause/resume. Local release builds, wheel installation and checksum validation
+passed. Live Luna inference is unverified. See the
+[productization validation record](docs/development/productization-validation.md)
+for evidence and readiness limits.
 
 ---
 
@@ -2018,7 +2038,7 @@ These boundaries should remain durable.
 # 39. Immediate Next Work
 
 M0–M7 implementation lives in Mango, the BROWSKI implementation checkout.
-Current product work is M8–M11: on-demand vision routing, a controlled
+The M8–M11 product candidate includes on-demand vision routing, a controlled
 browser-code boundary, optional privacy controls, and the extension/local
 service product surface. Preserve the working M0–M7 browser contracts. Do not
 start large-scale task-success benchmarking or provider tuning until
@@ -2029,7 +2049,7 @@ The current implementation sequence is:
 ```text
 M0–M7 foundation (implemented)
         ↓
-M8–M11 productization and security integration (in progress)
+M8–M11 productization and security integration (local review candidate)
         ↓
 review product and software readiness
         ↓
