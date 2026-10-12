@@ -30,6 +30,7 @@ class ActionCandidate(BaseModel):
     target_ref: str | None = None
     text: str | None = None
     value: str | None = None
+    selection_by: Literal["value", "label"] = "value"
     checked: bool | None = None
     url: str | None = None
     tab: str | None = None
@@ -59,6 +60,7 @@ class ActionCandidate(BaseModel):
             target=target,
             text=self.text,
             value=self.value,
+            by=self.selection_by,
             checked=self.checked,
             url=self.url,
             tab=self.tab,
@@ -75,6 +77,9 @@ class CandidatePolicy:
     max_label_length: int = 120
     values_by_ref: Mapping[str, str] = field(default_factory=lambda: dict[str, str]())
     select_values_by_ref: Mapping[str, tuple[str, ...]] = field(
+        default_factory=lambda: dict[str, tuple[str, ...]]()
+    )
+    select_labels_by_ref: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: dict[str, tuple[str, ...]]()
     )
     scroll_delta: int = 600
@@ -99,6 +104,12 @@ class CandidatePolicy:
             for value in values
         ):
             raise ValueError("candidate selection value exceeds max_text_length")
+        if any(
+            len(label) > self.max_text_length
+            for labels in self.select_labels_by_ref.values()
+            for label in labels
+        ):
+            raise ValueError("candidate selection label exceeds max_text_length")
 
 
 def build_action_candidates(
@@ -166,7 +177,13 @@ def build_action_candidates(
                     )
                 )
         if role == "combobox" and "select" in capabilities:
-            for value in rules.select_values_by_ref.get(element.ref, ()):
+            selections: list[tuple[str, Literal["value", "label"]]] = [
+                (value, "value") for value in rules.select_values_by_ref.get(element.ref, ())
+            ]
+            selections.extend(
+                (label, "label") for label in rules.select_labels_by_ref.get(element.ref, ())
+            )
+            for value, selection_by in selections:
                 candidates.append(
                     ActionCandidate(
                         candidate_id="",
@@ -176,6 +193,7 @@ def build_action_candidates(
                         ),
                         action_type="select",
                         value=value,
+                        selection_by=selection_by,
                         target_ref=element.ref,
                         observed_generation=observation.state_generation,
                     )

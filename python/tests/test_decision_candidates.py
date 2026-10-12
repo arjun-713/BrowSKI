@@ -97,6 +97,37 @@ def test_candidate_binds_to_resolved_semantic_ref_and_rejects_mismatch() -> None
         candidate.to_browser_action(ElementRef(ref="@cancel", id=13, generation=7))
 
 
+def test_label_selection_candidate_materializes_select_by_label() -> None:
+    obs = AgentObservation(
+        url="https://example.test/form",
+        title="Form",
+        state_generation=8,
+        elements=[
+            PrunedElement(
+                ref="@state",
+                role="combobox",
+                name="State",
+                interactable=True,
+            )
+        ],
+    )
+    candidates = build_action_candidates(
+        "Select Karnataka in State dropdown",
+        "Set State to Karnataka",
+        obs,
+        {"select"},
+        CandidatePolicy(select_labels_by_ref={"@state": ("Karnataka",)}),
+    )
+    candidate = next(item for item in candidates if item.action_type == "select")
+
+    action = candidate.to_browser_action(ElementRef(ref="@state", id=21, generation=8))
+
+    assert action is not None
+    assert action.type == "select"
+    assert action.value == "Karnataka"
+    assert action.by == "label"
+
+
 async def test_system_one_sees_finite_candidates_without_element_values() -> None:
     obs = observation()
     candidates = build_action_candidates("Update profile", "Save address", obs, {"click", "scroll"})

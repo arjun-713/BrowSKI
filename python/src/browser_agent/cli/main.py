@@ -359,6 +359,8 @@ def task(
                 vision_provider=_create_luna_vision_provider(config),
                 screenshot_capture=browser.capture_viewport_screenshot,
                 browser_code_enabled=config.browser_code.enabled,
+                default_effort=config.reasoning.effort,
+                site_aliases=config.site_aliases,
             )
             async with AgentRuntime.open_sqlite(
                 agent,
@@ -442,6 +444,8 @@ def resume(
                 vision_provider=_create_luna_vision_provider(config),
                 screenshot_capture=browser.capture_viewport_screenshot,
                 browser_code_enabled=config.browser_code.enabled,
+                default_effort=config.reasoning.effort,
+                site_aliases=config.site_aliases,
             )
             async with AgentRuntime.open_sqlite(
                 agent,

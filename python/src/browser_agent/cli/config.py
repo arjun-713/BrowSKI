@@ -8,12 +8,13 @@ import stat
 import tempfile
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
 from typing import cast
 
+from browser_agent.decisions.task_sites import DEFAULT_SITE_ALIASES, validate_site_aliases
 from browser_agent.reasoning.contracts import ReasoningEffort
 from browser_agent.telemetry.debug_log import DebugLogConfig
 
@@ -117,6 +118,7 @@ class BrowskiConfig:
     vision: VisionConfig
     browser_code: BrowserCodeConfig = BrowserCodeConfig()
     debug: DebugLogConfig = DebugLogConfig()
+    site_aliases: Mapping[str, str] = field(default_factory=lambda: dict(DEFAULT_SITE_ALIASES))
 
 
 class RuntimeLayaMode(StrEnum):
@@ -151,6 +153,7 @@ _EXPECTED_KEYS: dict[str, set[str]] = {
     "vision": {"enabled"},
     "browser_code": {"enabled"},
     "debug": {"enabled", "directory", "max_session_bytes", "max_sessions", "retention_days"},
+    "navigation": {"site_aliases"},
 }
 
 
@@ -291,7 +294,18 @@ def parse_config(document: Mapping[str, object]) -> BrowskiConfig:
         vision=VisionConfig(enabled=_boolean(vision, "enabled")),
         browser_code=BrowserCodeConfig(enabled=browser_code_enabled),
         debug=_parse_debug_config(document),
+        site_aliases=_parse_site_aliases(document),
     )
+
+
+def _parse_site_aliases(document: Mapping[str, object]) -> dict[str, str]:
+    if "navigation" not in document:
+        return dict(DEFAULT_SITE_ALIASES)
+    section = _section(document, "navigation")
+    try:
+        return validate_site_aliases(section.get("site_aliases", DEFAULT_SITE_ALIASES))
+    except ValueError as error:
+        raise ConfigError("Invalid navigation.site_aliases configuration.") from error
 
 
 def _parse_debug_config(document: Mapping[str, object]) -> DebugLogConfig:

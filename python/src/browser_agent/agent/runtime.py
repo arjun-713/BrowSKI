@@ -90,6 +90,18 @@ class Agent(ABC):
         """Discard ephemeral tool data at a lifecycle boundary."""
         return None
 
+    async def finish_run(self) -> None:
+        """Release optional agent-owned work without discarding graph state."""
+        return None
+
+    def bind_browser(self, browser: BrowserSession) -> None:
+        """Bind the Rust-owned session for local tab routing, not provider export."""
+        del browser
+
+    async def refresh_task_evidence(self, snapshot: SemanticSnapshot, task: TaskState) -> None:
+        """Refresh local task facts before reasoning; default agents supply none."""
+        del snapshot, task
+
     def bind_run_metric_recorder(self, recorder: RunMetricRecorder) -> None:
         """Bind a content-free metrics callback owned by the runtime."""
         self._run_metric_recorder = recorder
@@ -130,6 +142,7 @@ class AgentRuntime:
         self._run_controls: dict[str, _RunControl] = {}
         self._active_runs: set[str] = set()
         self.agent.bind_run_metric_recorder(self._run_metrics.increment)
+        self.agent.bind_browser(self.browser)
         self.graph = build_agent_graph(
             self.agent,
             self.browser,
@@ -198,8 +211,8 @@ class AgentRuntime:
     async def _run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
         """Start a task; ``run_id`` is the LangGraph checkpoint thread id."""
         thread_id = resolve_run_id(run_id)
-        if thread_id in self._active_runs:
-            raise ValueError(f"run {thread_id!r} is already active")
+        if self._active_runs:
+            self._claim_runtime(thread_id)
         task_state = (
             task.model_copy(deep=True) if isinstance(task, TaskState) else TaskState(task=task)
         )
@@ -230,8 +243,8 @@ class AgentRuntime:
             "status": "running",
             "result_summary": None,
         }
+        self._claim_runtime(thread_id)
         self._run_controls[thread_id] = _RunControl()
-        self._active_runs.add(thread_id)
         try:
             await self._emit_event(RuntimeEventType.RUN_STARTED, thread_id, 0, "running")
             if self.run_metadata_store is not None:
@@ -263,8 +276,11 @@ class AgentRuntime:
             )
             raise
         finally:
-            self._active_runs.discard(thread_id)
-            self.agent.clear_browser_code_result()
+            try:
+                self.agent.clear_browser_code_result()
+                await self.agent.finish_run()
+            finally:
+                self._active_runs.discard(thread_id)
         task_state = self._task_state_from_result(result)
         await self._emit_terminal_event(task_state)
         await self._record_run_state(task_state)
@@ -340,8 +356,6 @@ class AgentRuntime:
     async def resume(self, run_id: str) -> TaskState:
         """Resume a checkpoint, requiring explicit input for safety interrupts."""
         run_id = validate_run_id(run_id)
-        if run_id in self._active_runs:
-            raise ValueError(f"run {run_id!r} is already active")
         control = self._control_for_run(run_id)
         if control.stop_requested:
             raise ValueError(f"run {run_id!r} has been stopped")
@@ -351,8 +365,6 @@ class AgentRuntime:
     async def resume_with_confirmation(self, run_id: str, *, approved: bool) -> TaskState:
         """Resume a pending consequential action with an explicit user decision."""
         run_id = validate_run_id(run_id)
-        if run_id in self._active_runs:
-            raise ValueError(f"run {run_id!r} is already active")
         control = self._control_for_run(run_id)
         if control.stop_requested:
             raise ValueError(f"run {run_id!r} has been stopped")
@@ -417,6 +429,17 @@ class AgentRuntime:
             return result
 
     async def _resume_graph(self, run_id: str, confirmation: bool | None) -> TaskState:
+        self._claim_runtime(run_id)
+        try:
+            return await self._resume_graph_claimed(run_id, confirmation)
+        finally:
+            try:
+                self.agent.clear_browser_code_result()
+                await self.agent.finish_run()
+            finally:
+                self._active_runs.discard(run_id)
+
+    async def _resume_graph_claimed(self, run_id: str, confirmation: bool | None) -> TaskState:
         config = self._graph_config(run_id)
         checkpoint = await self.graph.aget_state(config)
         pending = checkpoint.values.get("pending_confirmation") is True
@@ -452,7 +475,6 @@ class AgentRuntime:
             "running",
         )
         await self._record_run_state(checkpoint_task)
-        self._active_runs.add(run_id)
         try:
             result = await self.graph.ainvoke(graph_input, config)
         except asyncio.CancelledError:
@@ -477,15 +499,19 @@ class AgentRuntime:
             )
             await self._record_run_state(checkpoint_task)
             raise
-        finally:
-            self._active_runs.discard(run_id)
-            self.agent.clear_browser_code_result()
         task_state = self._task_state_from_result(result)
         await self._emit_terminal_event(task_state)
         await self._record_run_state(task_state)
         if task_state.status not in {"paused", "pending_confirmation", "awaiting_user"}:
             self._run_controls.pop(run_id, None)
         return task_state
+
+    def _claim_runtime(self, run_id: str) -> None:
+        if self._active_runs:
+            if run_id in self._active_runs:
+                raise ValueError(f"run {run_id!r} is already active")
+            raise ValueError("another browser task is already active in this runtime")
+        self._active_runs.add(run_id)
 
     @staticmethod
     def _task_state_from_result(result: dict[str, Any]) -> TaskState:

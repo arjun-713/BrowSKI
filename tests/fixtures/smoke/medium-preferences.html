@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Workshop registration</title>
+  </head>
+  <body>
+    <main>
+      <h1>Workshop registration</h1>
+      <section id="contact-step">
+        <h2>1. Contact details</h2>
+        <label for="full-name">Full name</label>
+        <input id="full-name" autocomplete="name">
+        <label for="email">Email address</label>
+        <input id="email" type="email" autocomplete="email">
+        <button id="continue" type="button">Continue to preferences</button>
+      </section>
+      <section id="preferences-step" hidden>
+        <h2>2. Workshop preferences</h2>
+        <label for="session">Preferred session</label>
+        <select id="session">
+          <option value="">Choose a session</option>
+          <option value="morning">Morning lab</option>
+          <option value="afternoon">Afternoon lab</option>
+        </select>
+        <label>
+          <input id="updates" type="checkbox">
+          Send me workshop updates
+        </label>
+        <button id="save" type="button">Save preferences</button>
+      </section>
+      <p id="result" role="status"></p>
+    </main>
+    <script>
+      document.querySelector("#continue").addEventListener("click", () => {
+        document.querySelector("#contact-step").hidden = true;
+        document.querySelector("#preferences-step").hidden = false;
+      });
+      document.querySelector("#save").addEventListener("click", () => {
+        const name = document.querySelector("#full-name").value;
+        const email = document.querySelector("#email").value;
+        const session = document.querySelector("#session").selectedOptions[0].textContent;
+        const updates = document.querySelector("#updates").checked ? "yes" : "no";
+        document.querySelector("#result").textContent =
+          `Registration saved for ${name} (${email}); ${session}; updates: ${updates}.`;
+      });
+    </script>
+  </body>
+</html>

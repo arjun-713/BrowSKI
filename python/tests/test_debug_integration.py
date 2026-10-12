@@ -136,9 +136,8 @@ async def test_candidate_mismatch_is_logged_without_changing_rejection(
             outcome=ReasoningOutcome.NEXT_ACTION,
             summary="Continue the application form.",
             action=ReasoningAction(
-                type="click",
-                target_ref="@continue",
-                clear=False,
+                type="scroll",
+                dy=123,
             ),
         )
     )
@@ -168,4 +167,4 @@ async def test_candidate_mismatch_is_logged_without_changing_rejection(
     payload = validation["payload"]
     assert payload["accepted"] is False
     assert payload["reason"] == "signature_mismatch"
-    assert payload["comparisons"][0]["differing_fields"] == ["clear"]
+    assert any(comparison["differing_fields"] == ["dy"] for comparison in payload["comparisons"])

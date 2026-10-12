@@ -43,6 +43,13 @@ launch_service() {
 import os
 import signal
 import sys
+from pathlib import Path
+
+local_env = os.environ.pop("BROWSKI_LOCAL_ENV_FILE", None)
+if local_env:
+    from browser_agent.credentials import load_local_env_credentials
+
+    load_local_env_credentials(Path(local_env))
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 os.execv(sys.argv[1], sys.argv[1:])
@@ -60,7 +67,7 @@ laya_listening() {
 import socket
 with socket.socket() as connection:
     connection.settimeout(1)
-    raise SystemExit(connection.connect_ex(("127.0.0.1", 8000)) != 0)
+    raise SystemExit(connection.connect_ex(("127.0.0.1", 8001)) != 0)
 PY
 }
 
@@ -69,7 +76,7 @@ laya_ready() {
 import urllib.error
 import urllib.request
 try:
-    with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2) as response:
+    with urllib.request.urlopen("http://127.0.0.1:8001/health", timeout=2) as response:
         raise SystemExit(response.status != 200)
 except (OSError, urllib.error.URLError):
     raise SystemExit(1)
@@ -77,13 +84,13 @@ PY
 }
 
 if laya_listening; then
-  printf 'Using the existing service on Laya port 8000.\n'
+  printf 'Using the existing service on Laya port 8001.\n'
 else
   [[ -x "$laya_command" ]] || {
     printf 'Laya launcher missing. Set LAYA_SERVE_BIN to its installed path.\n' >&2
     exit 1
   }
-  LAYA_HOST=127.0.0.1 LAYA_PORT=8000 LAYA_DEVICE=cpu \
+  LAYA_HOST=127.0.0.1 LAYA_PORT=8001 LAYA_DEVICE=cpu \
     LAYA_MODELS=english LAYA_PRELOAD=1 LAYA_THREADS=4 \
     HF_HUB_OFFLINE=1 launch_service "$laya_command" >"$state_dir/laya.log" 2>&1 &
   owned_pids+=("$!")
@@ -105,10 +112,11 @@ if [[ "$ready" != true ]]; then
   printf 'Laya did not become healthy. Check %s/laya.log\n' "$state_dir" >&2
   exit 1
 fi
-printf 'Laya ready: http://127.0.0.1:8000/health\n'
+printf 'Laya ready: http://127.0.0.1:8001/health\n'
 
 cd -- "$repo_root"
-launch_service "$repo_root/python/.venv/bin/browski" serve \
+BROWSKI_LOCAL_ENV_FILE="$repo_root/.env" \
+  launch_service "$repo_root/python/.venv/bin/browski" serve \
   --database "$state_dir/checkpoints.sqlite" >"$state_dir/backend.log" 2>&1 &
 backend_pid="$!"
 owned_pids+=("$backend_pid")

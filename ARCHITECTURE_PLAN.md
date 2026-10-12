@@ -1739,7 +1739,7 @@ Mango's `docs/architecture/decision-routing.md` and ADR-004.
 
 ## M6 — Adaptive Luna Reasoning
 
-**IMPLEMENTED IN MANGO; LIVE API UNVERIFIED.** The runtime has a
+**IMPLEMENTED IN MANGO; LIMITED LIVE FIXTURE TASKS VERIFIED.** The runtime has a
 `ReasoningProvider` contract, a structured OpenAI Responses adapter for
 configurable GPT-6 Luna, a deterministic `ComplexityGate`, and
 `LunaDecisionAgent` integration. Luna selects executable bounded actions as
@@ -1750,7 +1750,11 @@ returns `VERY_COMPLEX`, including the gated high-replan rung. The configured
 effort surface does not include xhigh. Fake-backed
 adapter and agent tests pass with the full Python suite. `BROWSKI_LUNA_MODEL`
 can override the API model identifier while `gpt-6-luna` remains the default.
-No live OpenAI request has been run, so live API behavior is not claimed.
+Live structured Luna requests now complete controlled click, select, scroll,
+form, and multi-tab fixture tasks. Broad public-site reliability remains
+unverified; see the [live repair report](docs/development/live-agent-repair-2026-10-12.md).
+Local task checks and bounded, individually verified Luna batches are recorded
+in [ADR-018](docs/decisions/ADR-018-locally-verified-luna-actions.md).
 
 The implementation covers:
 
@@ -1796,9 +1800,10 @@ timings, verification, recovery, progress, and reasoning effort while omitting
 submitted values and URLs. Provider telemetry records provider/model,
 operation/outcome, fallback routing, and provider-reported token counts when
 available; it does not estimate cost. Luna and optional Laya shadow events include
-run/step IDs. Live token usage and cost remain unverified because no live
-provider response was used. These local tests do not evaluate live
-decision-provider behavior.
+run/step IDs. Controlled live smoke runs record provider-reported token usage
+and latency; cost is not estimated. They do not establish calibration or broad
+decision-provider reliability. Laya comparisons remain non-executing background
+work; confidence does not authorize actions.
 
 ---
 
@@ -1904,7 +1909,8 @@ installation are implemented. Packaged Chromium tests cover these lifecycle
 boundaries with deterministic provider responses. The full multi-tab local
 demo passes with fixture decisions, including explicit evidence transfer and
 pause/resume. Local release builds, wheel installation and checksum validation
-passed. Live Luna inference is unverified. See the
+passed. Limited live Luna fixture tasks now pass; broad agent reliability is
+unverified. See the [live repair report](docs/development/live-agent-repair-2026-10-12.md) and
 [productization validation record](docs/development/productization-validation.md)
 for evidence and readiness limits.
 
@@ -1948,7 +1954,7 @@ decision:
   active_provider: openai_luna
   laya:
     mode: shadow        # shadow | disabled; never execution
-    endpoint: http://127.0.0.1:8000
+    endpoint: http://127.0.0.1:8001
     model: laya-latest
     device: cpu
   jev:

@@ -21,6 +21,8 @@ For product review, start with the [local demo](user/demo.md), the
 [productization validation record](development/productization-validation.md)
 and the [release checklist](development/release-checklist.md).
 
-The [live headless agent smoke diagnosis](development/live-agent-smoke-2026-10-09.md)
-records current failures observed with real Luna responses in managed and
-extension-attached browser tasks.
+The [initial live smoke diagnosis](development/live-agent-smoke-2026-10-09.md)
+records failures observed with real Luna responses. The
+[repair and re-evaluation report](development/live-agent-repair-2026-10-12.md)
+records subsequent fixes, successful controlled tasks, failed intermediate
+runs, and the remaining public-site reliability limits.

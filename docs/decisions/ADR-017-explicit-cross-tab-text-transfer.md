@@ -1,6 +1,7 @@
 # ADR-017: Explicit cross-tab text transfer
 
-- Status: Accepted
+- Status: Accepted; batch restriction superseded by
+  [ADR-018](ADR-018-locally-verified-luna-actions.md)
 - Date: 2026-10-08
 - Related: [ADR-006](ADR-006-bounded-memory-recovery-safety.md),
   [ADR-008](ADR-008-luna-active-decision-policy.md),

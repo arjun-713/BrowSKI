@@ -692,6 +692,7 @@ class ExtensionBridgeService:
                 screenshot_capture=browser.capture_viewport_screenshot,
                 browser_code_enabled=config.browser_code.enabled,
                 default_effort=config.reasoning.effort,
+                site_aliases=config.site_aliases,
             )
 
             async def event_sink(event: object) -> None:

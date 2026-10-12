@@ -49,8 +49,9 @@ WXT creates both extension outputs:
 Load one output from `chrome://extensions` with Developer mode enabled. Copy
 the exact extension ID shown on that page; development and production builds
 may have different IDs. The extension-driven software flow is covered by
-packaged Chromium tests with deterministic provider responses; live Luna
-task reliability remains unverified.
+packaged Chromium tests with deterministic provider responses. Limited live
+Luna tasks also pass; see the [repair smoke report](../development/live-agent-repair-2026-10-12.md).
+This does not establish broad public-site task reliability.
 
 Use the checkout-local commands so the runtime does not need a global install:
 
@@ -106,13 +107,20 @@ To start the installed local CPU Laya server and the extension backend together:
 ./scripts/start-local.sh
 ```
 
-The launcher reuses Laya when port 8000 is already listening, waits for its
+The launcher reuses Laya when port 8001 is already listening, waits for its
 health check, and starts the authenticated backend. It uses the existing
 Laya installation in the sibling `Agent-Browser-Benchmark/.venv` by default;
 set `LAYA_SERVE_BIN` for another installed launcher. Model files must already
 be cached locally. Logs are written under `~/.local/state/browski`, or
 `$XDG_STATE_HOME/browski`. Keep the terminal open; Ctrl+C stops the services
 started by that invocation. Start only one backend launcher at a time.
+
+The backend launcher accepts the existing OpenAI environment variables or OS
+keyring. It also reads `OPENAI_API_KEY` / `BROWSKI_OPENAI_API_KEY` from a local
+checkout `.env` file, if present and no environment key is set. That file must
+be owner-only (`chmod 600 .env`); it is read as data, never sourced as shell
+commands. The key is passed only to the backend, not the Laya server. Never
+commit this file.
 
 Attach a tab in the extension side panel before submitting a task. The
 attached-browser route and complete local demo have fixture-backed browser

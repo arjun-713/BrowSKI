@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from browser_agent._types import TaskState
 from browser_agent.browser_code.contracts import BrowserCodeProposal
 from browser_agent.reasoning.contracts import (
     ReasoningAction,
@@ -41,7 +42,7 @@ class LunaDecisionOutput(BaseModel):
     )
     questions: list[str] = Field(default_factory=list[str], max_length=10)
 
-    def to_decision(self) -> ReasoningDecision:
+    def to_decision(self, task: TaskState | None = None) -> ReasoningDecision:
         evidence: dict[str, str] = {}
         for entry in self.milestone_evidence:
             if entry.milestone in evidence:
@@ -49,4 +50,20 @@ class LunaDecisionOutput(BaseModel):
             evidence[entry.milestone] = entry.evidence
         payload = self.model_dump(mode="json")
         payload["milestone_evidence"] = evidence
+        if self.outcome == ReasoningOutcome.MILESTONE_PLAN and self.action is None:
+            # A vendor may include suggested actions with a plan. Discard them;
+            # planning never authorizes or queues execution. The next decision
+            # must select from newly observed runtime candidates.
+            payload["candidate_actions"] = []
+        if (
+            self.outcome == ReasoningOutcome.NEXT_ACTION
+            and self.milestones
+            and task is not None
+            and self.milestones == task.milestones
+            and evidence == task.milestone_evidence
+        ):
+            # Repeated known plan data is not a new plan or action authority.
+            # Unknown/changed plans still fail the closed domain contract.
+            payload["milestones"] = []
+            payload["milestone_evidence"] = {}
         return ReasoningDecision.model_validate(payload)

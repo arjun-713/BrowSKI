@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict
 from typing import Any, Protocol, cast
 
@@ -44,6 +44,7 @@ from browser_agent.agent.state import AgentState
 from browser_agent.browser_code import BrowserCodeError, BrowserCodeResult, BrowserCodeTool
 from browser_agent.decisions.base import DecisionProvider
 from browser_agent.decisions.task_transfers import record_transfer_evidence
+from browser_agent.progress.evidence import advance_observed_milestones
 from browser_agent.progress.task_state import (
     ProgressTracker,
     check_completion,
@@ -150,6 +151,9 @@ def build_agent_graph(
             RuntimeEventType.OBSERVATION_COMPLETED,
             RuntimeEventType.DECISION_MADE,
             RuntimeEventType.ACTION_STARTED,
+            RuntimeEventType.ACTION_COMPLETED,
+            RuntimeEventType.VERIFICATION_COMPLETED,
+            RuntimeEventType.RECOVERY_STARTED,
             RuntimeEventType.BROWSER_CODE_STARTED,
         }:
             step += 1
@@ -257,6 +261,12 @@ def build_agent_graph(
         # On process-restart resume, the live cache is empty. Re-observe the
         # current browser instead of rebuilding a full snapshot from checkpoint data.
         snapshot = await current_snapshot(state)
+        refresh = getattr(agent, "refresh_task_evidence", None)
+        if callable(refresh):
+            refresh_evidence = cast(
+                Callable[[SemanticSnapshot, TaskState], Awaitable[None]], refresh
+            )
+            await refresh_evidence(snapshot, task_state)
 
         previous_outcome = state["outcome"]
         previous_verification = (
@@ -265,30 +275,8 @@ def build_agent_graph(
             else {}
         )
         if previous_verification.get("status") == "SUCCESS":
-            visible_text = _visible_text(snapshot).casefold()
-            for milestone in task_state.required_milestones:
-                evidence = task_state.milestone_evidence.get(milestone)
-                if (
-                    milestone not in task_state.completed
-                    and evidence
-                    and evidence.casefold() in visible_text
-                ):
-                    task_state.completed.append(milestone)
-                    memory.complete_milestone(milestone)
-            remaining_milestones = [
-                milestone
-                for milestone in task_state.required_milestones
-                if milestone not in task_state.completed
-            ]
-            if task_state.current_subgoal in task_state.completed:
-                task_state.current_subgoal = (
-                    remaining_milestones[0] if remaining_milestones else None
-                )
-                task_state.next_milestone = (
-                    remaining_milestones[1] if len(remaining_milestones) > 1 else None
-                )
-                memory.current_subgoal = task_state.current_subgoal
-                memory.next_milestone = task_state.next_milestone
+            if advance_observed_milestones(task_state, memory, snapshot):
+                task_state.stagnant_steps = 0
 
         task_state.llm_calls += 1
         control = control_for_run(cache_key(state)) if control_for_run is not None else None
@@ -325,6 +313,9 @@ def build_agent_graph(
                     if not owned_task.done():
                         owned_task.cancel()
                 await asyncio.gather(*owned_tasks, return_exceptions=True)
+        actual_calls = getattr(agent, "last_reasoning_calls", None)
+        if type(actual_calls) is int and 0 <= actual_calls <= 8:
+            task_state.llm_calls += actual_calls - 1
         record_debug(
             "decision.result",
             {"decision": decision_checkpoint(decision)},
@@ -988,12 +979,32 @@ def build_agent_graph(
 
         task_state = TaskState.model_validate(state["task_state"])
         task_state.steps_taken += 1
+        memory = WorkingMemory.model_validate(state["memory"])
+        if verified:
+            task_state.deterministic_evidence = [
+                value
+                for value in task_state.deterministic_evidence
+                if not value.startswith("verified_action:")
+            ][-29:]
+            if isinstance(action_data, dict):
+                action_record = cast(dict[str, Any], action_data)
+                target_value = action_record.get("target")
+                if isinstance(target_value, dict):
+                    target = cast(dict[str, Any], target_value)
+                    if isinstance(target.get("ref"), str):
+                        fact = f"verified_action:{action_record.get('type')}:{target['ref']}"
+                        task_state.deterministic_evidence.append(fact)
+        completed = advance_observed_milestones(task_state, memory, after_snapshot)
+        if completed:
+            progressed = True
+            progress_signals.append("milestone_completed")
+            event["progressed"] = True
+            event["progress_signals"] = list(progress_signals)
         task_state.stagnant_steps = 0 if progressed else task_state.stagnant_steps + 1
         if progressed:
             task_state.recovery_streak = 0
             task_state.replan_count = 0
         task_state.progress_signals = progress_signals
-        memory = WorkingMemory.model_validate(state["memory"])
         action_type = "action"
         if isinstance(action_data, dict):
             action_type_value = cast(dict[str, Any], action_data).get("type")
@@ -1011,27 +1022,6 @@ def build_agent_graph(
             f"step={task_state.steps_taken}; progress={progressed}; "
             f"page={after_snapshot.page_fingerprint[:48]}"
         )
-        milestone = decision_data.get("completed_milestone") if decision_data is not None else None
-        if isinstance(milestone, str):
-            expected_evidence = task_state.milestone_evidence.get(milestone)
-            if (
-                milestone in task_state.milestones
-                and expected_evidence
-                and expected_evidence.casefold() in _visible_text(after_snapshot).casefold()
-            ):
-                if milestone not in task_state.completed:
-                    task_state.completed.append(milestone)
-                    memory.complete_milestone(milestone)
-                    remaining = [
-                        value
-                        for value in task_state.required_milestones
-                        if value not in task_state.completed
-                    ]
-                    task_state.current_subgoal = remaining[0] if remaining else None
-                    task_state.next_milestone = remaining[1] if len(remaining) > 1 else None
-                    memory.current_subgoal = task_state.current_subgoal
-                    memory.next_milestone = task_state.next_milestone
-
         return {
             "task_state": task_state.model_dump(mode="json"),
             "memory": memory.model_dump(mode="json"),
@@ -1107,14 +1097,6 @@ def build_agent_graph(
         checkpointer=checkpointer,
         interrupt_before=list(interrupt_before),
     )
-
-
-def _visible_text(snapshot: SemanticSnapshot) -> str:
-    parts = [snapshot.url, snapshot.title or "", snapshot.text_excerpt or ""]
-    parts.extend(block.text for block in snapshot.text_blocks)
-    for element in snapshot.elements:
-        parts.extend((element.accessible_name or "", element.text or ""))
-    return "\n".join(parts)
 
 
 def _reasoning_available(agent: DecisionAgent) -> bool:

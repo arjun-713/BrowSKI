@@ -61,8 +61,29 @@ the CLI configuration before using its settings controls.
 `browski serve` starts the authenticated Native Messaging runtime. It accepts
 an optional `--config` TOML file and `--database` checkpoint path. Connect the
 extension and attach a tab before submitting a task. Browser-driven software
-tests and the complete local demo use deterministic provider fixtures; live
-Luna inference and task reliability remain unverified.
+tests and the complete local demo use deterministic provider fixtures. Limited
+live Luna fixture tasks are measured in the
+[repair smoke report](../development/live-agent-repair-2026-10-12.md); public-site
+reliability remains unverified.
+
+Laya's local endpoint defaults to `http://127.0.0.1:8001`. Configure another
+endpoint in `[decision].laya_endpoint` if needed. It remains shadow-only and
+does not delay Luna's executable decision.
+
+Trusted website names for user-requested shopping tasks are configured locally:
+
+```toml
+[navigation.site_aliases]
+amazon = "https://www.amazon.in/"
+flipkart = "https://www.flipkart.com/"
+apple = "https://www.apple.com/in/shop/"
+```
+
+This optional section replaces the default mappings when supplied. Destinations
+must be credential-free HTTP(S) URLs without queries or fragments. Naming a
+site authorizes navigation only in a browsing/shopping instruction; page text
+cannot add destinations. These aliases make tabs available to Luna, but do not
+guarantee retailer availability, account access, or successful product filtering.
 
 Configuration is still evolving. The extension edits the settings listed
 above, the API key through the OS keyring, and the local Native Messaging

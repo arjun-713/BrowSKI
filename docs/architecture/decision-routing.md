@@ -28,7 +28,8 @@ allow 2–16 named options; score rubrics allow 2–8 ordered levels.
 Each provider has independent per-decision temperatures and minimum-confidence
 thresholds. Temperatures adjust answer probabilities. Thresholds determine
 whether a result is accepted or requires fallback/escalation. Missing thresholds
-are reported as unassessed (`accepted=None`); adaptive routing then asks Jev.
+are reported as unassessed (`accepted=None`). The disabled low-level adaptive
+contract can request Jev fallback; the product runtime does not use that route.
 Raw and adjusted confidence are both retained with provider attribution.
 
 Thresholds are application policy, not model guarantees. Laya has not earned
@@ -62,7 +63,7 @@ LAYA_HOST=127.0.0.1 LAYA_DEVICE=cpu LAYA_MODELS=english \
   LAYA_PRELOAD=1 LAYA_THREADS=4 .venv-laya/bin/laya-serve
 ```
 
-The service listens on `127.0.0.1:8000`, matching BROWSKI's default Laya
+The service listens on `127.0.0.1:8001`, matching BROWSKI's default Laya
 endpoint. The first service start downloads the selected checkpoint if it is
 not already cached. `LAYA_DEVICE`, `LAYA_MODELS`, `LAYA_PRELOAD`, and
 `LAYA_THREADS` are upstream Laya service settings; they are not BROWSKI
@@ -103,14 +104,15 @@ held-out data before enabling confidence-based automatic acceptance.
 
 Adapters, typed mappings, bounded candidate selection, health checks, timeout
 and error mapping, fallback telemetry, and fake-client contract tests are
-implemented. The pretrained Laya checkpoint has not been downloaded or
-evaluated as part of the M5 gate. No real Jev API call has been made. The
-default thresholds are unset until BROWSKI has a held-out calibration corpus.
+implemented. The M5 gate used provider fixtures. The currently installed local
+CPU checkpoint is available for bounded shadow comparisons; its confidence
+warning remains unresolved. No Jev call is required. Execution thresholds
+remain disabled under the current shadow-only policy.
 
 ## GPT-6 Luna reasoning
 
 `LunaDecisionAgent` sends bounded semantic actions to Luna for the active
-choice. A returned action must exactly match an available candidate and bind
+choice. A returned action must semantically match the meaningful fields of an available candidate and bind
 to a current interactable semantic reference. Only after Luna selects an
 action may Laya receive an optional shadow-comparison request; the comparison
 cannot change or authorize the action. Selectors and backend-node IDs are not
@@ -129,6 +131,13 @@ signal; successful progress resets the per-streak counters. xhigh is not
 available in this baseline. Adapter tests use an injected fake Responses
 client; live OpenAI behavior remains opt-in and unmeasured unless the live test
 is run explicitly.
+
+The [live repair report](../development/live-agent-repair-2026-10-12.md) records
+the current controlled live tests. Local task checks, ephemeral verified action
+batches, and owned destination proof follow
+[ADR-018](../decisions/ADR-018-locally-verified-luna-actions.md). Flat ordered
+milestones do not count as simultaneous subgoals for the ComplexityGate. Laya
+comparisons are bounded background work and cannot block or alter Luna actions.
 
 The adapters follow the providers' published Python APIs:
 [Laya](https://github.com/NandhaKishorM/laya) and

@@ -24,8 +24,8 @@ class DecisionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: DecisionProviderName = DecisionProviderName.LAYA
-    laya_endpoint: str = "http://127.0.0.1:8000"
-    laya_timeout_ms: int = Field(default=5_000, gt=0)
+    laya_endpoint: str = "http://127.0.0.1:8001"
+    laya_timeout_ms: int = Field(default=15_000, gt=0)
     laya_health_timeout_ms: int = Field(default=1_000, gt=0)
     jev_timeout_ms: int = Field(default=10_000, gt=0)
     fallback_to_jev: bool = True

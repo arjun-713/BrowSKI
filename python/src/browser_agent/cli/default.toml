@@ -11,8 +11,15 @@ effort = "low"
 provider = "laya"
 mode = "shadow"
 jev_enabled = false
-laya_endpoint = "http://127.0.0.1:8000"
+laya_endpoint = "http://127.0.0.1:8001"
 shadow_telemetry = true
+
+# Trusted destinations for user-requested shopping sites. Only user task text
+# can request these aliases; page content cannot add navigation destinations.
+[navigation.site_aliases]
+amazon = "https://www.amazon.in/"
+flipkart = "https://www.flipkart.com/"
+apple = "https://www.apple.com/in/shop/"
 
 [privacy]
 mode = "standard"

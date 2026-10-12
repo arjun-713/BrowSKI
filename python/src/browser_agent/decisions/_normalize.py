@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from browser_agent.decisions.base import DecisionAnswer, DecisionKind, DecisionQuestion
+from browser_agent.decisions.base import (
+    DecisionAnswer,
+    DecisionKind,
+    DecisionProviderProtocolError,
+    DecisionQuestion,
+)
 from browser_agent.decisions.calibration import CalibrationPolicy
 
 
@@ -53,7 +58,14 @@ def normalize_answer(
     value: str | float | bool
 
     if kind == DecisionKind.CHOICE:
-        value = str(get_value(answer, "choice"))
+        choice = get_value(answer, "choice")
+        if choice is None:
+            choice = get_value(answer, "answer")
+        if not isinstance(choice, str) or not choice.strip():
+            raise DecisionProviderProtocolError(
+                "Choice response must include a non-empty choice or answer string."
+            )
+        value = choice.strip()
         has_distribution = bool(probabilities)
         confidence_raw = float(
             get_value(answer, "answer_confidence", max(probabilities.values(), default=0.0))

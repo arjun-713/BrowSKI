@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Service region picker</title>
+  </head>
+  <body>
+    <main>
+      <h1>Choose a service region</h1>
+      <label for="region">Service region</label>
+      <select id="region">
+        <option value="">Choose a region</option>
+        <option value="pune">Pune</option>
+        <option value="jaipur">Jaipur</option>
+        <option value="kochi">Kochi</option>
+      </select>
+      <button id="confirm" type="button">Confirm region</button>
+      <p id="result" role="status">No region selected.</p>
+    </main>
+    <script>
+      const region = document.querySelector("#region");
+      document.querySelector("#confirm").addEventListener("click", () => {
+        const label = region.selectedOptions[0].textContent;
+        document.querySelector("#result").textContent = `Service region: ${label}`;
+      });
+    </script>
+  </body>
+</html>

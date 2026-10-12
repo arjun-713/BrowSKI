@@ -23,8 +23,10 @@ async with BrowserSession.launch() as browser:
 > authenticated Native Messaging bridge, attached-tab Rust transport, task
 > dispatch, trace events, confirmation handling, settings and task controls.
 > Real packaged-Chromium tests exercise those software boundaries with
-> deterministic provider fixtures. Live Luna inference and autonomous task
-> reliability remain unverified. Opt-in vision and isolated semantic-data
+> deterministic provider fixtures. Live Luna also completes the controlled
+> click, select, scroll, form, and multi-tab tasks in the
+> [repair smoke report](docs/development/live-agent-repair-2026-10-12.md).
+> Public-site reliability remains unverified. Opt-in vision and isolated semantic-data
 > transforms are implemented; screenshot redaction and complete PII detection
 > are unavailable. See the [roadmap](docs/development/roadmap.md).
 
@@ -217,8 +219,8 @@ measuring it.
 M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
 M3 executor + verification, M4 LangGraph runtime, M5 decision providers, M6
 adaptive Luna reasoning, M7 bounded memory/recovery and M8–M11 product
-capabilities are implemented to the scopes documented above. Live-provider
-acceptance and agent reliability remain unverified. M12 large-scale benchmark
+capabilities are implemented to the scopes documented above. Limited live Luna
+fixture tests pass; broad agent reliability remains unverified. M12 large-scale benchmark
 hardening is deferred until productization review. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 

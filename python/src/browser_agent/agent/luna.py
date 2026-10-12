@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
-import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 import structlog
@@ -13,24 +13,36 @@ from browser_agent._types import (
     AgentDecision,
     AgentObservation,
     BrowserAction,
-    ElementRef,
-    PrunedElement,
     SemanticSnapshot,
     TaskState,
     WorkingMemory,
 )
+from browser_agent.agent.action_batch import (
+    PendingActionBatch,
+    advance_action_batch,
+    mark_batch_action_started,
+    prepare_action_batch,
+)
+from browser_agent.agent.luna_candidates import (
+    action_candidates,
+    action_signature,
+    agent_observation,
+    candidate_options,
+    resolve_target,
+)
 from browser_agent.agent.runtime import Agent
+from browser_agent.agent.shadow import ShadowDecisionManager
+from browser_agent.agent.task_inventory import TaskInventory
 from browser_agent.browser_code.contracts import BrowserCodeProposal, BrowserCodeResult
 from browser_agent.decisions import (
     ActionCandidate,
     CandidatePolicy,
     DecisionProvider,
-    build_action_candidates,
 )
-from browser_agent.decisions.task_tabs import with_owned_tab_candidates
-from browser_agent.decisions.task_transfers import candidate_policy_for_authorized_transfers
-from browser_agent.decisions.task_values import candidate_policy_for_task_literals
+from browser_agent.decisions.action_matching import actions_match
+from browser_agent.decisions.task_sites import DEFAULT_SITE_ALIASES
 from browser_agent.persistence.run_metrics import RunMetricKind
+from browser_agent.progress.evidence import local_browser_checks, task_terminal_text
 from browser_agent.progress.task_state import check_completion
 from browser_agent.reasoning import (
     ComplexityGate,
@@ -46,6 +58,7 @@ from browser_agent.reasoning import (
     ReasoningPurpose,
     configured_luna_model,
 )
+from browser_agent.session import BrowserSession
 from browser_agent.telemetry.debug_log import record_debug
 from browser_agent.vision import (
     ScreenshotMetadata,
@@ -99,6 +112,7 @@ class LunaDecisionAgent(Agent):
         screenshot_capture: Callable[[str], Awaitable[bytes]] | None = None,
         browser_code_enabled: bool = False,
         default_effort: ReasoningEffort = ReasoningEffort.LOW,
+        site_aliases: Mapping[str, str] | None = None,
     ) -> None:
         self.decision_provider = decision_provider
         self.reasoning_provider = reasoning_provider
@@ -111,6 +125,26 @@ class LunaDecisionAgent(Agent):
         self.default_effort = default_effort
         self._pending_browser_code_result: BrowserCodeResult | None = None
         self._vision_cache: dict[str, VisionInterpretation] = {}
+        self._shadow: ShadowDecisionManager | None = None
+        self.site_aliases = dict(DEFAULT_SITE_ALIASES if site_aliases is None else site_aliases)
+        self._task_inventory = TaskInventory()
+        self.last_reasoning_calls = 0
+        self._batch: PendingActionBatch | None = None
+
+    def bind_browser(self, browser: BrowserSession) -> None:
+        self._task_inventory.bind_browser(browser)
+
+    async def refresh_task_evidence(self, snapshot: SemanticSnapshot, task: TaskState) -> None:
+        await self._task_inventory.refresh(snapshot, task, self.site_aliases)
+
+    async def finish_run(self) -> None:
+        """Stop owned optional work at pause, termination, or cancellation."""
+        if self._shadow is not None:
+            await self._shadow.close()
+            self._shadow = None
+        if self._batch is not None:
+            self._batch.clear()
+            self._batch = None
 
     def accept_browser_code_result(self, result: BrowserCodeResult) -> None:
         """Stage one ephemeral transform result for exactly the next Luna call."""
@@ -121,6 +155,9 @@ class LunaDecisionAgent(Agent):
     def clear_browser_code_result(self) -> None:
         """Discard pending transform output on pause, stop, or stale-generation paths."""
         self._pending_browser_code_result = None
+        if self._batch is not None:
+            self._batch.clear()
+            self._batch = None
 
     async def decide(
         self,
@@ -128,11 +165,19 @@ class LunaDecisionAgent(Agent):
         task: TaskState,
         memory: WorkingMemory,
     ) -> AgentDecision:
-        observation = _agent_observation(snapshot)
-        if "verification_success" in task.progress_signals and check_completion(
-            task,
-            snapshot,
-            verified_action=True,
+        self.last_reasoning_calls = 0
+        await self.refresh_task_evidence(snapshot, task)
+        observation = agent_observation(snapshot)
+        has_completion_criteria = bool(task.required_milestones or task_terminal_text(task))
+        if (
+            has_completion_criteria
+            and all(self._task_inventory.destination_checks.values())
+            and "verification_success" in task.progress_signals
+            and check_completion(
+                task,
+                snapshot,
+                verified_action=True,
+            )
         ):
             return AgentDecision(
                 done=True,
@@ -142,14 +187,42 @@ class LunaDecisionAgent(Agent):
         if isinstance(visual_context, AgentDecision):
             return visual_context
 
-        candidates = _action_candidates(
+        candidates = action_candidates(
             snapshot=snapshot,
             task=task,
             memory=memory,
             observation=observation,
             candidate_policy=self.candidate_policy,
+            owned_tab_urls=list(self._task_inventory.owned_tab_urls.values()),
+            site_aliases=self.site_aliases,
         )
-        options = _candidate_options(candidates)
+        options = candidate_options(candidates)
+        if self._batch is not None:
+            queued = advance_action_batch(
+                self._batch,
+                snapshot,
+                run_id=task.run_id or "standalone",
+                page_id=snapshot.active_tab or "current",
+                verification_success="verification_success" in task.progress_signals,
+                recovery_in_progress=task.recovery_streak > 0,
+                owned_tab_urls=self._task_inventory.owned_tab_urls,
+            )
+            if queued is not None:
+                record_debug(
+                    "decision.batch_step", {"type": queued.type, "target_ref": queued.target_ref}
+                )
+                return await self._bounded_luna_action(
+                    ReasoningDecision(outcome=ReasoningOutcome.NEXT_ACTION, action=queued),
+                    observation=observation,
+                    snapshot=snapshot,
+                    task=task,
+                    candidates=candidates,
+                    options=options,
+                    reasoning="Executing the next locally revalidated Luna action.",
+                    effort=self.default_effort,
+                    purpose=ReasoningPurpose.CHOOSE_ACTION,
+                )
+            self._batch = None
 
         if not task.plan_initialized:
             return await self._ask_luna(
@@ -281,7 +354,9 @@ class LunaDecisionAgent(Agent):
         ambiguous_failures = sum(
             1 for event in history if "AMBIGUOUS" in str(event.get("reason", "")).upper()
         )
-        active_subgoals = max(1, len(task.milestones) - len(task.completed))
+        # The current plan is a flat ordered list with one active subgoal.
+        # Remaining milestones are not concurrent or nested dependencies.
+        active_subgoals = 1 if task.current_subgoal else 0
         goal_text = (task.user_goal or task.task).casefold()
         cross_tab_required = any(
             phrase in goal_text for phrase in ("across tabs", "multiple tabs", "each tab")
@@ -341,12 +416,16 @@ class LunaDecisionAgent(Agent):
             visual_observation=visual_context,
             failure_summary=failure_summary,
             candidate_options=candidate_options or {},
+            browser_checks=local_browser_checks(task, snapshot, observation, self.candidate_policy)
+            | self._task_inventory.destination_checks,
+            task_tab_labels=self._task_inventory.task_tab_labels,
             browser_code_enabled=self.browser_code_enabled,
             browser_code_result=browser_code_result,
         )
         try:
             # Provider implementations can cross an untyped SDK/plugin boundary.
             self.record_run_metric(task.run_id, _luna_metric_kind(effort))
+            self.last_reasoning_calls += 1
             result: Any = await provider.reason(context, model=self.model, effort=effort)
             if not isinstance(result, ReasoningDecision):
                 raise TypeError("reasoning provider returned an invalid decision")
@@ -396,7 +475,11 @@ class LunaDecisionAgent(Agent):
                 milestones=result.milestones,
                 milestone_evidence=result.milestone_evidence,
                 plan_initialized=True,
-                current_subgoal=result.current_subgoal or result.milestones[0],
+                current_subgoal=(
+                    result.current_subgoal
+                    if result.current_subgoal in result.milestones
+                    else result.milestones[0]
+                ),
                 next_milestone=(result.milestones[1] if len(result.milestones) > 1 else None),
                 reasoning=reasoning,
                 reasoning_effort=effort.value,
@@ -408,6 +491,33 @@ class LunaDecisionAgent(Agent):
                 reasoning=reasoning,
                 reasoning_effort=effort.value,
             )
+
+        if result.outcome == ReasoningOutcome.NEXT_ACTION and result.candidate_actions:
+            authorized: list[BrowserAction] = []
+            for candidate in bounded_candidates or []:
+                try:
+                    bound = candidate.to_browser_action(resolve_target(candidate, snapshot))
+                except ValueError:
+                    continue
+                if bound is not None:
+                    authorized.append(bound)
+            batch = prepare_action_batch(
+                result.candidate_actions,
+                authorized,
+                snapshot,
+                run_id=task.run_id or "standalone",
+                page_id=snapshot.active_tab or "current",
+            )
+            if batch is None:
+                return AgentDecision(
+                    ask_user=["Luna proposed an unsupported or unauthorized action batch."],
+                    reasoning_effort=effort.value,
+                )
+            first = batch.actions[0]
+            mark_batch_action_started(batch, first)
+            self._batch = batch
+            record_debug("decision.batch_authorized", {"count": len(batch.actions)})
+            result = result.model_copy(update={"action": first, "candidate_actions": []})
 
         return await self._bounded_luna_action(
             result,
@@ -449,12 +559,12 @@ class LunaDecisionAgent(Agent):
         action: BrowserAction | None = None
         comparisons: list[dict[str, object]] = []
         if proposed is not None:
-            proposed_signature = _action_signature(proposed)
+            proposed_signature = action_signature(proposed)
             for index, candidate in enumerate(candidates):
                 candidate_id = f"c{index + 1:02d}"
                 try:
                     candidate_action = candidate.to_browser_action(
-                        _resolve_target(candidate, snapshot)
+                        resolve_target(candidate, snapshot)
                     )
                 except ValueError:
                     comparisons.append(
@@ -464,7 +574,7 @@ class LunaDecisionAgent(Agent):
                 if candidate_action is None:
                     comparisons.append({"candidate_id": candidate_id, "status": "not_executable"})
                     continue
-                signature = _action_signature(candidate_action)
+                signature = action_signature(candidate_action)
                 comparisons.append(
                     {
                         "candidate_id": candidate_id,
@@ -476,7 +586,7 @@ class LunaDecisionAgent(Agent):
                         ),
                     }
                 )
-                if signature == proposed_signature:
+                if actions_match(proposed, candidate_action):
                     chosen_candidate = candidate
                     action = candidate_action
                     break
@@ -525,40 +635,24 @@ class LunaDecisionAgent(Agent):
                 reasoning_effort=effort.value,
             )
 
-        shadow_started = time.perf_counter()
-        try:
+        if self._shadow is None:
+            self._shadow = ShadowDecisionManager(self.decision_provider)
+        shadow_options = {key: value.rsplit("; action: ", 1)[-1] for key, value in options.items()}
+        scheduled = self._shadow.schedule_choice(
+            {
+                "task": task.user_goal or task.task,
+                "current_subgoal": task.current_subgoal or task.task,
+                "recent_outcome": ", ".join(task.progress_signals),
+            },
+            shadow_options,
+            luna_id or "",
+            run_id=task.run_id,
+            step=task.steps_taken + 1,
+        )
+        if scheduled:
             self.record_run_metric(task.run_id, RunMetricKind.LAYA_SHADOW_DECISION)
-            shadow = await self.decision_provider.choose(
-                {
-                    "task": task.user_goal or task.task,
-                    "current_subgoal": task.current_subgoal or task.task,
-                    "run_id": task.run_id,
-                    "steps_taken": task.steps_taken + 1,
-                    "observation": observation.model_dump(mode="json", exclude={"elements"}),
-                    "candidates": options,
-                },
-                "Choose one supplied candidate for shadow comparison only. "
-                "Do not create an action.",
-                options,
-            )
-            shadow_id = str(shadow.value) if shadow.accepted is True else None
-            _logger.info(
-                "laya_shadow_comparison",
-                run_id=task.run_id,
-                step=task.steps_taken + 1,
-                laya_choice=shadow_id if shadow_id in options else None,
-                luna_choice=luna_id,
-                agreement=(shadow_id == luna_id) if shadow_id in options else None,
-                confidence=shadow.confidence_calibrated,
-                elapsed_ms=round((time.perf_counter() - shadow_started) * 1000, 3),
-            )
-        except Exception as exc:
-            _logger.warning(
-                "laya_shadow_comparison_failed",
-                run_id=task.run_id,
-                step=task.steps_taken + 1,
-                error_type=type(exc).__name__,
-            )
+            # Yield once to start owned optional I/O; never await its inference.
+            await asyncio.sleep(0)
         return AgentDecision(
             action=action,
             evidence_ref=(
@@ -577,70 +671,6 @@ def _luna_metric_kind(effort: ReasoningEffort) -> RunMetricKind:
         ReasoningEffort.LOW: RunMetricKind.LUNA_LOW_EFFORT_CALL,
         ReasoningEffort.HIGH: RunMetricKind.LUNA_HIGH_EFFORT_CALL,
     }[effort]
-
-
-def _action_candidates(
-    *,
-    snapshot: SemanticSnapshot,
-    task: TaskState,
-    memory: WorkingMemory,
-    observation: AgentObservation,
-    candidate_policy: CandidatePolicy,
-) -> list[ActionCandidate]:
-    """Build the one finite set used for every executable Luna decision."""
-    goal = task.user_goal or task.task
-    policy = candidate_policy_for_task_literals(goal, observation, candidate_policy)
-    policy = candidate_policy_for_authorized_transfers(
-        goal,
-        memory,
-        snapshot,
-        observation,
-        policy,
-    )
-    candidates = build_action_candidates(
-        goal,
-        task.current_subgoal or task.next_milestone or task.task,
-        observation,
-        {"click", "check", "scroll", "type", "select"},
-        policy,
-    )
-    return with_owned_tab_candidates(
-        candidates,
-        task=goal,
-        snapshot=snapshot,
-        max_candidates=candidate_policy.max_candidates,
-    )
-
-
-def _candidate_options(candidates: list[ActionCandidate]) -> dict[str, str]:
-    return {
-        f"c{index:02d}": candidate.description
-        for index, candidate in enumerate(candidates, start=1)
-    }
-
-
-def _agent_observation(snapshot: SemanticSnapshot) -> AgentObservation:
-    elements = [
-        PrunedElement(
-            ref=element.ref,
-            role=element.role,
-            name=element.accessible_name,
-            text=element.text,
-            value=None,
-            state=element.state,
-            interactable=element.interactable and element.visible and element.enabled,
-        )
-        for element in snapshot.elements
-    ]
-    return AgentObservation(
-        url=snapshot.url,
-        title=snapshot.title,
-        active_tab=snapshot.active_tab,
-        state_generation=snapshot.state_generation,
-        page_fingerprint=snapshot.page_fingerprint,
-        elements=elements,
-        focused=snapshot.focused,
-    )
 
 
 def _visual_semantics_insufficient(
@@ -744,30 +774,3 @@ def _vision_request(
         ),
         targets=targets,
     )
-
-
-def _resolve_target(
-    candidate: ActionCandidate,
-    snapshot: SemanticSnapshot,
-) -> ElementRef | None:
-    if candidate.target_ref is None:
-        return None
-    element = snapshot.by_ref(candidate.target_ref)
-    if element is None or not element.interactable or not element.visible or not element.enabled:
-        return None
-    return ElementRef(
-        ref=element.ref,
-        id=element.id,
-        generation=snapshot.state_generation,
-    )
-
-
-def _action_signature(action: BrowserAction) -> dict[str, Any]:
-    """Compare semantic targets without trusting model-supplied registry IDs."""
-    signature = action.model_dump(mode="json", exclude_none=True)
-    if action.target is not None:
-        signature["target"] = {
-            "ref": action.target.ref,
-            "generation": action.target.generation,
-        }
-    return signature

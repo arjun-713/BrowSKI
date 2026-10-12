@@ -22,6 +22,53 @@ def _observation(*fields: tuple[str, str]) -> AgentObservation:
     )
 
 
+def _selection_observation(
+    *,
+    duplicate_combobox: bool = False,
+    duplicate_option: bool = False,
+) -> AgentObservation:
+    elements = [
+        PrunedElement(
+            ref="@state",
+            role="combobox",
+            name="State",
+            interactable=True,
+        ),
+        PrunedElement(
+            ref="@karnataka",
+            role="option",
+            name="Karnataka",
+            value="KA",
+            interactable=False,
+        ),
+    ]
+    if duplicate_combobox:
+        elements.append(
+            PrunedElement(
+                ref="@billing-state",
+                role="combobox",
+                name="State",
+                interactable=True,
+            )
+        )
+    if duplicate_option:
+        elements.append(
+            PrunedElement(
+                ref="@another-karnataka",
+                role="option",
+                name="Karnataka",
+                value="KA2",
+                interactable=False,
+            )
+        )
+    return AgentObservation(
+        url="https://example.invalid/form",
+        title="Fixture form",
+        state_generation=3,
+        elements=elements,
+    )
+
+
 def test_supported_quoted_task_grammars_bind_by_unique_semantic_name() -> None:
     observation = _observation(
         ("@name", "Full name"),
@@ -110,3 +157,77 @@ def test_overlong_value_is_not_truncated_into_a_different_candidate() -> None:
     )
 
     assert policy.values_by_ref == {}
+
+
+def test_explicit_select_intent_binds_unique_observed_label_to_combobox() -> None:
+    policy = candidate_policy_for_task_literals(
+        "Select Karnataka in State dropdown",
+        _selection_observation(),
+    )
+
+    assert policy.select_labels_by_ref == {"@state": ("Karnataka",)}
+
+
+def test_frozen_select_prompt_drops_article_only_after_exact_name_misses() -> None:
+    policy = candidate_policy_for_task_literals(
+        'Select Karnataka in the State dropdown. Stop when the page shows "Selected: ka".',
+        _selection_observation(),
+    )
+
+    assert policy.select_labels_by_ref == {"@state": ("Karnataka",)}
+
+
+def test_select_intent_requires_unique_observed_combobox_and_option() -> None:
+    ambiguous_combobox = candidate_policy_for_task_literals(
+        "Select Karnataka in State dropdown",
+        _selection_observation(duplicate_combobox=True),
+    )
+    ambiguous_option = candidate_policy_for_task_literals(
+        "Select Karnataka in State dropdown",
+        _selection_observation(duplicate_option=True),
+    )
+    missing_option = candidate_policy_for_task_literals(
+        "Select Kerala in State dropdown",
+        _selection_observation(),
+    )
+
+    assert ambiguous_combobox.select_labels_by_ref == {}
+    assert ambiguous_option.select_labels_by_ref == {}
+    assert missing_option.select_labels_by_ref == {}
+
+
+def test_conflicting_select_intents_do_not_authorize_either_value() -> None:
+    policy = candidate_policy_for_task_literals(
+        "Select Karnataka in State dropdown, then choose Kerala from State",
+        _selection_observation(),
+    )
+
+    assert policy.select_labels_by_ref == {}
+
+
+def test_natural_search_query_is_bound_but_explicit_field_value_wins() -> None:
+    obs = AgentObservation(
+        url="https://example.invalid/shop",
+        title="Shop",
+        state_generation=3,
+        elements=[
+            PrunedElement(
+                ref="@search",
+                role="searchbox",
+                name="Search products",
+                interactable=True,
+            )
+        ],
+    )
+
+    inferred = candidate_policy_for_task_literals(
+        "Find 16GB 512GB laptop on the store",
+        obs,
+    )
+    explicit = candidate_policy_for_task_literals(
+        'set "Search products" to "approved search"; then find a laptop on the store',
+        obs,
+    )
+
+    assert inferred.values_by_ref == {"@search": "16GB 512GB laptop"}
+    assert explicit.values_by_ref == {"@search": "approved search"}

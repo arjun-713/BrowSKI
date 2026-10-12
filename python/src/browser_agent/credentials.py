@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import stat
+from pathlib import Path
 from typing import Protocol, cast
 
 _SERVICE_NAME = "browski"
@@ -98,3 +100,35 @@ def configured_openai_api_key() -> str | None:
         return SystemCredentialStore().get_openai_api_key()
     except CredentialStoreError:
         return None
+
+
+def load_local_env_credentials(path: Path) -> None:
+    """Explicit launcher support for the user's owner-only local .env file.
+
+    Read only the two supported credential variables. Existing environment
+    credentials take precedence. Never evaluate shell syntax or expand values.
+    This does not create a plaintext fallback for the OS credential store.
+    """
+    names = ("OPENAI_API_KEY", "BROWSKI_OPENAI_API_KEY")
+    if any(os.environ.get(name) for name in names) or not path.exists():
+        return
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "r", encoding="utf-8") as file:
+        info = os.fstat(file.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+            or info.st_size > 65536
+        ):
+            raise CredentialStoreError("local .env must be an owner-only bounded regular file")
+        for line in file:
+            name, separator, value = line.strip().partition("=")
+            if not separator or name not in names:
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] in {"'", '"'} and value[-1] == value[0]:
+                value = value[1:-1]
+            if not value or len(value) > _MAX_API_KEY_LENGTH or any(c.isspace() for c in value):
+                raise CredentialStoreError("local credential is outside supported limits")
+            os.environ[name] = value

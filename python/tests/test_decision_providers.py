@@ -138,6 +138,35 @@ async def test_laya_maps_all_typed_questions_and_uses_its_calibration() -> None:
     assert model.calls[0][1]["score"]["criteria"] == ("low", "mid", "high")
 
 
+async def test_laya_choice_adapter_accepts_answer_alias_when_choice_is_absent() -> None:
+    model = FakeLayaModel({"decision": {"answer": "safe", "answer_confidence": 0.8}})
+    provider = LayaProvider(model)
+
+    result = await provider.choose(
+        "bounded state",
+        "Pick a candidate.",
+        {"safe": "Click the supplied safe option", "stop": "Escalate"},
+    )
+
+    assert result.value == "safe"
+    assert result.confidence_raw == 0.8
+
+
+async def test_laya_rejects_choice_response_without_a_choice_value() -> None:
+    model = FakeLayaModel({"decision": {"confidence": 0.8}})
+    provider = LayaProvider(model)
+
+    with pytest.raises(
+        DecisionProviderProtocolError,
+        match="Choice response must include a non-empty choice or answer string",
+    ):
+        await provider.choose(
+            "bounded state",
+            "Pick a candidate.",
+            {"safe": "Click the supplied safe option", "stop": "Escalate"},
+        )
+
+
 async def test_jev_maps_choice_score_noul_with_official_question_shapes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -329,7 +358,7 @@ async def test_laya_uses_local_http_contract_and_reports_health() -> None:
     assert calls[1][0:2] == ("POST", "http://127.0.0.1:9010/v1/systemone")
     assert calls[1][2]["state"] == "visible page state"
     assert calls[1][2]["questions"]["done"]["type"] == "noul"
-    assert calls[1][3] == 5.0
+    assert calls[1][3] == 15.0
     assert result.model == "laya-cpu"
     assert result.answers["done"].value == 0.9
 

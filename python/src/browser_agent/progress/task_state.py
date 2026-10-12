@@ -8,6 +8,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from browser_agent._types import SemanticSnapshot, SnapshotDelta, TaskState
+from browser_agent.progress.evidence import task_terminal_satisfied, visible_page_text
 
 
 class ProgressSignal(StrEnum):
@@ -17,6 +18,7 @@ class ProgressSignal(StrEnum):
     REQUIRED_FACT_ACQUIRED = "required_fact_acquired"
     VERIFICATION_SUCCESS = "verification_success"
     TAB_CHANGED = "tab_changed"
+    VIEWPORT_CHANGED = "viewport_changed"
     SUBGOALS_REDUCED = "subgoals_reduced"
 
 
@@ -69,6 +71,8 @@ class ProgressTracker:
             signals.append(ProgressSignal.VERIFICATION_SUCCESS)
         if tab_changed:
             signals.append(ProgressSignal.TAB_CHANGED)
+        if before.scroll != after.scroll:
+            signals.append(ProgressSignal.VIEWPORT_CHANGED)
         if (
             outstanding_subgoals_before is not None
             and outstanding_subgoals_after is not None
@@ -76,7 +80,12 @@ class ProgressTracker:
         ):
             signals.append(ProgressSignal.SUBGOALS_REDUCED)
 
-        return ProgressReport(activity=activity, progressed=bool(signals), signals=tuple(signals))
+        meaningful = any(
+            signal not in {ProgressSignal.VERIFICATION_SUCCESS, ProgressSignal.TAB_CHANGED}
+            or (signal == ProgressSignal.TAB_CHANGED and before.active_tab != after.active_tab)
+            for signal in signals
+        )
+        return ProgressReport(activity=activity, progressed=meaningful, signals=tuple(signals))
 
     @staticmethod
     def _semantic_fingerprint(snapshot: SemanticSnapshot) -> tuple[object, ...]:
@@ -212,11 +221,11 @@ def check_completion(
     if not set(task.required_milestones).issubset(task.completed):
         return False
 
+    if not task_terminal_satisfied(task, snapshot):
+        return False
+
     visible_state = "\n".join(
-        [snapshot.url, snapshot.title or "", snapshot.text_excerpt or ""]
-        + [block.text for block in snapshot.text_blocks]
-        + [element.accessible_name or "" for element in snapshot.elements]
-        + [element.text or "" for element in snapshot.elements]
+        [snapshot.url, snapshot.title or "", visible_page_text(snapshot)]
     ).casefold()
     if any(evidence.casefold() not in visible_state for evidence in task.required_evidence):
         return False

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Northstar shortlist</title>
+  </head>
+  <body>
+    <main>
+      <h1>Shortlist</h1>
+      <p id="result" role="status">Your shortlist is empty.</p>
+      <script>
+        const product = localStorage.getItem("northstar-shortlist-item");
+        if (product) {
+          document.querySelector("#result").textContent = `Shortlisted laptop: ${product}`;
+        }
+      </script>
+    </main>
+  </body>
+</html>
