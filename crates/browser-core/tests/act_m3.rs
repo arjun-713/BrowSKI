@@ -5,9 +5,10 @@
 //! asserts on [`ActionOutcome`] (execution evidence + verification verdict),
 //! never on the absence of a protocol error.
 
-use browser_agent_core::{ActionOutcome, BrowserSession};
+use browser_agent_core::{ActionOutcome, BrowserSession, VisibilityClass};
 use browser_agent_element_registry::ElementRef;
 use browser_agent_executor::{ActOptions, BrowserAction, ClickOptions, ExecutionFailureKind};
+use browser_agent_observation::{SemanticKind, TextKind};
 use browser_agent_verification::VerificationStatus;
 use browser_agent_verification::{EffectExpectation, ExpectedEffect};
 use std::path::PathBuf;
@@ -249,7 +250,85 @@ async fn m3_native_select() {
         assert!(succeeded(&outcome), "select {value:?}");
         assert_eq!(outcome.verification.check, "select-value");
         assert_eq!(outcome.execution.as_ref().unwrap().method, "cdp-input");
+        if value == "ka" {
+            let snapshot = session
+                .observe_tab(&tab)
+                .await
+                .expect("observe selected state");
+            assert!(
+                snapshot.text_blocks.iter().any(|block| {
+                    block.kind == TextKind::Paragraph && block.text == "Selected: ka"
+                }),
+                "selected value should be represented as visible paragraph text: {:?}",
+                snapshot.text_blocks
+            );
+            let hidden = snapshot
+                .elements
+                .iter()
+                .find(|element| {
+                    element.semantic_kind == SemanticKind::Text
+                        && element.visibility == VisibilityClass::Hidden
+                        && element.text.is_none()
+                })
+                .expect("hidden paragraph remains classified without exposing its text");
+            assert_eq!(hidden.visibility, VisibilityClass::Hidden);
+            assert!(!hidden.visible);
+            let offscreen = snapshot
+                .elements
+                .iter()
+                .find(|element| element.text.as_deref() == Some("Offscreen paragraph marker"))
+                .expect("offscreen paragraph is still classified in the semantic snapshot");
+            assert_eq!(offscreen.visibility, VisibilityClass::Offscreen);
+            assert!(offscreen.visible);
+            assert!(!offscreen.interactable);
+            assert!(snapshot.text_blocks.iter().all(|block| {
+                !block.text.contains("Hidden paragraph marker")
+                    && !block.text.contains("Offscreen paragraph marker")
+                    && !block.text.contains("Hidden inline descendant marker")
+                    && !block.text.contains("Hidden class descendant marker")
+            }));
+            assert!(snapshot.elements.iter().all(|element| {
+                !element
+                    .text
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("Hidden inline descendant marker")
+                    && !element
+                        .text
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("Hidden class descendant marker")
+            }));
+        }
     }
+    session.close().await.expect("close");
+}
+
+/// Paragraph evidence stays bounded and cannot crowd out a later control.
+#[tokio::test]
+async fn m3_paragraph_budget_preserves_late_interactive_candidate() {
+    let _guard = M3_LOCK.lock().await;
+    let session = launch().await;
+    let base = fixture_server().await;
+    session
+        .navigate(&format!("{base}/paragraph-capacity.html"))
+        .await
+        .expect("nav");
+    let tab = session.active_tab().await.expect("active").id;
+    let snapshot = session.observe_tab(&tab).await.expect("observe");
+    assert!(
+        snapshot.by_ref("@late_control").is_some(),
+        "late primary control should survive the supplementary paragraph budget"
+    );
+    assert!(
+        snapshot
+            .text_blocks
+            .iter()
+            .filter(|block| block.kind == TextKind::Paragraph)
+            .count()
+            <= 50,
+        "paragraph extraction should remain bounded"
+    );
     session.close().await.expect("close");
 }
 

@@ -35,9 +35,11 @@ use std::collections::{HashMap, HashSet};
 use crate::error::BrowserRuntimeError;
 use crate::session::BrowserSession;
 
-/// Upper bound on per-snapshot candidates (deterministic truncation by
-/// document order; fixture pages are far below this).
+/// Upper bound on primary semantic candidates, including controls and headings.
 const MAX_CANDIDATES: usize = 400;
+/// Small supplementary paragraph budget; paragraph evidence cannot displace
+/// primary semantic candidates.
+const MAX_PARAGRAPH_CANDIDATES: usize = 50;
 /// Text lengths are bounded everywhere (working-memory discipline).
 const MAX_TEXT_LEN: usize = 200;
 
@@ -215,6 +217,8 @@ fn walk(
     section_stack: &mut Vec<String>,
     label_stack: &mut Vec<String>,
     id_text: &mut HashMap<String, String>,
+    visible_ax_text: &HashSet<i64>,
+    paragraph_count: &mut usize,
     inert_ancestor: bool,
 ) {
     let node_type = node.get("nodeType").and_then(Value::as_u64).unwrap_or(0);
@@ -257,6 +261,8 @@ fn walk(
                 section_stack,
                 label_stack,
                 id_text,
+                visible_ax_text,
+                paragraph_count,
                 inert_ancestor,
             );
         }
@@ -273,6 +279,8 @@ fn walk(
                 section_stack,
                 label_stack,
                 id_text,
+                visible_ax_text,
+                paragraph_count,
                 inert_ancestor,
             );
         }
@@ -325,6 +333,8 @@ fn walk(
                 &mut vec![],
                 &mut vec![],
                 &mut HashMap::new(),
+                visible_ax_text,
+                paragraph_count,
                 inert_here,
             );
         } else {
@@ -336,6 +346,7 @@ fn walk(
                 &tag,
                 out,
                 labels_for,
+                visible_ax_text,
                 frame_path,
                 frame.clone(),
                 ancestry,
@@ -343,6 +354,7 @@ fn walk(
                 form_stack,
                 section_stack,
                 label_stack,
+                paragraph_count,
                 inert_here,
                 true,
             );
@@ -386,6 +398,7 @@ fn walk(
         &tag,
         out,
         labels_for,
+        visible_ax_text,
         frame_path,
         frame.clone(),
         ancestry,
@@ -393,6 +406,7 @@ fn walk(
         form_stack,
         section_stack,
         label_stack,
+        paragraph_count,
         inert_here,
         false,
     );
@@ -420,6 +434,8 @@ fn walk(
             section_stack,
             label_stack,
             id_text,
+            visible_ax_text,
+            paragraph_count,
             inert_here,
         );
     }
@@ -454,6 +470,8 @@ fn walk(
                     section_stack,
                     label_stack,
                     id_text,
+                    visible_ax_text,
+                    paragraph_count,
                     inert_here,
                 );
             }
@@ -493,6 +511,110 @@ fn direct_text(node: &Value) -> String {
     joined.chars().take(MAX_TEXT_LEN).collect()
 }
 
+fn inline_style_hides_text(attrs: &HashMap<String, String>) -> bool {
+    // The AX tree gates text by descendant visibility without per-node style
+    // calls. This inline check remains a local guard against hidden attributes.
+    attrs.get("style").is_some_and(|style| {
+        style.split(';').any(|declaration| {
+            let Some((property, value)) = declaration.split_once(':') else {
+                return false;
+            };
+            let property = property.trim().to_ascii_lowercase();
+            let value = value
+                .split('!')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            matches!(
+                (property.as_str(), value.as_str()),
+                ("display", "none")
+                    | ("visibility", "hidden")
+                    | ("visibility", "collapse")
+                    | ("content-visibility", "hidden")
+                    | ("opacity", "0")
+            )
+        })
+    })
+}
+
+fn paragraph_text(node: &Value, visible_ax_text: &HashSet<i64>) -> String {
+    fn collect(
+        node: &Value,
+        output: &mut String,
+        remaining: &mut usize,
+        is_root: bool,
+        visible_ax_text: &HashSet<i64>,
+    ) {
+        if *remaining == 0 {
+            return;
+        }
+        let node_type = node.get("nodeType").and_then(Value::as_u64).unwrap_or(0);
+        if node_type == 3 {
+            let Some(backend) = node.get("backendNodeId").and_then(Value::as_i64) else {
+                return;
+            };
+            if !visible_ax_text.contains(&backend) {
+                return;
+            }
+            if let Some(text) = node.get("nodeValue").and_then(Value::as_str) {
+                for word in text.split_whitespace() {
+                    let needs_space = !output.is_empty();
+                    if needs_space && *remaining > 0 {
+                        output.push(' ');
+                        *remaining -= 1;
+                    }
+                    for character in word.chars() {
+                        if *remaining == 0 {
+                            return;
+                        }
+                        output.push(character);
+                        *remaining -= 1;
+                    }
+                }
+            }
+            return;
+        }
+        if node_type != 1 {
+            return;
+        }
+        let tag = node
+            .get("nodeName")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(tag.as_str(), "script" | "style" | "noscript" | "template") {
+            return;
+        }
+        let attrs = attr_map(node);
+        if !is_root
+            && (attrs.contains_key("hidden")
+                || attrs
+                    .get("aria-hidden")
+                    .is_some_and(|value| value == "true")
+                || inline_style_hides_text(&attrs))
+        {
+            return;
+        }
+        for child in node
+            .get("children")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            collect(child, output, remaining, false, visible_ax_text);
+            if *remaining == 0 {
+                return;
+            }
+        }
+    }
+
+    let mut output = String::new();
+    let mut remaining = MAX_TEXT_LEN;
+    collect(node, &mut output, &mut remaining, true, visible_ax_text);
+    output
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push_candidate(
     node: &Value,
@@ -500,6 +622,7 @@ fn push_candidate(
     tag: &str,
     out: &mut Vec<RawNode>,
     _labels_for: &HashMap<String, String>,
+    visible_ax_text: &HashSet<i64>,
     frame_path: &[String],
     frame: Option<String>,
     ancestry: &[String],
@@ -507,6 +630,7 @@ fn push_candidate(
     form_stack: &[String],
     section_stack: &[String],
     label_stack: &[String],
+    paragraph_count: &mut usize,
     inert_ancestor: bool,
     _frame_only: bool,
 ) {
@@ -523,7 +647,11 @@ fn push_candidate(
         || attrs.contains_key("onclick")
         || attrs.contains_key("contenteditable")
         || is_heading(tag);
-    if !(named || interactive) && tag != "iframe" && tag != "frame" {
+    let paragraph = tag == "p";
+    if paragraph && *paragraph_count >= MAX_PARAGRAPH_CANDIDATES {
+        return;
+    }
+    if !(named || interactive || paragraph) && tag != "iframe" && tag != "frame" {
         return;
     }
     let backend = node.get("backendNodeId").and_then(Value::as_i64);
@@ -546,12 +674,20 @@ fn push_candidate(
         .cloned()
         .or_else(|| section_stack.last().filter(|s| !s.is_empty()).cloned());
     let implicit_label = label_stack.last().filter(|s| !s.is_empty()).cloned();
+    let text = if paragraph {
+        paragraph_text(node, visible_ax_text)
+    } else {
+        direct_text(node)
+    };
+    if paragraph {
+        *paragraph_count += 1;
+    }
     out.push(RawNode {
         backend,
         node_id,
         tag: tag.to_string(),
         attrs: attrs.clone(),
-        text: direct_text(node),
+        text,
         frame_path: frame_path.to_vec(),
         frame,
         doc_order: *doc_order,
@@ -806,6 +942,7 @@ fn kind_for(role: &str, tag: &str, attrs: &HashMap<String, String>) -> SemanticK
             },
             "select" | "datalist" => SemanticKind::OptionList,
             "textarea" => SemanticKind::TextInput,
+            "p" => SemanticKind::Text,
             _ => SemanticKind::Generic,
         },
     }
@@ -974,11 +1111,29 @@ pub(crate) async fn observe_full(
 
     // 2. AX index by backend id.
     let mut ax_by_backend: HashMap<i64, AxInfo> = HashMap::new();
+    let mut visible_ax_text = HashSet::new();
     if let Ok(ax) = ax_res {
         if let Some(nodes) = ax.get("nodes").and_then(Value::as_array) {
             for node in nodes {
                 let (backend, info) = parse_ax_node(node);
                 if let Some(b) = backend {
+                    let ax_role = node
+                        .get("chromeRole")
+                        .and_then(|role| role.get("value"))
+                        .and_then(Value::as_str)
+                        .or_else(|| {
+                            node.get("role")
+                                .and_then(|role| role.get("value"))
+                                .and_then(Value::as_str)
+                        });
+                    let is_visible_text = !info.ignored
+                        && !info.hidden
+                        && ax_role.is_some_and(|role| {
+                            matches!(role.to_ascii_lowercase().as_str(), "statictext")
+                        });
+                    if is_visible_text {
+                        visible_ax_text.insert(b);
+                    }
                     ax_by_backend.insert(b, info);
                 }
             }
@@ -991,6 +1146,7 @@ pub(crate) async fn observe_full(
     let mut labels_for: HashMap<String, String> = HashMap::new();
     let mut id_text: HashMap<String, String> = HashMap::new();
     let mut doc_order = 0u64;
+    let mut paragraph_count = 0usize;
     if let Some(root) = dom.get("root") {
         walk(
             root,
@@ -1004,6 +1160,8 @@ pub(crate) async fn observe_full(
             &mut vec![],
             &mut vec![],
             &mut id_text,
+            &visible_ax_text,
+            &mut paragraph_count,
             false,
         );
     }
@@ -1028,9 +1186,19 @@ pub(crate) async fn observe_full(
     }
 
     // 5. Candidate labeling (truncate deterministically past the cap).
-    let mut candidates: Vec<RawNode> = raw;
-    candidates.sort_by_key(|n| n.doc_order);
-    candidates.truncate(MAX_CANDIDATES);
+    let mut ordered_raw = raw;
+    ordered_raw.sort_by_key(|node| node.doc_order);
+    let mut candidates = Vec::new();
+    let mut paragraph_candidates = Vec::new();
+    for node in ordered_raw {
+        if node.tag == "p" {
+            paragraph_candidates.push(node);
+        } else if candidates.len() < MAX_CANDIDATES {
+            candidates.push(node);
+        }
+    }
+    candidates.extend(paragraph_candidates);
+    candidates.sort_by_key(|node| node.doc_order);
 
     // Sibling-text for `nearby`: index direct text by parent signature is
     // overkill; use the candidate's own text + label chain instead.
@@ -1668,8 +1836,12 @@ fn build_text_blocks(elements: &[SemanticElement]) -> Vec<browser_agent_observat
     elements
         .iter()
         .filter(|e| {
-            matches!(e.semantic_kind, SemanticKind::Heading | SemanticKind::Alert)
-                && (e.accessible_name.is_some() || e.text.is_some())
+            matches!(
+                e.semantic_kind,
+                SemanticKind::Heading | SemanticKind::Alert | SemanticKind::Text
+            ) && (e.accessible_name.is_some() || e.text.is_some())
+                && (e.semantic_kind != SemanticKind::Text
+                    || e.visibility == browser_agent_observation::VisibilityClass::Visible)
         })
         .take(50)
         .map(|e| {
@@ -1685,6 +1857,8 @@ fn build_text_blocks(elements: &[SemanticElement]) -> Vec<browser_agent_observat
                         .iter()
                         .find_map(|s| s.strip_prefix("level-").and_then(|n| n.parse().ok())),
                 )
+            } else if e.semantic_kind == SemanticKind::Text {
+                (TextKind::Paragraph, None)
             } else {
                 (TextKind::Alert, None)
             };

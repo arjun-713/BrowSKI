@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Paragraph capacity</title></head>
+<body>
+<script>
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < 450; index += 1) {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = `Static paragraph ${index}`;
+    fragment.append(paragraph);
+  }
+  document.body.append(fragment);
+</script>
+<button id="late_control">Late control</button>
+</body>
+</html>

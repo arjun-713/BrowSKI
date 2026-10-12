@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Native select</title></head>
+<head><meta charset="utf-8"><title>Native select</title>
+<style>.class-hidden { display: none; }</style>
+</head>
 <body>
 <h1>State picker</h1>
 <label for="state">State</label>
@@ -9,7 +11,9 @@
   <option value="ka">Karnataka</option>
   <option value="mh">Maharashtra</option>
 </select>
-<p>Selected: <span id="out"></span></p>
+<p>Selected: <span id="out"></span><span style="display: none">Hidden inline descendant marker</span><span class="class-hidden">Hidden class descendant marker</span></p>
+<p hidden>Hidden paragraph marker</p>
+<p style="position: absolute; top: 3000px">Offscreen paragraph marker</p>
 <script>
   document.getElementById('state').addEventListener('change', e => {
     document.getElementById('out').textContent = e.target.value;
