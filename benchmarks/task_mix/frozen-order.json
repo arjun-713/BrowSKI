@@ -1,0 +1,35 @@
+{
+  "development_order": [
+    "dev-s-03",
+    "dev-m-06",
+    "dev-m-02",
+    "dev-s-05",
+    "dev-s-06",
+    "dev-m-04",
+    "dev-l-06",
+    "dev-m-01",
+    "dev-s-04",
+    "dev-l-04",
+    "dev-m-05",
+    "dev-l-01",
+    "dev-m-03",
+    "dev-l-03",
+    "dev-l-05",
+    "dev-s-02",
+    "dev-s-01",
+    "dev-l-02"
+  ],
+  "holdout_order": [
+    "holdout-s-02",
+    "holdout-m-01",
+    "holdout-s-03",
+    "holdout-m-02",
+    "holdout-m-03",
+    "holdout-l-02",
+    "holdout-l-03",
+    "holdout-s-01",
+    "holdout-l-01"
+  ],
+  "suite": "browski-task-mix-v1",
+  "seed": 20261012
+}

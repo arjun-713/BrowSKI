@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Support queue</title>
+  </head>
+  <body>
+    <main>
+      <h1>Support queue</h1>
+      <label for="query">Search tickets</label>
+      <input id="query" type="search">
+      <label for="queue">Queue</label>
+      <select id="queue">
+        <option value="all">All queues</option>
+        <option value="accessibility">Accessibility</option>
+        <option value="billing">Billing</option>
+        <option value="accounts">Accounts</option>
+      </select>
+      <button id="search" type="button">Search tickets</button>
+      <ul id="results">
+        <li data-queue="accessibility">
+          <h2>Keyboard navigation audit</h2>
+          <p>Ticket 418 · Accessibility · Assigned to Amina</p>
+          <button type="button" data-ticket="418">Open ticket 418</button>
+        </li>
+        <li data-queue="billing">
+          <h2>Duplicate invoice question</h2>
+          <p>Ticket 427 · Billing · Assigned to Rafael</p>
+          <button type="button" data-ticket="427">Open ticket 427</button>
+        </li>
+        <li data-queue="accounts">
+          <h2>Restore account access</h2>
+          <p>Ticket 439 · Accounts · Assigned to Nia</p>
+          <button type="button" data-ticket="439">Open ticket 439</button>
+        </li>
+        <li data-queue="accessibility">
+          <h2>Screen reader labels</h2>
+          <p>Ticket 442 · Accessibility · Assigned to Dev</p>
+          <button type="button" data-ticket="442">Open ticket 442</button>
+        </li>
+      </ul>
+      <p id="status" role="status">Showing all tickets.</p>
+      <section id="ticket" hidden>
+        <h2 id="ticket-title"></h2>
+        <p id="ticket-owner"></p>
+        <button id="pin-ticket" type="button">Pin this ticket</button>
+        <p id="ticket-status" role="status"></p>
+      </section>
+    </main>
+    <script>
+      const searchButton = document.querySelector("#search");
+      searchButton.addEventListener("click", () => {
+        const query = document.querySelector("#query").value.trim().toLowerCase();
+        const queue = document.querySelector("#queue").value;
+        let visibleCount = 0;
+        for (const row of document.querySelectorAll("#results li")) {
+          const matchesText = row.textContent.toLowerCase().includes(query);
+          const matchesQueue = queue === "all" || row.dataset.queue === queue;
+          row.hidden = !(matchesText && matchesQueue);
+          visibleCount += Number(!row.hidden);
+        }
+        document.querySelector("#status").textContent =
+          `Search complete: ${visibleCount} ticket${visibleCount === 1 ? "" : "s"}.`;
+      });
+      let activeTicket = null;
+      const pinnedTickets = new Set();
+      document.querySelectorAll("[data-ticket]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const row = button.closest("li");
+          activeTicket = button.dataset.ticket;
+          document.querySelector("#ticket-title").textContent =
+            row.querySelector("h2").textContent;
+          document.querySelector("#ticket-owner").textContent =
+            row.querySelector("p").textContent;
+          document.querySelector("#ticket").hidden = false;
+        });
+      });
+      document.querySelector("#pin-ticket").addEventListener("click", () => {
+        if (activeTicket) pinnedTickets.add(activeTicket);
+        const pinned = [...pinnedTickets].sort((left, right) => Number(left) - Number(right));
+        document.querySelector("#ticket-status").textContent =
+          `Pinned: ${document.querySelector("#ticket-title").textContent}.`;
+        document.querySelector("#status").textContent =
+          `Pinned tickets: ${pinned.join(", ")}.`;
+      });
+    </script>
+  </body>
+</html>

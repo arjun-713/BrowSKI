@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Community workshop registration</title>
+  </head>
+  <body>
+    <main>
+      <h1>Community workshop registration</h1>
+      <section id="contact-step">
+        <h2>Contact details</h2>
+        <label for="name">Full name</label>
+        <input id="name" autocomplete="name">
+        <label for="email">Email address</label>
+        <input id="email" type="email" autocomplete="email">
+        <button id="continue" type="button">Continue to workshop choices</button>
+      </section>
+      <section id="choice-step" hidden>
+        <h2>Workshop choices</h2>
+        <label for="session">Preferred session</label>
+        <select id="session">
+          <option value="">Choose a session</option>
+          <option value="morning">Morning lab</option>
+          <option value="afternoon">Afternoon studio</option>
+          <option value="evening">Evening lecture</option>
+        </select>
+        <label for="city">Workshop city</label>
+        <select id="city">
+          <option value="">Choose a city</option>
+          <option value="pune">Pune</option>
+          <option value="jaipur">Jaipur</option>
+          <option value="kochi">Kochi</option>
+        </select>
+        <label>
+          <input id="updates" type="checkbox">
+          Email me about future workshops
+        </label>
+        <button id="review" type="button">Review registration</button>
+      </section>
+      <section id="review-step" hidden>
+        <h2>Review your registration</h2>
+        <p id="review-summary"></p>
+        <button id="save" type="button">Save registration</button>
+      </section>
+      <p id="status" role="status">Registration is not complete.</p>
+    </main>
+    <script>
+      const contactStep = document.querySelector("#contact-step");
+      const choiceStep = document.querySelector("#choice-step");
+      const reviewStep = document.querySelector("#review-step");
+      document.querySelector("#continue").addEventListener("click", () => {
+        contactStep.hidden = true;
+        choiceStep.hidden = false;
+      });
+      document.querySelector("#review").addEventListener("click", () => {
+        const name = document.querySelector("#name").value;
+        const email = document.querySelector("#email").value;
+        const session = document.querySelector("#session").selectedOptions[0].textContent;
+        const city = document.querySelector("#city").selectedOptions[0].textContent;
+        const updates = document.querySelector("#updates").checked ? "yes" : "no";
+        document.querySelector("#review-summary").textContent =
+          `${name} · ${email} · ${session} · ${city} · future emails: ${updates}`;
+        choiceStep.hidden = true;
+        reviewStep.hidden = false;
+      });
+      document.querySelector("#save").addEventListener("click", () => {
+        document.querySelector("#status").textContent =
+          `Registration saved for ${document.querySelector("#name").value}.`;
+      });
+    </script>
+  </body>
+</html>

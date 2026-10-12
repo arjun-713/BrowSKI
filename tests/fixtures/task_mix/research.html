@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Equipment comparison</title>
+  </head>
+  <body>
+    <main>
+      <h1>Equipment comparison desk</h1>
+      <p>Open the product pages in separate tabs, compare their specifications, then record a match.</p>
+      <ul>
+        <li><a target="_blank" href="/task-mix/orbit-14.html">Orbit 14 product details</a></li>
+        <li><a target="_blank" href="/task-mix/orbit-16.html">Orbit 16 product details</a></li>
+        <li><a target="_blank" href="/task-mix/field-13.html">Field 13 product details</a></li>
+      </ul>
+      <label for="model">Matching model</label>
+      <input id="model">
+      <label for="memory">Memory</label>
+      <input id="memory">
+      <label for="storage">Storage</label>
+      <input id="storage">
+      <button id="record" type="button">Record selected model</button>
+      <p id="result" role="status">No model recorded.</p>
+    </main>
+    <script>
+      document.querySelector("#record").addEventListener("click", () => {
+        const model = document.querySelector("#model").value;
+        const memory = document.querySelector("#memory").value;
+        const storage = document.querySelector("#storage").value;
+        document.querySelector("#result").textContent =
+          `Recorded ${model}: ${memory} memory, ${storage} storage.`;
+      });
+    </script>
+  </body>
+</html>

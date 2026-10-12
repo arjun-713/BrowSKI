@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Team workspace settings</title>
+  </head>
+  <body>
+    <main>
+      <h1>Team workspace</h1>
+      <section aria-labelledby="report-heading">
+        <h2 id="report-heading">Monthly report</h2>
+        <p>Status: active</p>
+        <button id="archive-report" type="button">Archive monthly report</button>
+        <p id="report-status" role="status">Report remains active.</p>
+      </section>
+      <section aria-labelledby="preferences-heading">
+        <h2 id="preferences-heading">Notification preferences</h2>
+        <label>
+          <input id="weekly-digest" type="checkbox">
+          Send the weekly digest
+        </label>
+        <label>
+          <input id="product-news" type="checkbox" checked>
+          Send product news
+        </label>
+        <label for="workspace-language">Workspace language</label>
+        <select id="workspace-language">
+          <option value="en">English</option>
+          <option value="hi">Hindi</option>
+          <option value="sw">Swahili</option>
+          <option value="ja">Japanese</option>
+        </select>
+        <button id="save-preferences" type="button">Save preferences</button>
+        <p id="preferences-status" role="status">Preferences have not been saved.</p>
+      </section>
+    </main>
+    <script>
+      document.querySelector("#archive-report").addEventListener("click", () => {
+        document.querySelector("#report-status").textContent =
+          "Monthly report archived.";
+      });
+      document.querySelector("#save-preferences").addEventListener("click", () => {
+        const digest = document.querySelector("#weekly-digest").checked;
+        const news = document.querySelector("#product-news").checked;
+        const language = document.querySelector("#workspace-language");
+        document.querySelector("#preferences-status").textContent =
+          `Saved: weekly digest ${digest ? "on" : "off"}; product news ${news ? "on" : "off"}; language ${language.selectedOptions[0].textContent}.`;
+      });
+    </script>
+  </body>
+</html>

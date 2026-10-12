@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Workshop seat reservation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Reserve a workshop seat</h1>
+      <p>Review the selected details before the reservation is submitted.</p>
+      <label for="attendee">Attendee name</label>
+      <input id="attendee" autocomplete="name">
+      <label for="email">Contact email</label>
+      <input id="email" type="email" autocomplete="email">
+      <label for="organization">Organization</label>
+      <input id="organization">
+      <label for="date">Workshop date</label>
+      <select id="date">
+        <option value="">Choose a date</option>
+        <option value="oct-22">October 22</option>
+        <option value="oct-23">October 23</option>
+      </select>
+      <label for="session">Session</label>
+      <select id="session">
+        <option value="">Choose a session</option>
+        <option value="morning">Morning lab</option>
+        <option value="afternoon">Afternoon studio</option>
+      </select>
+      <label>
+        <input id="accessibility" type="checkbox">
+        I need step-free access
+      </label>
+      <button id="reserve" type="button">Reserve this seat</button>
+      <p id="reservation-status" role="status">No reservation submitted.</p>
+    </main>
+    <script>
+      document.querySelector("#reserve").addEventListener("click", () => {
+        const name = document.querySelector("#attendee").value;
+        const date = document.querySelector("#date").selectedOptions[0].textContent;
+        const session = document.querySelector("#session").selectedOptions[0].textContent;
+        document.querySelector("#reservation-status").textContent =
+          `Reservation submitted for ${name}: ${date}, ${session}.`;
+      });
+    </script>
+  </body>
+</html>

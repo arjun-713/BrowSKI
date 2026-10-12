@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Planning desk</title>
+  </head>
+  <body>
+    <main>
+      <h1>Planning desk</h1>
+      <section aria-labelledby="slot-heading">
+        <h2 id="slot-heading">Create a work session</h2>
+        <label for="day">Day</label>
+        <select id="day">
+          <option value="">Choose a day</option>
+          <option value="mon">Monday</option>
+          <option value="tue">Tuesday</option>
+          <option value="wed">Wednesday</option>
+        </select>
+        <label for="start">Starts at</label>
+        <select id="start">
+          <option value="">Choose a time</option>
+          <option value="14:00">2:00 PM</option>
+          <option value="15:00">3:00 PM</option>
+          <option value="16:00">4:00 PM</option>
+        </select>
+        <label for="end">Ends at</label>
+        <select id="end">
+          <option value="">Choose a time</option>
+          <option value="15:00">3:00 PM</option>
+          <option value="16:00">4:00 PM</option>
+          <option value="17:00">5:00 PM</option>
+        </select>
+        <button id="save-slot" type="button">Save work session</button>
+        <p id="slot-status" role="status">No work session saved.</p>
+      </section>
+      <section aria-labelledby="release-heading">
+        <h2 id="release-heading">Release checklist</h2>
+        <ol id="checklist">
+          <li data-step="notes"><span>Draft release notes</span><button type="button">Mark complete</button><strong></strong></li>
+          <li data-step="tests"><span>Run the test suite</span><button type="button">Mark complete</button><strong></strong></li>
+          <li data-step="review"><span>Review the release</span><button type="button">Mark complete</button><strong></strong></li>
+          <li data-step="publish"><span>Prepare the release package</span><button type="button">Mark complete</button><strong></strong></li>
+        </ol>
+        <p id="checklist-status" role="status">0 of 4 release steps complete.</p>
+      </section>
+      <section aria-labelledby="trip-heading">
+        <h2 id="trip-heading">Travel request draft</h2>
+        <p>Departure time is required before a flight can be selected.</p>
+        <p id="trip-status" role="status">No flight selected.</p>
+      </section>
+    </main>
+    <script>
+      document.querySelector("#save-slot").addEventListener("click", () => {
+        const day = document.querySelector("#day");
+        const start = document.querySelector("#start");
+        const end = document.querySelector("#end");
+        const message = document.querySelector("#slot-status");
+        if (!day.value || !start.value || !end.value) {
+          message.textContent = "Choose a day, start time, and end time.";
+          return;
+        }
+        if (start.value >= end.value) {
+          message.textContent = "End time must be later than start time.";
+          return;
+        }
+        message.textContent =
+          `${day.selectedOptions[0].textContent}: ${start.selectedOptions[0].textContent} to ${end.selectedOptions[0].textContent}.`;
+      });
+      const completed = new Set();
+      const prerequisites = {
+        notes: [],
+        tests: ["notes"],
+        review: ["notes", "tests"],
+        publish: ["review"],
+      };
+      for (const row of document.querySelectorAll("#checklist li")) {
+        row.querySelector("button").addEventListener("click", () => {
+          const step = row.dataset.step;
+          const ready = prerequisites[step].every((item) => completed.has(item));
+          const message = document.querySelector("#checklist-status");
+          if (!ready) {
+            message.textContent = "Complete the prerequisite steps first.";
+            return;
+          }
+          completed.add(step);
+          row.querySelector("strong").textContent = "Complete";
+          message.textContent = `${completed.size} of 4 release steps complete.`;
+        });
+      }
+    </script>
+  </body>
+</html>
