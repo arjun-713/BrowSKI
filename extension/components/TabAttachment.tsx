@@ -11,20 +11,20 @@ export function TabAttachment({
 }) {
   return (
     <section className="tab-section" aria-labelledby="tab-heading">
-      <div className="section-heading compact-heading">
-        <div>
-          <p className="eyebrow">BROWSER TAB</p>
-          <h2 id="tab-heading">Choose a tab</h2>
+      <div className="tab-summary">
+        <span className="tab-indicator" aria-hidden="true" />
+        <div className="tab-copy">
+          <h2 id="tab-heading">
+            {snapshot.attachment
+              ? snapshot.attachment.origin
+              : (snapshot.selectedTab?.origin ?? "No tab attached")}
+          </h2>
+          <span className={`text-state ${snapshot.attachment ? "text-state-on" : ""}`}>
+            {snapshot.attachment?.state ??
+              (snapshot.selectedTab ? "Ready to confirm" : "Choose a tab")}
+          </span>
         </div>
-        <span className={`text-state ${snapshot.attachment ? "text-state-on" : ""}`}>
-          {snapshot.attachment?.state ??
-            (snapshot.selectedTab ? "Ready to confirm" : "Not attached")}
-        </span>
       </div>
-      <p className="muted-copy">
-        {snapshot.attachment?.message ??
-          "Capture the active tab, review its origin, then confirm attachment."}
-      </p>
       {snapshot.selectedTab && !snapshot.attachment && (
         <div className="selection-review">
           <span className="selection-label">Selected tab origin</span>
@@ -32,12 +32,6 @@ export function TabAttachment({
           <span className="tab-reference">
             Your selection stays fixed when the active browser tab changes.
           </span>
-        </div>
-      )}
-      {snapshot.attachment && (
-        <div className="selection-review">
-          <span className="selection-label">Attached tab origin</span>
-          <code>{snapshot.attachment.origin}</code>
         </div>
       )}
       <div className="button-row">
@@ -91,11 +85,6 @@ export function TabAttachment({
           </button>
         )}
       </div>
-      {!snapshot.session && (
-        <p className="footnote">
-          BROWSKI can operate the selected tab only after you confirm attachment.
-        </p>
-      )}
     </section>
   );
 }

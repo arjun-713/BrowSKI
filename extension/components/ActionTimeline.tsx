@@ -7,7 +7,6 @@ export function ActionTimeline({ events }: { events: TimelineEvent[] }) {
     <section className="timeline-section" aria-labelledby="timeline-heading">
       <div className="section-heading compact-heading">
         <div>
-          <p className="eyebrow">RUNTIME EVENTS</p>
           <h2 id="timeline-heading">Timeline</h2>
         </div>
         <span className="event-count">{orderedEvents.length}</span>

@@ -36,6 +36,7 @@ describe("panel components", () => {
       <ConnectionStatus snapshot={EMPTY_SNAPSHOT} busy={false} onDispatch={vi.fn()} />,
     );
 
+    expect(screen.getByRole("heading", { name: "Browser companion" })).toBeTruthy();
     expect(screen.getByText("Disconnected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect runtime host" })).toBeTruthy();
 

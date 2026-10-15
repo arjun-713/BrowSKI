@@ -36,21 +36,20 @@ export function TaskComposer({
   }
 
   return (
-    <section className="task-section" aria-labelledby="task-heading">
-      <div className="section-heading compact-heading">
-        <div>
-          <p className="eyebrow">TASK</p>
-          <h2 id="task-heading">New task</h2>
-        </div>
+    <section className="task-section" aria-label="Task composer">
+      <div className="composer-heading">
+        <span>Ask BROWSKI</span>
         {session && <StatusTag status={session.status} />}
       </div>
       <form onSubmit={(event) => void submitTask(event)}>
-        <label htmlFor="task-input">Task instruction</label>
+        <label className="visually-hidden" htmlFor="task-input">
+          Task instruction
+        </label>
         <textarea
           id="task-input"
           value={task}
           onChange={(event) => setTask(event.target.value)}
-          placeholder="Find five AI internships in Bengaluru and open each in a tab."
+          placeholder="What would you like BROWSKI to do?"
           maxLength={4000}
           disabled={!canSubmitTask || busy}
           rows={4}
@@ -66,9 +65,6 @@ export function TaskComposer({
           </button>
         </div>
       </form>
-      <p className="footnote">
-        Follow the action timeline below. Consequential actions wait for your approval.
-      </p>
       {session && events.some((event) => event.runId) && (
         <RunControls status={session.status} busy={busy} onControl={controlTask} />
       )}

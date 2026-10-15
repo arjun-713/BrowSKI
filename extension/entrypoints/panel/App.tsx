@@ -33,15 +33,45 @@ function App() {
 
   return (
     <main className="panel-shell">
-      <ConnectionStatus snapshot={snapshot} busy={busy} onDispatch={dispatch} />
-      <TabAttachment snapshot={snapshot} busy={busy} onDispatch={dispatch} />
-      {snapshot.pendingApproval && (
-        <ConfirmationCard
-          approval={snapshot.pendingApproval}
+      <header className="panel-header">
+        <ConnectionStatus snapshot={snapshot} busy={busy} onDispatch={dispatch} />
+        <TabAttachment snapshot={snapshot} busy={busy} onDispatch={dispatch} />
+      </header>
+      <div className="panel-scroll-area">
+        {snapshot.pendingApproval && (
+          <ConfirmationCard
+            approval={snapshot.pendingApproval}
+            busy={busy}
+            onRespond={respondToApproval}
+          />
+        )}
+        {snapshot.session?.taskLabel && (
+          <section className="task-context" aria-label="Current task">
+            <span className="task-context-marker" aria-hidden="true" />
+            <p>{snapshot.session.taskLabel}</p>
+          </section>
+        )}
+        <ActionTimeline events={snapshot.events} />
+        {panelError && (
+          <p className="inline-error panel-error" role="alert">
+            {panelError}
+          </p>
+        )}
+        <SettingsPanel
+          snapshot={snapshot}
           busy={busy}
-          onRespond={respondToApproval}
+          autoConnect={autoConnect}
+          onDispatch={dispatch}
+          onSaveAutoConnect={saveAutoConnect}
+          onSaveRuntimeSettings={saveRuntimeSettings}
         />
-      )}
+        <footer className="panel-footer">
+          <span>Local companion</span>
+          <span>
+            v{extensionVersion} · protocol {PROTOCOL_VERSION}
+          </span>
+        </footer>
+      </div>
       <TaskComposer
         protocolReady={snapshot.protocolReady}
         session={snapshot.session}
@@ -49,26 +79,6 @@ function App() {
         busy={busy}
         onDispatch={dispatch}
       />
-      {panelError && (
-        <p className="inline-error panel-error" role="alert">
-          {panelError}
-        </p>
-      )}
-      <ActionTimeline events={snapshot.events} />
-      <SettingsPanel
-        snapshot={snapshot}
-        busy={busy}
-        autoConnect={autoConnect}
-        onDispatch={dispatch}
-        onSaveAutoConnect={saveAutoConnect}
-        onSaveRuntimeSettings={saveRuntimeSettings}
-      />
-      <footer className="panel-footer">
-        <span>Local companion</span>
-        <span>
-          v{extensionVersion} · protocol {PROTOCOL_VERSION}
-        </span>
-      </footer>
     </main>
   );
 }
