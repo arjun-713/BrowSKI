@@ -42,6 +42,21 @@ gaps; it is not a security certification.
 
 ## Current implementation evidence and gaps
 
+The 2026-10-15 consent review added a conservative gate for explicitly requested
+approval. Recognized requests such as “get my confirmation” require approval
+for click, keypress, dialog and tab-close operations even when a neutral label
+does not reveal the consequence. This also overrides a disabled general
+high-risk confirmation setting. It can ask for approval earlier than the final
+operation; the grammar and consequence detector remain bounded. Real Chromium
+regressions cover neutral and consequential labels, approval and denial.
+
+Cross-page recording reads a currently visible source reference before returning
+to its registered destination. The stored value is a snapshot fact. Background
+source changes after capture are not continuously revalidated, so these values
+must not be described as guaranteed current data. Comparing live prices or
+other volatile facts still requires task-level reinspection. Source ownership,
+explicit user intent and current destination binding remain required.
+
 The existing M0–M7 foundation has typed semantic references, generation-based
 staleness checks, typed actions, deterministic verification, bounded recovery,
 encrypted SQLite graph checkpoints, and a high-risk confirmation interrupt. The
@@ -65,6 +80,14 @@ resistance, browser-store distribution and independent security review remain
 unavailable. Same-user malware can access a running process and the private
 fallback files; local process isolation is not a defense against account
 compromise. This review does not certify the product.
+
+Completion checks prove the configured effects and recognized user constraints;
+they do not prove that a model's plan contains every obligation in an arbitrary
+natural-language task. Explicit plan revisions remain model-authored. A
+`task_complete` proposal cannot rewrite initialized proof, and a previous
+approval never authorizes the next affected mutation. The task-level approval
+receipt is not a semantic proof that a particular final requested effect
+occurred. Omitted-work regressions require independent task-level evaluation.
 
 ## Review cadence
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -23,6 +24,7 @@ from browser_agent.agent.action_batch import (
     mark_batch_action_started,
     prepare_action_batch,
 )
+from browser_agent.agent.candidate_output import resolve_candidate_output
 from browser_agent.agent.luna_candidates import (
     action_candidates,
     action_signature,
@@ -30,6 +32,7 @@ from browser_agent.agent.luna_candidates import (
     candidate_options,
     resolve_target,
 )
+from browser_agent.agent.microtasks import grounded_microtask
 from browser_agent.agent.runtime import Agent
 from browser_agent.agent.shadow import ShadowDecisionManager
 from browser_agent.agent.task_inventory import TaskInventory
@@ -40,9 +43,26 @@ from browser_agent.decisions import (
     DecisionProvider,
 )
 from browser_agent.decisions.action_matching import actions_match
+from browser_agent.decisions.fast_path import (
+    LayaRoutingPolicy,
+    choose_explicit_command,
+    next_explicit_candidate,
+)
+from browser_agent.decisions.task_recording import (
+    candidate_policy_for_recording,
+    setup_record_targets,
+)
 from browser_agent.decisions.task_sites import DEFAULT_SITE_ALIASES
 from browser_agent.persistence.run_metrics import RunMetricKind
-from browser_agent.progress.evidence import local_browser_checks, task_terminal_text
+from browser_agent.progress.completion_policy import (
+    outstanding_constraints,
+    required_link_open_checks,
+)
+from browser_agent.progress.evidence import (
+    local_browser_checks,
+    task_terminal_text,
+    visible_phrase_present,
+)
 from browser_agent.progress.task_state import check_completion
 from browser_agent.reasoning import (
     ComplexityGate,
@@ -54,6 +74,7 @@ from browser_agent.reasoning import (
     ReasoningEffort,
     ReasoningOutcome,
     ReasoningProvider,
+    ReasoningProviderProtocolError,
     ReasoningProviderRequestError,
     ReasoningPurpose,
     configured_luna_model,
@@ -70,6 +91,12 @@ from browser_agent.vision import (
 )
 
 _logger: Any = structlog.get_logger("browser_agent.agent.luna")
+_REPAIRABLE_PROTOCOL_ERRORS = frozenset(
+    {
+        "Reasoning response did not contain a parsed decision",
+        "Reasoning response violated the decision contract",
+    }
+)
 _VISUAL_CUES = frozenset(
     {
         "chart",
@@ -113,6 +140,7 @@ class LunaDecisionAgent(Agent):
         browser_code_enabled: bool = False,
         default_effort: ReasoningEffort = ReasoningEffort.LOW,
         site_aliases: Mapping[str, str] | None = None,
+        laya_routing_policy: LayaRoutingPolicy | None = None,
     ) -> None:
         self.decision_provider = decision_provider
         self.reasoning_provider = reasoning_provider
@@ -130,6 +158,7 @@ class LunaDecisionAgent(Agent):
         self._task_inventory = TaskInventory()
         self.last_reasoning_calls = 0
         self._batch: PendingActionBatch | None = None
+        self.laya_routing_policy = laya_routing_policy
 
     def bind_browser(self, browser: BrowserSession) -> None:
         self._task_inventory.bind_browser(browser)
@@ -139,12 +168,31 @@ class LunaDecisionAgent(Agent):
 
     async def finish_run(self) -> None:
         """Stop owned optional work at pause, termination, or cancellation."""
-        if self._shadow is not None:
-            await self._shadow.close()
-            self._shadow = None
-        if self._batch is not None:
-            self._batch.clear()
-            self._batch = None
+        cleanup_error: BaseException | None = None
+        close = getattr(self.reasoning_provider, "aclose", None)
+        if callable(close):
+            try:
+                close_result = close()
+                if not inspect.isawaitable(close_result):
+                    raise TypeError("reasoning provider aclose() must return an awaitable")
+                await close_result
+            except BaseException as exc:
+                cleanup_error = exc
+
+        shadow, self._shadow = self._shadow, None
+        if shadow is not None:
+            try:
+                await shadow.close()
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+
+        batch, self._batch = self._batch, None
+        if batch is not None:
+            batch.clear()
+
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def accept_browser_code_result(self, result: BrowserCodeResult) -> None:
         """Stage one ephemeral transform result for exactly the next Luna call."""
@@ -168,9 +216,13 @@ class LunaDecisionAgent(Agent):
         self.last_reasoning_calls = 0
         await self.refresh_task_evidence(snapshot, task)
         observation = agent_observation(snapshot)
+        if memory.record_destination_tab_id is None:
+            setup_record_targets(task, memory, snapshot)
         has_completion_criteria = bool(task.required_milestones or task_terminal_text(task))
+        pending_constraints = outstanding_constraints(task, memory, snapshot, self.candidate_policy)
         if (
             has_completion_criteria
+            and not pending_constraints
             and all(self._task_inventory.destination_checks.values())
             and "verification_success" in task.progress_signals
             and check_completion(
@@ -183,6 +235,15 @@ class LunaDecisionAgent(Agent):
                 done=True,
                 result_summary="Task completion is supported by verified browser evidence.",
             )
+        if (
+            task.plan_initialized
+            and task.required_milestones
+            and set(task.required_milestones).issubset(task.completed)
+            and pending_constraints
+        ):
+            task.current_subgoal = (
+                "Satisfy the remaining user constraint: " + pending_constraints[0]
+            )
         visual_context = await self._visual_context(snapshot, task, observation)
         if isinstance(visual_context, AgentDecision):
             return visual_context
@@ -194,6 +255,7 @@ class LunaDecisionAgent(Agent):
             observation=observation,
             candidate_policy=self.candidate_policy,
             owned_tab_urls=list(self._task_inventory.owned_tab_urls.values()),
+            task_tab_labels=self._task_inventory.task_tab_labels,
             site_aliases=self.site_aliases,
         )
         options = candidate_options(candidates)
@@ -224,7 +286,43 @@ class LunaDecisionAgent(Agent):
                 )
             self._batch = None
 
+        if self.decision_provider is not None and self.laya_routing_policy is not None:
+            eligible = next_explicit_candidate(
+                task, snapshot, observation, candidates, self.candidate_policy
+            )
+            if eligible is not None:
+                command, candidate = eligible
+                route = await choose_explicit_command(
+                    self.decision_provider, self.laya_routing_policy, command, candidate, task
+                )
+                if route.candidate is not None:
+                    action = candidate.to_browser_action(resolve_target(candidate, snapshot))
+                    decision = AgentDecision(
+                        action=action,
+                        reasoning="Selected a locally authorized command through scoped Laya.",
+                        plan_initialized=True,
+                    )
+                    microtask = grounded_microtask(task, observation)
+                    return (
+                        microtask.attach(decision)
+                        if microtask is not None and not task.plan_initialized
+                        else decision
+                    )
+
         if not task.plan_initialized:
+            microtask = grounded_microtask(task, observation)
+            if microtask is not None:
+                decision = await self._ask_luna(
+                    observation,
+                    task,
+                    memory,
+                    snapshot=snapshot,
+                    purpose=ReasoningPurpose.CHOOSE_ACTION,
+                    candidate_options=options,
+                    bounded_candidates=candidates,
+                    visual_context=visual_context,
+                )
+                return microtask.attach(decision)
             return await self._ask_luna(
                 observation,
                 task,
@@ -385,6 +483,7 @@ class LunaDecisionAgent(Agent):
         candidate_options: dict[str, str] | None = None,
         bounded_candidates: list[ActionCandidate] | None = None,
         visual_context: str | None = None,
+        protocol_repair_attempted: bool = False,
     ) -> AgentDecision:
         provider = self.reasoning_provider
         if provider is None:
@@ -416,8 +515,16 @@ class LunaDecisionAgent(Agent):
             visual_observation=visual_context,
             failure_summary=failure_summary,
             candidate_options=candidate_options or {},
-            browser_checks=local_browser_checks(task, snapshot, observation, self.candidate_policy)
-            | self._task_inventory.destination_checks,
+            browser_checks=local_browser_checks(
+                task,
+                snapshot,
+                observation,
+                candidate_policy_for_recording(
+                    task, memory, snapshot, observation, self.candidate_policy
+                ),
+            )
+            | self._task_inventory.destination_checks
+            | required_link_open_checks(task, snapshot),
             task_tab_labels=self._task_inventory.task_tab_labels,
             browser_code_enabled=self.browser_code_enabled,
             browser_code_result=browser_code_result,
@@ -429,6 +536,52 @@ class LunaDecisionAgent(Agent):
             result: Any = await provider.reason(context, model=self.model, effort=effort)
             if not isinstance(result, ReasoningDecision):
                 raise TypeError("reasoning provider returned an invalid decision")
+        except ReasoningProviderProtocolError as exc:
+            if (
+                str(exc) in _REPAIRABLE_PROTOCOL_ERRORS
+                and not protocol_repair_attempted
+                and task.has_reasoning_call_budget_for(self.last_reasoning_calls)
+            ):
+                _logger.warning(
+                    "reasoning_provider_protocol_error",
+                    provider="openai",
+                    error_type=type(exc).__name__,
+                    retry="bounded_replan",
+                )
+                return await self._ask_luna(
+                    observation,
+                    task,
+                    memory,
+                    snapshot=snapshot,
+                    purpose=ReasoningPurpose.REPLAN,
+                    failure_summary=(
+                        "The previous response did not satisfy the structured plan contract. "
+                        "Return one valid plan with one evidence entry for every milestone. "
+                        "For a replan, use milestone_plan when revising milestones or evidence; "
+                        "do not return interpretation with plan fields. "
+                        "Use only evidence categories supported by the current browser checks. "
+                        "Do not invent evidence, future controls, or semantic references. Choose "
+                        "a smaller milestone based on the current visible page and bounded "
+                        "candidate options; defer later controls until they are observed."
+                    ),
+                    candidate_options=candidate_options,
+                    bounded_candidates=bounded_candidates,
+                    visual_context=visual_context,
+                    protocol_repair_attempted=True,
+                )
+            _logger.warning(
+                "reasoning_provider_failed",
+                provider="openai",
+                error_type=type(exc).__name__,
+                effort=effort.value,
+            )
+            return AgentDecision(
+                ask_user=[
+                    "Luna could not produce a valid structured decision within the remaining "
+                    "reasoning-call budget. Review the current browser state and provide guidance."
+                ],
+                reasoning_effort=effort.value,
+            )
         except Exception as exc:
             _logger.warning(
                 "reasoning_provider_failed",
@@ -448,6 +601,13 @@ class LunaDecisionAgent(Agent):
             )
 
         reasoning = result.summary[:2_000]
+        try:
+            result = resolve_candidate_output(result, bounded_candidates or [])
+        except ValueError:
+            return AgentDecision(
+                ask_user=["Luna selected a candidate that is not currently authorized."],
+                reasoning_effort=effort.value,
+            )
         if result.outcome == ReasoningOutcome.BROWSER_CODE:
             proposal: BrowserCodeProposal | None = result.browser_code
             if (
@@ -470,7 +630,105 @@ class LunaDecisionAgent(Agent):
                 reasoning=reasoning,
                 reasoning_effort=effort.value,
             )
+        if result.outcome == ReasoningOutcome.TASK_COMPLETE:
+            required = task.required_milestones
+            initialized_evidence = {
+                milestone: task.milestone_evidence.get(milestone, "") for milestone in required
+            }
+            if (
+                not task.plan_initialized
+                or not required
+                or set(result.milestones) != set(required)
+                or "verification_success" not in task.progress_signals
+            ):
+                return AgentDecision(
+                    ask_user=[
+                        "Luna's completion proposal did not match an initialized plan with a "
+                        "verified browser effect. Review the current page before continuing."
+                    ],
+                    reasoning=reasoning,
+                    reasoning_effort=effort.value,
+                )
+            if result.milestone_evidence != initialized_evidence:
+                if not protocol_repair_attempted and task.has_reasoning_call_budget_for(
+                    self.last_reasoning_calls
+                ):
+                    return await self._ask_luna(
+                        observation,
+                        task,
+                        memory,
+                        snapshot=snapshot,
+                        purpose=ReasoningPurpose.REPLAN,
+                        failure_summary=(
+                            "A completion proposal must preserve the current milestone evidence. "
+                            "To correct an earlier plan's unusable evidence, return milestone_plan "
+                            "with runtime-checkable evidence for every remaining requested effect. "
+                            "Do not report task_complete with replacement proof."
+                        ),
+                        candidate_options=candidate_options,
+                        bounded_candidates=bounded_candidates,
+                        visual_context=visual_context,
+                        protocol_repair_attempted=True,
+                    )
+                return AgentDecision(
+                    ask_user=["Luna's completion proof differed from the initialized plan."],
+                    reasoning_effort=effort.value,
+                )
+            return AgentDecision(
+                done=True,
+                result_summary=reasoning or "Task completion is proposed for runtime verification.",
+                milestones=list(required),
+                milestone_evidence=initialized_evidence,
+                plan_initialized=True,
+                replace_plan=False,
+                reasoning=reasoning,
+                reasoning_effort=effort.value,
+            )
         if result.outcome == ReasoningOutcome.MILESTONE_PLAN:
+            verified_plan_revision = (
+                task.plan_initialized and "verification_success" in task.progress_signals
+            )
+            preexisting = [
+                evidence.removeprefix("visible_text:")
+                for evidence in result.milestone_evidence.values()
+                if evidence.startswith("visible_text:")
+                and ";" not in evidence
+                and " AND " not in evidence
+                and visible_phrase_present(evidence.removeprefix("visible_text:"), snapshot)
+            ]
+            if preexisting and not verified_plan_revision:
+                if purpose == ReasoningPurpose.PLAN:
+                    if task.has_reasoning_call_budget_for(self.last_reasoning_calls):
+                        return await self._ask_luna(
+                            observation,
+                            task,
+                            memory,
+                            snapshot=snapshot,
+                            purpose=ReasoningPurpose.REPLAN,
+                            failure_summary=(
+                                "Plan evidence exists before action; it does not prove an effect. "
+                                "Use supplied field checks, verified_action:click:@ref, "
+                                "or changed status. "
+                                "Static row labels and control names do not prove completion. "
+                                "Choose a smaller observable milestone using current controls "
+                                "and bounded candidate options. Do not invent future controls "
+                                "or semantic refs; defer those steps until the page changes."
+                            ),
+                            candidate_options=candidate_options,
+                            bounded_candidates=bounded_candidates,
+                            visual_context=visual_context,
+                            protocol_repair_attempted=True,
+                        )
+                    return AgentDecision(
+                        ask_user=[
+                            "Luna found a plan-evidence issue, but no reasoning-call budget "
+                            "remains for a safe correction. Review the browser state and guide it."
+                        ],
+                        reasoning_effort=effort.value,
+                    )
+                return AgentDecision(
+                    ask_user=["The proposed plan lacks evidence of changed browser state."]
+                )
             return AgentDecision(
                 milestones=result.milestones,
                 milestone_evidence=result.milestone_evidence,
@@ -483,7 +741,7 @@ class LunaDecisionAgent(Agent):
                 next_milestone=(result.milestones[1] if len(result.milestones) > 1 else None),
                 reasoning=reasoning,
                 reasoning_effort=effort.value,
-                replace_plan=purpose == ReasoningPurpose.REPLAN,
+                replace_plan=task.plan_initialized,
             )
         if result.outcome == ReasoningOutcome.INTERPRETATION:
             return AgentDecision(
@@ -623,7 +881,7 @@ class LunaDecisionAgent(Agent):
                 reasoning_effort=effort.value,
             )
 
-        if self.decision_provider is None:
+        if self.decision_provider is None or self.laya_routing_policy is not None:
             return AgentDecision(
                 action=action,
                 evidence_ref=(
@@ -682,6 +940,15 @@ def _visual_semantics_insufficient(
     ).casefold()
     words = set(re.findall(r"[a-z]+", text))
     cues = words & _VISUAL_CUES
+    # A color in a person or organization name is not visual uncertainty.
+    colors = {"red", "blue", "green", "yellow", "orange", "purple"}
+    if not re.search(
+        r"\b(?:red|blue|green|yellow|orange|purple)\s+"
+        r"(?:button|icon|control|shape|box|circle|square|link|label|text|area|region)\b"
+        r"|\b(?:color|colour|colored|coloured)\b",
+        text,
+    ):
+        cues -= colors
     if re.search(
         r"\b(?:leftmost|rightmost|topmost|bottommost|upper (?:left|right)|"
         r"lower (?:left|right)|(?:left|right) side|on the (?:left|right))\b",

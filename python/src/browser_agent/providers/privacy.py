@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from enum import StrEnum
 from typing import Any, cast
@@ -94,12 +95,13 @@ _SENSITIVE_LABEL_PATTERN = re.compile(
     r"api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|"
     r"id[\s_-]*token|one[\s_-]*time(?:[\s_-]*code)?|mfa[\s_-]*code|otp|"
     r"security[\s_-]*code|verification[\s_-]*code|recovery[\s_-]*code|"
-    r"credit[\s_-]*card|cvv|cvc)\b"
+    r"credit[\s_-]*card|cvv|cvc|medical|health|diagnos(?:is|tic)?|"
+    r"patient|treatment|symptom|medication|prescription)\b"
 )
 
 
 def has_recognized_sensitive_label(label: str) -> bool:
-    """Best-effort check for common credential labels; not universal detection."""
+    """Best-effort check for common private-data labels, not universal detection."""
     return _SENSITIVE_LABEL_PATTERN.search(label) is not None
 
 
@@ -147,6 +149,15 @@ class LocalTokenVault:
 
 class ProviderBoundary:
     """Central reasoning-provider boundary with explicit privacy policy."""
+
+    async def aclose(self) -> None:
+        """Delegate resource cleanup without exporting private context."""
+        close = getattr(self._provider, "aclose", None)
+        if callable(close):
+            close_result = close()
+            if not inspect.isawaitable(close_result):
+                raise TypeError("reasoning provider aclose() must return an awaitable")
+            await close_result
 
     def __init__(
         self,
@@ -246,7 +257,15 @@ class ProviderBoundary:
             object_values = cast(dict[str, object], value)
             role = _normalized_key(str(object_values.get("role", "")))
             semantic_kind = _normalized_key(str(object_values.get("semantic_kind", "")))
-            label_fields = ("name", "accessible_name", "label", "placeholder", "input_type")
+            label_fields = (
+                "name",
+                "accessible_name",
+                "label",
+                "placeholder",
+                "input_type",
+                "source_label",
+                "destination_label",
+            )
             labels: list[str] = []
             for field_name in label_fields:
                 label = object_values.get(field_name)

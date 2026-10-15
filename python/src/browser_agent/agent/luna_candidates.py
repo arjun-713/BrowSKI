@@ -15,10 +15,12 @@ from browser_agent._types import (
 )
 from browser_agent.decisions import ActionCandidate, CandidatePolicy, build_action_candidates
 from browser_agent.decisions.candidate_ranking import rank_observation_for_candidates
+from browser_agent.decisions.task_recording import candidate_policy_for_recording
 from browser_agent.decisions.task_sites import destination_task, requested_sites
-from browser_agent.decisions.task_tabs import with_owned_tab_candidates
+from browser_agent.decisions.task_tabs import MAX_OWNED_TABS, with_owned_tab_candidates
 from browser_agent.decisions.task_transfers import candidate_policy_for_authorized_transfers
 from browser_agent.decisions.task_values import candidate_policy_for_task_literals
+from browser_agent.progress.completion_policy import required_link_open_checks
 from browser_agent.progress.evidence import semantic_observation
 
 
@@ -30,6 +32,7 @@ def action_candidates(
     observation: AgentObservation,
     candidate_policy: CandidatePolicy,
     owned_tab_urls: list[str] | None = None,
+    task_tab_labels: Mapping[str, str] | None = None,
     site_aliases: Mapping[str, str] | None = None,
 ) -> list[ActionCandidate]:
     """Build the one finite set used for every executable Luna decision."""
@@ -42,11 +45,49 @@ def action_candidates(
         observation,
         policy,
     )
+    policy = candidate_policy_for_recording(task, memory, snapshot, observation, policy)
+    ranking_target = task.current_subgoal or task.next_milestone or task.task
+    link_checks = required_link_open_checks(task, snapshot)
+    completed_link_refs = {
+        key.removeprefix("required_link_open:") for key, is_open in link_checks.items() if is_open
+    }
+    candidate_observation = observation.model_copy(
+        update={
+            "elements": [
+                element
+                for element in observation.elements
+                if element.ref not in completed_link_refs
+            ]
+        }
+    )
+    pending_link_refs = [
+        key.removeprefix("required_link_open:")
+        for key, is_open in link_checks.items()
+        if not is_open
+    ]
+    # Required links are opened into owned tabs by this workflow. A source
+    # link click can itself create a tab (for example, target="_blank"), so
+    # apply the same bound here as for explicit new-tab candidates.
+    if len(set(snapshot.tabs)) >= MAX_OWNED_TABS:
+        blocked_link_refs = set(pending_link_refs)
+        pending_link_refs = []
+        candidate_observation = candidate_observation.model_copy(
+            update={
+                "elements": [
+                    element
+                    for element in candidate_observation.elements
+                    if element.ref not in blocked_link_refs
+                ]
+            }
+        )
     candidates = build_action_candidates(
         goal,
-        task.current_subgoal or task.next_milestone or task.task,
+        ranking_target,
         rank_observation_for_candidates(
-            observation, task=goal, current_subgoal=task.current_subgoal or task.task
+            candidate_observation,
+            task=goal,
+            current_subgoal=ranking_target,
+            priority_refs=pending_link_refs,
         ),
         {"click", "check", "scroll", "type", "select"},
         policy,
@@ -57,6 +98,7 @@ def action_candidates(
         snapshot=snapshot,
         max_candidates=candidate_policy.max_candidates,
         owned_tab_urls=owned_tab_urls or [],
+        task_tab_labels=task_tab_labels,
     )
 
 

@@ -41,6 +41,8 @@ class ActionRiskPolicy:
             "pay",
             "authorize",
             "donate",
+            "reserve",
+            "book",
         }
     )
     _HIGH_RISK_PHRASES = frozenset(
@@ -48,6 +50,11 @@ class ActionRiskPolicy:
             "place order",
             "place an order",
             "confirm purchase",
+            "reserve seat",
+            "confirm reservation",
+            "book flight",
+            "book hotel",
+            "book ticket",
             "cancel subscription",
             "change account",
             "update account",
@@ -64,7 +71,31 @@ class ActionRiskPolicy:
         {"navigate", "back", "forward", "reload", "scroll", "activate_tab", "new_tab"}
     )
 
-    def assess(self, action: BrowserAction, snapshot: SemanticSnapshot) -> RiskAssessment:
+    _USER_CONFIRMATION_REQUEST = re.compile(
+        r"\b(?:get|ask|request|wait|obtain)\b[^.!?]{0,35}"
+        r"\b(?:my|user|explicit)\b[^.!?]{0,20}"
+        r"\b(?:confirmation|approval)\b",
+        re.IGNORECASE,
+    )
+    _MUTATING_ACTIONS = frozenset({"click", "press", "handle_dialog", "close_tab"})
+
+    def assess(
+        self,
+        action: BrowserAction,
+        snapshot: SemanticSnapshot,
+        *,
+        user_goal: str | None = None,
+    ) -> RiskAssessment:
+        if (
+            user_goal is not None
+            and self._USER_CONFIRMATION_REQUEST.search(user_goal)
+            and action.type in self._MUTATING_ACTIONS
+        ):
+            return RiskAssessment(
+                category=RiskCategory.HIGH,
+                reason="explicit user confirmation requested before a consequential action",
+            )
+
         if action.submit:
             return RiskAssessment(category=RiskCategory.HIGH, reason="explicit submit action")
         if action.type in self._LOW_RISK_ACTIONS:

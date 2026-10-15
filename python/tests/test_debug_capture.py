@@ -36,7 +36,13 @@ class FakeResponses:
             output_parsed=ReasoningDecision(
                 outcome=ReasoningOutcome.ASK_USER, questions=["Choose a form title."]
             ),
-            usage=SimpleNamespace(input_tokens=20, output_tokens=10, total_tokens=30),
+            usage=SimpleNamespace(
+                input_tokens=20,
+                output_tokens=10,
+                total_tokens=30,
+                input_tokens_details=SimpleNamespace(cached_tokens=8, cache_write_tokens=4),
+                output_tokens_details=SimpleNamespace(reasoning_tokens=3),
+            ),
             output=[
                 SimpleNamespace(type="reasoning", encrypted_content="hidden-fixture"),
                 SimpleNamespace(
@@ -81,8 +87,19 @@ async def test_luna_request_response_debug_capture_is_public_and_correlated(tmp_
     request = events[0]["payload"]
     response = events[1]["payload"]
     assert request["input"]["task"]["task"] == "Create a blank form"
+    assert request["prompt_cache"] == {
+        "mode": "explicit",
+        "ttl": "30m",
+        "breakpoint": "after_fixed_developer_instructions",
+    }
+    assert "prompt_cache_key" not in request
     assert request["call_id"] == response["call_id"]
     assert response["response"]["usage"]["total_tokens"] == 30
+    assert response["response"]["usage"]["input_tokens_details"] == {
+        "cached_tokens": 8,
+        "cache_write_tokens": 4,
+    }
+    assert response["response"]["usage"]["output_tokens_details"] == {"reasoning_tokens": 3}
     assert response["response"]["output"][0]["content"]["questions"] == ["Choose a form title."]
     assert "hidden-fixture" not in json.dumps(events)
 

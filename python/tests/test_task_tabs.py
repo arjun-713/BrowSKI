@@ -19,6 +19,7 @@ def choices(
     *,
     tabs: list[str] | None = None,
     owned_tab_urls: Iterable[str] = (),
+    task_tab_labels: dict[str, str] | None = None,
 ) -> list[ActionCandidate]:
     snapshot = SemanticSnapshot(
         url="https://example.test/form",
@@ -47,6 +48,7 @@ def choices(
         snapshot=snapshot,
         max_candidates=16,
         owned_tab_urls=owned_tab_urls,
+        task_tab_labels=task_tab_labels,
     )
 
 
@@ -61,6 +63,21 @@ def test_complete_semantic_actions_bind_only_authorized_tabs() -> None:
     assert activated.tab == "guide"
     assert activated.to_browser_action() is not None
     assert not any(candidate.tab == "form" for candidate in candidates)
+
+
+def test_activation_description_uses_owned_task_label_without_tab_id() -> None:
+    candidate = next(
+        candidate
+        for candidate in choices(
+            "Compare product pages.",
+            tabs=["form", "opaque-ownership-id"],
+            task_tab_labels={"opaque-ownership-id": "Orbit 14 details"},
+        )
+        if candidate.action_type == "activate_tab"
+    )
+
+    assert candidate.description == "Activate the already owned tab labeled Orbit 14 details."
+    assert candidate.tab == "opaque-ownership-id"
 
 
 @pytest.mark.parametrize(

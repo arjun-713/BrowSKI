@@ -127,6 +127,7 @@ class ExtensionBridgeService:
         self._pending_approval: dict[str, object] | None = None
         self._browser_session: object | None = None
         self._attachment_task: asyncio.Task[None] | None = None
+        self._attachment_started = asyncio.Event()
         self._task_task: asyncio.Task[None] | None = None
         self._agent_runtime: object | None = None
         self._runtime_context: object | None = None
@@ -141,12 +142,27 @@ class ExtensionBridgeService:
         """Return a copy of the currently attached browser session summary."""
         return dict(self._runtime_session) if self._runtime_session is not None else None
 
-    async def wait_for_attached_browser(self) -> BrowserSession | None:
-        """Wait for the current attachment's Rust browser session to initialize."""
-        task = self._attachment_task
-        if task is not None:
-            await task
-        return cast(Any, self._browser_session)
+    async def wait_for_attached_browser(
+        self, *, wait_seconds: float | None = None
+    ) -> BrowserSession | None:
+        """Wait for initialization, optionally allowing an attach message to arrive.
+
+        With no timeout, inspect the current attachment as before. A bounded
+        timeout also waits for a newly dispatched extension attach request.
+        A caller timeout must not cancel the service-owned initialization task.
+        """
+        if wait_seconds is not None and not 0 < wait_seconds <= 30:
+            raise ValueError("attachment wait timeout must be in (0, 30] seconds")
+        try:
+            async with asyncio.timeout(wait_seconds):
+                if wait_seconds is not None and self._attachment_task is None and not self._closed:
+                    await self._attachment_started.wait()
+                task = self._attachment_task
+                if task is not None:
+                    await asyncio.shield(task)
+                return cast(Any, self._browser_session)
+        except TimeoutError:
+            return None
 
     async def start(self) -> None:
         """Create the private socket endpoint and start accepting one client."""
@@ -204,6 +220,7 @@ class ExtensionBridgeService:
         if self._closed:
             return
         self._closed = True
+        self._attachment_started.set()
         task_task, self._task_task = self._task_task, None
         if task_task is not None and not task_task.done():
             task_task.cancel()
@@ -367,6 +384,7 @@ class ExtensionBridgeService:
             if attachment is not None and self._backend is not None:
                 await self._backend.detach_attachment(attachment.attachment_id)
             attach_task, self._attachment_task = self._attachment_task, None
+            self._attachment_started.clear()
             if attach_task is not None and not attach_task.done():
                 attach_task.cancel()
                 await asyncio.gather(attach_task, return_exceptions=True)
@@ -428,6 +446,7 @@ class ExtensionBridgeService:
                 self._attachment_task = asyncio.create_task(
                     self._open_attached_browser(writer, attachment)
                 )
+                self._attachment_started.set()
         elif message_type in {
             "debugger.command.result",
             "debugger.event",
@@ -437,6 +456,7 @@ class ExtensionBridgeService:
                 await self._backend.handle_extension_message(message)
             if message_type == "browser.tab.detached":
                 attach_task, self._attachment_task = self._attachment_task, None
+                self._attachment_started.clear()
                 if attach_task is not None and not attach_task.done():
                     attach_task.cancel()
                     await asyncio.gather(attach_task, return_exceptions=True)

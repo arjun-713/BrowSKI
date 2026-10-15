@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from browser_agent._types import AgentObservation, PrunedElement
 from browser_agent.decisions.task_search import (
@@ -50,6 +51,7 @@ def rank_observation_for_candidates(
     *,
     task: str,
     current_subgoal: str,
+    priority_refs: Iterable[str] = (),
 ) -> AgentObservation:
     """Prioritize relevant observed elements before candidate truncation.
 
@@ -63,12 +65,20 @@ def rank_observation_for_candidates(
     if search_query is not None:
         subgoal_terms.add("search")
     search_refs = set(task_search_values_by_ref(task, observation))
+    priorities = set(priority_refs)
 
     scored: list[tuple[int, int, PrunedElement]] = []
     for index, element in enumerate(observation.elements):
-        label_text = " ".join(part for part in (element.name, element.text) if part)
-        label_terms = _content_terms(label_text)
-        score = 3 * len(label_terms & subgoal_terms) + len(label_terms & task_terms)
+        own_terms = _content_terms(" ".join(part for part in (element.name, element.text) if part))
+        context_terms = _content_terms(element.context or "")
+        score = (
+            3 * len(own_terms & subgoal_terms)
+            + len(own_terms & task_terms)
+            + 2 * len(context_terms & subgoal_terms)
+            + len(context_terms & task_terms)
+        )
+        if element.ref in priorities:
+            score += 64
         if search_query is not None and element.ref in search_refs:
             score += 16
         scored.append((score, index, element))

@@ -162,6 +162,8 @@ struct RawNode {
     context: Option<String>,
     /// Wrapping <label> text, if any.
     implicit_label: Option<String>,
+    /// The visible <dt> associated with a definition-list <dd>, if any.
+    definition_term: Option<String>,
     /// Inside an inert subtree.
     inert_ancestor: bool,
 }
@@ -416,12 +418,23 @@ fn walk(
     if child_ancestry.len() > 4 {
         child_ancestry.drain(..child_ancestry.len() - 4);
     }
+    let mut definition_term: Option<String> = None;
     for child in node
         .get("children")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
     {
+        let child_tag = child
+            .get("nodeName")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if tag == "dl" && child_tag == "dt" {
+            let term = paragraph_text(child, visible_ax_text);
+            definition_term = (!term.trim().is_empty()).then_some(term);
+        }
+        let raw_start = out.len();
         walk(
             child,
             out,
@@ -438,6 +451,11 @@ fn walk(
             paragraph_count,
             inert_here,
         );
+        if tag == "dl" && child_tag == "dd" {
+            if let Some(description) = out[raw_start..].iter_mut().find(|raw| raw.tag == "dd") {
+                description.definition_term = definition_term.clone();
+            }
+        }
     }
     // Open shadow roots (pierce:true inlines them); closed roots are absent
     // and fall back to AX/vision later.
@@ -647,7 +665,7 @@ fn push_candidate(
         || attrs.contains_key("onclick")
         || attrs.contains_key("contenteditable")
         || is_heading(tag);
-    let paragraph = tag == "p";
+    let paragraph = matches!(tag, "p" | "dt" | "dd" | "li");
     if paragraph && *paragraph_count >= MAX_PARAGRAPH_CANDIDATES {
         return;
     }
@@ -695,6 +713,7 @@ fn push_candidate(
         children_backends,
         context,
         implicit_label,
+        definition_term: None,
         inert_ancestor,
     });
     *doc_order += 1;
@@ -748,6 +767,11 @@ fn name_for(
     labels_for: &HashMap<String, String>,
     id_text: &HashMap<String, String>,
 ) -> Option<String> {
+    if let Some(term) = &raw.definition_term {
+        if !term.trim().is_empty() {
+            return Some(truncate(term));
+        }
+    }
     if let Some(n) = &ax.name {
         if !n.trim().is_empty() {
             return Some(truncate(n));
@@ -942,7 +966,7 @@ fn kind_for(role: &str, tag: &str, attrs: &HashMap<String, String>) -> SemanticK
             },
             "select" | "datalist" => SemanticKind::OptionList,
             "textarea" => SemanticKind::TextInput,
-            "p" => SemanticKind::Text,
+            "p" | "dt" | "dd" | "li" => SemanticKind::Text,
             _ => SemanticKind::Generic,
         },
     }
@@ -1074,6 +1098,14 @@ pub(crate) async fn observe_full(
     session: &BrowserSession,
     tab: &TabId,
 ) -> Result<SemanticSnapshot, BrowserRuntimeError> {
+    observe_full_attempt(session, tab, 0).await
+}
+
+async fn observe_full_attempt(
+    session: &BrowserSession,
+    tab: &TabId,
+    retry: u8,
+) -> Result<SemanticSnapshot, BrowserRuntimeError> {
     let (target, cdp_session) = session.tab_session_pub(tab).await?;
     let transport = session.transport_pub().await;
     let generation = session.generation();
@@ -1191,7 +1223,7 @@ pub(crate) async fn observe_full(
     let mut candidates = Vec::new();
     let mut paragraph_candidates = Vec::new();
     for node in ordered_raw {
-        if node.tag == "p" {
+        if matches!(node.tag.as_str(), "p" | "dt" | "dd" | "li") {
             paragraph_candidates.push(node);
         } else if candidates.len() < MAX_CANDIDATES {
             candidates.push(node);
@@ -1641,6 +1673,21 @@ pub(crate) async fn observe_full(
         state_generation: generation,
     };
 
+    // Navigation events are pumped independently of these CDP requests. If
+    // one arrives during collection, discard this candidate snapshot and
+    // make one bounded fresh attempt rather than returning old-generation
+    // metadata for a document observed after navigation.
+    if should_retry_observation(generation, session.generation(), retry) {
+        return Box::pin(observe_full_attempt(session, tab, retry + 1)).await;
+    }
+    if generation != session.generation() {
+        return Err(BrowserRuntimeError::Cdp(
+            browser_agent_cdp::CdpError::Unexpected(
+                "navigation changed during observation after one retry".into(),
+            ),
+        ));
+    }
+
     // 11. Delta vs last snapshot + store.
     let delta = {
         let snapshots = session.snapshots_map();
@@ -1660,6 +1707,10 @@ pub(crate) async fn observe_full(
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+fn should_retry_observation(captured: u64, current: u64, retries: u8) -> bool {
+    captured != current && retries == 0
+}
 
 fn eval_string(
     res: Result<Value, browser_agent_cdp::CdpError>,
@@ -1888,6 +1939,31 @@ fn build_dialogs(elements: &[SemanticElement]) -> Vec<DialogSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observation_generation_fence_retries_once_without_advancing_generation() {
+        let captured_generation = 4;
+        let mut current_generation = captured_generation;
+        assert!(!should_retry_observation(
+            captured_generation,
+            current_generation,
+            0
+        ));
+
+        // Model the event pump consuming a main-frame navigation while the
+        // observation's CDP requests are in flight.
+        current_generation += 1;
+        assert!(should_retry_observation(
+            captured_generation,
+            current_generation,
+            0
+        ));
+        assert!(!should_retry_observation(
+            captured_generation,
+            current_generation,
+            1
+        ));
+    }
 
     #[test]
     fn submit_state_requires_native_submit_semantics() {

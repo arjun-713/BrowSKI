@@ -82,6 +82,7 @@ class CandidatePolicy:
     select_labels_by_ref: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: dict[str, tuple[str, ...]]()
     )
+    checked_by_ref: Mapping[str, bool] = field(default_factory=lambda: dict[str, bool]())
     scroll_delta: int = 600
     include_scroll: bool = True
     include_planner_escalation: bool = True
@@ -141,14 +142,19 @@ def build_action_candidates(
                 ActionCandidate(
                     candidate_id="",
                     kind=CandidateKind.BROWSER_ACTION,
-                    description=describe(f"click {label} at {element.ref}"),
+                    description=describe(
+                        f"click {label} at {element.ref}"
+                        + (f"; row context: {element.context[:120]}" if element.context else "")
+                    ),
                     action_type="click",
                     target_ref=element.ref,
                     observed_generation=observation.state_generation,
                 )
             )
         if role in {"checkbox", "radio", "switch"} and "check" in capabilities:
-            desired = "checked" not in {state.lower() for state in element.state}
+            desired = rules.checked_by_ref.get(
+                element.ref, "checked" not in {state.lower() for state in element.state}
+            )
             candidates.append(
                 ActionCandidate(
                     candidate_id="",

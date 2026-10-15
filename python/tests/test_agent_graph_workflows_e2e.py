@@ -56,6 +56,21 @@ TAB_REPORT = """<!doctype html>
   </body>
 </html>"""
 
+MULTI_LINK_HOME = """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Product links</title></head>
+  <body>
+    <main>
+      <h1>Products</h1>
+      <a href="/product-a" target="_blank">Product A</a>
+      <a href="/product-b" target="_blank">Product B</a>
+    </main>
+  </body>
+</html>"""
+
+PRODUCT_PAGE = """<!doctype html>
+<html lang="en"><head><title>Product</title></head><body><h1>Product details</h1></body></html>"""
+
 OVERLAY_PAGE = """<!doctype html>
 <html lang="en">
   <head>
@@ -266,6 +281,45 @@ class NewTabResearchAgent(Agent):
         )
 
 
+class MultiLinkOpenAgent(Agent):
+    def __init__(self, home_url: str) -> None:
+        self.home_url = home_url
+        self.source_tab: str | None = None
+        self.opened: set[str] = set()
+        self.proof_counts: list[int] = []
+
+    async def decide(
+        self,
+        snapshot: SemanticSnapshot,
+        task: TaskState,
+        memory: WorkingMemory,
+    ) -> AgentDecision:
+        _ = memory
+        self.proof_counts.append(len(task.verified_link_opens))
+        if snapshot.url != self.home_url and self.source_tab is None:
+            return AgentDecision(action=BrowserAction(type="navigate", url=self.home_url))
+        if self.source_tab is None:
+            self.source_tab = snapshot.active_tab
+        if snapshot.active_tab != self.source_tab:
+            return AgentDecision(action=BrowserAction(type="activate_tab", tab=self.source_tab))
+        for label in ("Product A", "Product B"):
+            if label in self.opened:
+                continue
+            link = next(
+                item
+                for item in snapshot.elements
+                if item.role == "link" and item.accessible_name == label
+            )
+            self.opened.add(label)
+            return AgentDecision(
+                action=BrowserAction(
+                    type="click",
+                    target=ElementRef(ref=link.ref, id=link.id, generation=link.generation),
+                )
+            )
+        return AgentDecision(ask_user=["End the regression flow after both links are opened."])
+
+
 class OverlayRecoveryAgent(Agent):
     def __init__(self, page_url: str) -> None:
         self.page_url = page_url
@@ -390,6 +444,28 @@ async def test_graph_opens_new_tab_and_extracts_its_information() -> None:
     assert result.done
     assert len(tabs) == 2
     assert any(tab.url.endswith("/report") for tab in tabs)
+
+
+async def test_graph_records_fresh_proof_for_each_sequential_target_blank_link() -> None:
+    pages = {
+        "/home": MULTI_LINK_HOME,
+        "/product-a": PRODUCT_PAGE,
+        "/product-b": PRODUCT_PAGE,
+    }
+    with serve_pages(pages) as base_url:
+        agent = MultiLinkOpenAgent(f"{base_url}/home")
+        async with BrowserSession.launch() as browser:
+            runtime = AgentRuntime(
+                agent,
+                browser,
+                config=AgentConfig(max_steps=16, confirm_high_risk=False),
+            )
+            result = await runtime.run("Open each product link in separate tabs.")
+            tabs = await browser.tabs()
+
+    assert result.status == "awaiting_user"
+    assert agent.proof_counts == [0, 0, 1, 2]
+    assert len(tabs) == 3
 
 
 async def test_graph_dismisses_recoverable_overlay_before_proceeding() -> None:

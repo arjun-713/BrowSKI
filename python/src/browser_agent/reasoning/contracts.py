@@ -33,6 +33,7 @@ class ReasoningPurpose(StrEnum):
 
 class ReasoningOutcome(StrEnum):
     MILESTONE_PLAN = "milestone_plan"
+    TASK_COMPLETE = "task_complete"
     NEXT_ACTION = "next_action"
     ASK_USER = "ask_user"
     INTERPRETATION = "interpretation"
@@ -138,20 +139,37 @@ class ReasoningDecision(BaseModel):
     candidate_actions: list[ReasoningAction] = Field(
         default_factory=list[ReasoningAction], max_length=8
     )
+    candidate_id: str | None = Field(default=None, pattern=r"^c\d{2}$")
+    candidate_ids: list[str] = Field(default_factory=list[str], max_length=4)
     questions: list[str] = Field(default_factory=list[str], max_length=10)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ReasoningDecision:
+        if len(set(self.candidate_ids)) != len(self.candidate_ids):
+            raise ValueError("candidate ID batches must not repeat an action")
+        for index, action in enumerate(self.candidate_actions):
+            if action in self.candidate_actions[:index]:
+                raise ValueError("action batches must not repeat an identical action")
         if self.outcome == ReasoningOutcome.NEXT_ACTION:
-            if (self.action is None) == (not self.candidate_actions):
+            if (
+                sum(
+                    (
+                        self.action is not None,
+                        bool(self.candidate_actions),
+                        self.candidate_id is not None,
+                        bool(self.candidate_ids),
+                    )
+                )
+                != 1
+            ):
                 raise ValueError(
-                    "next_action requires exactly one action or a non-empty candidate set"
+                    "next_action requires exactly one action, batch, candidate ID, or ID batch"
                 )
             if self.milestones:
                 raise ValueError("next_action cannot contain a milestone plan")
             if self.browser_code is not None:
                 raise ValueError("next_action cannot contain a browser-code proposal")
-            if self.evidence_ref is not None and self.action is None:
+            if self.evidence_ref is not None and self.action is None and self.candidate_id is None:
                 raise ValueError("evidence_ref requires one next_action")
         elif self.outcome == ReasoningOutcome.BROWSER_CODE:
             if self.browser_code is None:
@@ -163,6 +181,8 @@ class ReasoningDecision(BaseModel):
                 or self.milestone_evidence
                 or self.current_subgoal is not None
                 or self.questions
+                or self.candidate_id is not None
+                or self.candidate_ids
             ):
                 raise ValueError("browser_code cannot combine with action, plan, or user control")
         elif (
@@ -170,14 +190,18 @@ class ReasoningDecision(BaseModel):
             or self.candidate_actions
             or self.browser_code is not None
             or self.evidence_ref is not None
+            or self.candidate_id is not None
+            or self.candidate_ids
         ):
             raise ValueError("only next_action decisions may contain browser actions")
         if self.evidence_ref is not None and not self.evidence_ref.startswith("@"):
             raise ValueError("evidence_ref must be a semantic reference")
 
-        if self.outcome == ReasoningOutcome.MILESTONE_PLAN and not self.milestones:
-            raise ValueError("milestone_plan requires at least one milestone")
-        if self.outcome == ReasoningOutcome.MILESTONE_PLAN:
+        if self.outcome in {ReasoningOutcome.MILESTONE_PLAN, ReasoningOutcome.TASK_COMPLETE}:
+            if not self.milestones:
+                raise ValueError(f"{self.outcome.value} requires at least one milestone")
+            if len(set(self.milestones)) != len(self.milestones):
+                raise ValueError("milestone identifiers must be unique")
             if set(self.milestone_evidence) != set(self.milestones):
                 raise ValueError(
                     "each milestone requires one deterministic visible evidence phrase"
@@ -185,7 +209,9 @@ class ReasoningDecision(BaseModel):
             if any(not evidence.strip() for evidence in self.milestone_evidence.values()):
                 raise ValueError("milestone evidence phrases must not be empty")
         elif self.milestone_evidence:
-            raise ValueError("milestone evidence is only valid with a milestone plan")
+            raise ValueError("milestone evidence is only valid with a milestone plan or completion")
+        if self.outcome == ReasoningOutcome.TASK_COMPLETE and self.questions:
+            raise ValueError("task_complete cannot include user questions")
         if self.outcome == ReasoningOutcome.ASK_USER and not self.questions:
             raise ValueError("ask_user requires at least one question")
         if any(not milestone.strip() for milestone in self.milestones):

@@ -225,11 +225,15 @@ async def attached_harness(
                 demo_url,
             )
             await panel_page.get_by_role("button", name="Capture active tab").click()
-            await expect(panel_page.get_by_text(urlsplit(demo_url).netloc)).to_be_visible()
+            await expect(
+                panel_page.get_by_role(
+                    "heading", name=f"http://{urlsplit(demo_url).netloc}", exact=True
+                )
+            ).to_be_visible()
             await panel_page.get_by_role("button", name="Confirm and attach").click()
 
             attached_browser = await asyncio.wait_for(
-                service.wait_for_attached_browser(),
+                service.wait_for_attached_browser(wait_seconds=15),
                 timeout=15,
             )
             assert attached_browser is not None
@@ -239,9 +243,13 @@ async def attached_harness(
             assert snapshot.title == "BROWSKI local application demo"
             assert any(element.accessible_name == "Full name" for element in snapshot.elements)
             assert isinstance(demo_tab_id, int)
-            await expect(panel_page.get_by_text("Attached tab origin")).to_be_visible(
-                timeout=10_000
+            attached_tab = panel_page.get_by_role(
+                "region",
+                name=f"http://{urlsplit(demo_url).netloc}",
+                exact=True,
             )
+            await expect(attached_tab).to_be_visible(timeout=10_000)
+            await expect(attached_tab.get_by_text("attached", exact=True)).to_be_visible()
 
             try:
                 yield AttachedHarness(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from browser_agent._types import SemanticSnapshot
@@ -37,7 +37,7 @@ _TYPE_INPUT = re.compile(
     r"(?:(?!(?P=field_quote))[^\r\n]){1,120}(?P=field_quote)",
     re.IGNORECASE,
 )
-_MAX_OWNED_TABS = 8
+MAX_OWNED_TABS = 8
 _MAX_REQUESTED_URLS = 8
 
 
@@ -48,6 +48,7 @@ def with_owned_tab_candidates(
     snapshot: SemanticSnapshot,
     max_candidates: int,
     owned_tab_urls: Iterable[str] = (),
+    task_tab_labels: Mapping[str, str] | None = None,
 ) -> list[ActionCandidate]:
     """Never accept a model-generated destination or an unowned tab reference.
 
@@ -65,7 +66,7 @@ def with_owned_tab_candidates(
         for url in (snapshot.url, *owned_tab_urls)
         if (normalized := _normalized_http_url(url)) is not None
     }
-    available_slots = max(0, _MAX_OWNED_TABS - len(snapshot.tabs))
+    available_slots = max(0, MAX_OWNED_TABS - len(snapshot.tabs))
     url_limit = min(_MAX_REQUESTED_URLS, available_slots)
     if url_limit:
         for url in explicit_task_destinations(task):
@@ -88,14 +89,21 @@ def with_owned_tab_candidates(
             if len(additions) >= url_limit:
                 break
 
+    labels = task_tab_labels or {}
     for tab in snapshot.tabs[:8]:
         if tab == snapshot.active_tab:
             continue
+        label = " ".join(labels.get(tab, "").split())[:120]
+        description = (
+            f"Activate the already owned tab labeled {label}."
+            if label
+            else "Activate another already owned browser tab."
+        )
         additions.append(
             ActionCandidate(
                 candidate_id="",
                 kind=CandidateKind.BROWSER_ACTION,
-                description=f"Activate the already owned browser tab {tab}.",
+                description=description,
                 action_type="activate_tab",
                 tab=tab,
                 observed_generation=snapshot.state_generation,

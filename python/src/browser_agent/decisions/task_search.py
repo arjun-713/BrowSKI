@@ -8,8 +8,8 @@ from collections.abc import Collection
 from browser_agent._types import AgentObservation
 
 _SEARCH_INTENT = re.compile(
-    r"\b(?:search\s+for|find|buy)\s+(?:me\s+)?(?P<query>[^.!?\r\n]{1,512}?)"
-    r"(?=\s+\b(?:and|then|can\s+you|on|from)\b|[,;.!?\r\n]|$)",
+    r"\b(?:search\s+for|look\s+up|find|buy)\s+(?:me\s+)?(?P<query>[^.!?\r\n]{1,512}?)"
+    r"(?=\s+\b(?:and|then|can\s+you|on|from|in)\b|[,;.!?\r\n]|$)",
     re.IGNORECASE,
 )
 _CREDENTIAL_TERMS = frozenset(
@@ -74,6 +74,15 @@ def task_search_values_by_ref(
     ]
     if len(matches) != 1:
         return {}
+    # Remove a catalog object qualifier only when that same catalog kind is
+    # explicitly named by the observed search control. The query still comes
+    # exclusively from the user's words.
+    label = matches[0].name or ""
+    kinds = {word.rstrip("s") for word in re.findall(r"[a-z]+", label.casefold())}
+    final = query.split()[-1].casefold().rstrip("s")
+    if final in kinds and len(query.split()) > 1:
+        query = re.sub(r"\s+\S+$", "", query)
+        query = re.sub(r"^the\s+", "", query, flags=re.I)
     return {matches[0].ref: query}
 
 

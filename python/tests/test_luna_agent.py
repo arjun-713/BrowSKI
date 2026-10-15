@@ -31,6 +31,7 @@ from browser_agent.reasoning import (
     ReasoningDecision,
     ReasoningEffort,
     ReasoningOutcome,
+    ReasoningProviderProtocolError,
     ReasoningProviderRequestError,
 )
 from browser_agent.vision import (
@@ -93,6 +94,25 @@ class FakeReasoningProvider:
     ) -> ReasoningDecision:
         self.calls.append((context, model, effort))
         return self.decision
+
+
+class ProtocolFailureThenProvider:
+    def __init__(self, *responses: ReasoningDecision | Exception) -> None:
+        self.responses = list(responses)
+        self.calls: list[tuple[ReasoningContext, str, ReasoningEffort]] = []
+
+    async def reason(
+        self,
+        context: ReasoningContext,
+        *,
+        model: str,
+        effort: ReasoningEffort,
+    ) -> ReasoningDecision:
+        self.calls.append((context, model, effort))
+        response = self.responses[min(len(self.calls) - 1, len(self.responses) - 1)]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class FakeVisionProvider:
@@ -205,6 +225,57 @@ async def test_initial_plan_next_action_must_match_runtime_candidate_set() -> No
     assert decision.action.type == "click"
     assert provider.calls[0][0].purpose.value == "plan"
     assert provider.calls[0][0].candidate_options
+
+
+async def test_protocol_invalid_plan_gets_one_bounded_evidence_repair() -> None:
+    provider = ProtocolFailureThenProvider(
+        ReasoningProviderProtocolError("Reasoning response violated the decision contract"),
+        ReasoningDecision(
+            outcome=ReasoningOutcome.MILESTONE_PLAN,
+            milestones=["Click the currently visible Continue button"],
+            milestone_evidence={
+                "Click the currently visible Continue button": "verified_action:click:@continue"
+            },
+        ),
+    )
+    agent = LunaDecisionAgent(None, provider)
+    task = task_state(plan_initialized=False)
+
+    decision = await agent.decide(snapshot(), task, WorkingMemory())
+
+    assert decision.plan_initialized
+    assert [call[0].purpose.value for call in provider.calls] == ["plan", "replan"]
+    assert "one evidence entry for every milestone" in (provider.calls[1][0].failure_summary or "")
+    assert "Do not invent evidence" in (provider.calls[1][0].failure_summary or "")
+    assert agent.last_reasoning_calls == 2
+
+
+async def test_protocol_repair_does_not_exceed_remaining_run_call_budget() -> None:
+    provider = ProtocolFailureThenProvider(
+        ReasoningProviderProtocolError("Reasoning response violated the decision contract")
+    )
+    agent = LunaDecisionAgent(None, provider)
+    task = task_state(llm_calls=1)
+    task.set_reasoning_call_limit(1)
+
+    decision = await agent.decide(snapshot(), task, WorkingMemory())
+
+    assert decision.ask_user
+    assert len(provider.calls) == 1
+    assert agent.last_reasoning_calls == 1
+
+
+async def test_oversized_reasoning_context_is_not_retried_as_a_protocol_repair() -> None:
+    provider = ProtocolFailureThenProvider(
+        ReasoningProviderProtocolError("Reasoning context exceeds the configured character limit")
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(snapshot(), task_state(), WorkingMemory())
+
+    assert decision.ask_user
+    assert len(provider.calls) == 1
+    assert agent.last_reasoning_calls == 1
 
 
 async def test_plan_next_action_cannot_bypass_finite_candidates() -> None:

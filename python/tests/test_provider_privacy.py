@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from browser_agent._types import AgentObservation, PrunedElement, TaskState, WorkingMemory
+from browser_agent._types import (
+    AgentObservation,
+    AuthorizedTransferEvidence,
+    PrunedElement,
+    TaskState,
+    WorkingMemory,
+)
 from browser_agent.browser_code.contracts import (
     BrowserCodePayload,
     BrowserCodeRecord,
@@ -184,6 +190,45 @@ async def test_privacy_first_redacts_browser_code_secret_values_by_record_key() 
     outbound = provider.contexts[0].model_dump_json()
     assert secret not in outbound
     assert "<PRIVATE_" in outbound
+
+
+@pytest.mark.asyncio
+async def test_privacy_first_redacts_sensitive_record_transfer_but_keeps_product_facts() -> None:
+    provider = FakeReasoningProvider()
+    boundary = ProviderBoundary(provider, mode=PrivacyMode.PRIVACY_FIRST)
+    diagnosis = "Type 2 diabetes"
+    model_name = "ThinkPad X1 Carbon Gen 12"
+    context = context_with_private_values().model_copy(
+        update={
+            "memory": WorkingMemory(
+                authorized_transfer_evidence=[
+                    AuthorizedTransferEvidence(
+                        source_tab_id="health-page",
+                        source_ref="@diagnosis",
+                        source_generation=2,
+                        source_label="Diagnosis",
+                        destination_label="Diagnosis",
+                        value=diagnosis,
+                    ),
+                    AuthorizedTransferEvidence(
+                        source_tab_id="product-page",
+                        source_ref="@model-name",
+                        source_generation=3,
+                        source_label="Product model",
+                        destination_label="Matching model",
+                        value=model_name,
+                    ),
+                ]
+            ),
+        }
+    )
+
+    await boundary.reason(context, model="gpt-6-luna", effort=ReasoningEffort.LOW)
+
+    outbound = provider.contexts[0].model_dump_json()
+    assert diagnosis not in outbound
+    assert model_name in outbound
+    assert context.memory.authorized_transfer_evidence[0].value == diagnosis
 
 
 @pytest.mark.asyncio

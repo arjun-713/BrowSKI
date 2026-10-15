@@ -217,6 +217,10 @@ def test_risk_policy_flags_submission_and_keeps_navigation_low_risk() -> None:
         "Cancel subscription",
         "Update account security",
         "Modify security settings",
+        "Reserve this seat",
+        "Reserve a workshop seat",
+        "Book this flight",
+        "Book a hotel room",
     ],
 )
 def test_risk_policy_flags_common_consequential_labels(label: str) -> None:

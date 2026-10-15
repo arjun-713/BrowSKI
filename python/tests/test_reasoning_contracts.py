@@ -103,6 +103,13 @@ def test_decision_requires_one_next_action_shape() -> None:
             candidate_actions=[ReasoningAction(type="scroll")],
         )
 
+    with pytest.raises(ValidationError, match="exactly one action"):
+        ReasoningDecision(
+            outcome=ReasoningOutcome.NEXT_ACTION,
+            candidate_id="c01",
+            action=ReasoningAction(type="activate_tab", tab="legacy-tab"),
+        )
+
 
 def test_milestone_plan_requires_visible_evidence_for_each_milestone() -> None:
     decision = ReasoningDecision(
@@ -120,6 +127,39 @@ def test_milestone_plan_requires_visible_evidence_for_each_milestone() -> None:
         ReasoningDecision(
             outcome=ReasoningOutcome.MILESTONE_PLAN,
             milestones=["Open the form"],
+        )
+
+
+def test_task_complete_requires_full_plan_evidence_and_no_actions() -> None:
+    completion = ReasoningDecision(
+        outcome=ReasoningOutcome.TASK_COMPLETE,
+        milestones=["Open form", "Save form"],
+        milestone_evidence={
+            "Open form": "visible_text:Registration form",
+            "Save form": "visible_text:Form saved",
+        },
+    )
+    assert completion.outcome == ReasoningOutcome.TASK_COMPLETE
+
+    with pytest.raises(ValidationError, match="each milestone requires"):
+        ReasoningDecision(
+            outcome=ReasoningOutcome.TASK_COMPLETE,
+            milestones=["Open form", "Save form"],
+            milestone_evidence={"Save form": "visible_text:Form saved"},
+        )
+    with pytest.raises(ValidationError, match="only next_action decisions"):
+        ReasoningDecision(
+            outcome=ReasoningOutcome.TASK_COMPLETE,
+            milestones=["Save form"],
+            milestone_evidence={"Save form": "visible_text:Form saved"},
+            candidate_id="c02",
+        )
+    with pytest.raises(ValidationError, match="only next_action decisions"):
+        ReasoningDecision(
+            outcome=ReasoningOutcome.TASK_COMPLETE,
+            milestones=["Save form"],
+            milestone_evidence={"Save form": "visible_text:Form saved"},
+            action=ReasoningAction(type="click", target_ref="@save"),
         )
 
 

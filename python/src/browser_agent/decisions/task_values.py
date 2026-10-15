@@ -8,6 +8,8 @@ from dataclasses import replace
 
 from browser_agent._types import AgentObservation
 from browser_agent.decisions.candidates import CandidatePolicy
+from browser_agent.decisions.task_commands import user_commands
+from browser_agent.decisions.task_entities import candidate_policy_for_task_entities
 from browser_agent.decisions.task_search import task_search_values_by_ref
 
 _MAX_TASK_CHARS = 8_000
@@ -37,7 +39,7 @@ def candidate_policy_for_task_literals(
     Labels match one observed semantic control; a selection value must also
     match one observed option label or value.
     """
-    policy = base_policy or CandidatePolicy()
+    policy = candidate_policy_for_task_entities(task, observation, base_policy)
     if len(task) > _MAX_TASK_CHARS:
         return policy
 
@@ -72,12 +74,22 @@ def candidate_policy_for_task_literals(
             derived[ref] = value
 
     select_labels = _derive_select_labels(select_intents, observation, policy)
+    checks = dict(policy.checked_by_ref)
+    for command in user_commands(task, observation) or ():
+        if command.kind == "type" and command.value is not None:
+            if command.ref not in policy.values_by_ref and command.ref not in derived:
+                derived[command.ref] = command.value
+        elif command.kind == "select" and command.value is not None:
+            if command.ref not in policy.select_values_by_ref:
+                select_labels.setdefault(command.ref, (command.value,))
+        elif command.kind == "check" and command.checked is not None:
+            checks.setdefault(command.ref, command.checked)
     search_values = task_search_values_by_ref(
         task,
         observation,
         excluded_refs=set(policy.values_by_ref) | set(derived),
     )
-    if not derived and not select_labels and not search_values:
+    if not derived and not select_labels and not search_values and checks == policy.checked_by_ref:
         return policy
 
     values = dict(policy.values_by_ref)
@@ -89,6 +101,7 @@ def candidate_policy_for_task_literals(
         policy,
         values_by_ref=values,
         select_labels_by_ref=labels_by_ref,
+        checked_by_ref=checks,
     )
 
 
@@ -152,6 +165,7 @@ def _derive_select_labels(
             element
             for element in observation.elements
             if element.role.casefold() == "option"
+            and (element.parent_ref is None or element.parent_ref == comboboxes[0].ref)
             and any(
                 candidate is not None and _normalize(candidate) == _normalize(requested_value)
                 for candidate in (element.name, element.text, element.value)

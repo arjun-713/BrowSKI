@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from browser_agent._types import SemanticSnapshot, TabInfo, TaskState
+from browser_agent._types import SemanticSnapshot, TabInfo, TaskState, VerifiedLinkOpen
 from browser_agent.agent.task_inventory import TaskInventory
 from browser_agent.session import BrowserSession
 
@@ -169,3 +169,47 @@ async def test_configured_alias_is_only_labeled_at_exact_configured_destination(
 
     assert inventory.task_tab_labels == {"home": "shop"}
     assert inventory.destination_checks == {"owned_task_destination:1": True}
+
+
+@pytest.mark.asyncio
+async def test_verified_source_link_label_is_exposed_only_for_current_owned_tab() -> None:
+    browser = FakeBrowser(
+        [
+            tab("origin", "https://source.example/"),
+            tab("orbit", "https://product.example/orbit"),
+        ]
+    )
+    inventory = TaskInventory()
+    bind(inventory, browser)
+    task = TaskState(
+        task="Open each product link in separate tabs.",
+        required_link_source_tab_id="origin",
+        required_link_source_generation=4,
+        required_link_source_fingerprint="inventory-test-page",
+        required_link_refs=["@orbit", "@field"],
+        verified_link_opens=[
+            VerifiedLinkOpen(
+                source_tab_id="origin",
+                source_ref="@orbit",
+                source_generation=4,
+                source_page_fingerprint="inventory-test-page",
+                opened_tab_id="orbit",
+                link_label="Orbit 14 details",
+            ),
+            VerifiedLinkOpen(
+                source_tab_id="other-source",
+                source_ref="@intruder",
+                source_generation=4,
+                source_page_fingerprint="inventory-test-page",
+                opened_tab_id="orbit",
+                link_label="Unrelated tab label",
+            ),
+        ],
+    )
+
+    await inventory.refresh(snapshot("origin", "orbit"), task, {})
+
+    assert inventory.task_tab_labels == {
+        "origin": "Source page with requested links",
+        "orbit": "Orbit 14 details",
+    }

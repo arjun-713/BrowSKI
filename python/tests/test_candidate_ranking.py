@@ -1,8 +1,15 @@
 """Candidate ranking reorders only authorized semantic targets."""
 
-from browser_agent._types import AgentObservation, PrunedElement
+from browser_agent._types import (
+    AgentObservation,
+    PrunedElement,
+    SemanticSnapshot,
+    TaskState,
+    WorkingMemory,
+)
+from browser_agent.agent.luna_candidates import action_candidates
 from browser_agent.decisions.candidate_ranking import rank_observation_for_candidates
-from browser_agent.decisions.candidates import build_action_candidates
+from browser_agent.decisions.candidates import CandidatePolicy, build_action_candidates
 from browser_agent.decisions.task_values import candidate_policy_for_task_literals
 
 
@@ -140,3 +147,116 @@ def test_observation_ranking_prioritizes_search_control_for_search_subgoal() -> 
     )
 
     assert ranked.elements[0].ref == "@search"
+
+
+def test_list_item_context_ranks_the_action_for_the_pending_named_target() -> None:
+    observation = AgentObservation(
+        url="https://support.example/tickets",
+        title="Accessibility tickets",
+        elements=[
+            PrunedElement(
+                ref="@ticket-418",
+                role="button",
+                name="Open ticket 418",
+                context="Keyboard shortcuts Ticket 418 Accessibility Open ticket 418",
+                interactable=True,
+            ),
+            PrunedElement(
+                ref="@ticket-442",
+                role="button",
+                name="Open ticket 442",
+                context="Screen reader labels Ticket 442 Accessibility Open ticket 442",
+                interactable=True,
+            ),
+        ],
+    )
+
+    ranked = rank_observation_for_candidates(
+        observation,
+        task="Pin the Keyboard shortcuts and Screen reader labels accessibility tickets.",
+        current_subgoal="Open the Screen reader labels ticket",
+    )
+
+    assert ranked.elements[0].ref == "@ticket-442"
+
+
+def test_candidate_assembly_ranks_against_the_next_pending_milestone() -> None:
+    goal = "Pin the Keyboard shortcuts and Screen reader labels accessibility tickets."
+    task = TaskState(task=goal, next_milestone="Open the Screen reader labels ticket")
+    snapshot = SemanticSnapshot(
+        url="https://support.example/tickets",
+        active_tab="support-tab",
+        tabs=["support-tab"],
+        page_fingerprint="tickets",
+        state_generation=1,
+    )
+    observation = AgentObservation(
+        url=snapshot.url,
+        active_tab="support-tab",
+        elements=[
+            PrunedElement(
+                ref="@ticket-418",
+                role="button",
+                name="Open ticket 418",
+                context="Keyboard shortcuts Ticket 418 Accessibility Open ticket 418",
+            ),
+            PrunedElement(
+                ref="@ticket-442",
+                role="button",
+                name="Open ticket 442",
+                context="Screen reader labels Ticket 442 Accessibility Open ticket 442",
+            ),
+        ],
+    )
+
+    candidates = action_candidates(
+        snapshot=snapshot,
+        task=task,
+        memory=WorkingMemory(user_goal=goal),
+        observation=observation,
+        candidate_policy=CandidatePolicy(),
+    )
+
+    assert candidates
+    assert candidates[0].target_ref == "@ticket-442"
+
+
+def test_required_source_link_clicks_stop_at_owned_tab_limit() -> None:
+    goal = "Open each product link in separate tabs."
+    snapshot = SemanticSnapshot(
+        url="https://shop.example/products",
+        active_tab="tab-0",
+        tabs=[f"tab-{index}" for index in range(8)],
+        page_fingerprint="products",
+        state_generation=3,
+    )
+    task = TaskState(
+        task=goal,
+        required_link_refs=["@product-a"],
+        required_link_source_tab_id="tab-0",
+        required_link_source_generation=3,
+        required_link_source_fingerprint="products",
+    )
+    observation = AgentObservation(
+        url=snapshot.url,
+        active_tab=snapshot.active_tab,
+        state_generation=snapshot.state_generation,
+        elements=[
+            PrunedElement(
+                ref="@product-a",
+                role="link",
+                name="Product A",
+                interactable=True,
+            )
+        ],
+    )
+
+    candidates = action_candidates(
+        snapshot=snapshot,
+        task=task,
+        memory=WorkingMemory(user_goal=goal),
+        observation=observation,
+        candidate_policy=CandidatePolicy(),
+    )
+
+    assert all(candidate.target_ref != "@product-a" for candidate in candidates)

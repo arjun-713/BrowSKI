@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from browser_agent.browser_code.contracts import BrowserCodeProposal
 
@@ -195,6 +195,8 @@ class PrunedElement(BaseModel):
     value: str | None = None
     state: list[str] = Field(default_factory=list[str])
     interactable: bool = True
+    parent_ref: str | None = None
+    context: str | None = None
 
 
 class AgentObservation(BaseModel):
@@ -351,8 +353,23 @@ class RecoveryDecision(BaseModel):
     step: RecoveryStep = RecoveryStep.LUNA_NORMAL_REPLAN
 
 
+class VerifiedLinkOpen(BaseModel):
+    """A required semantic link opened exactly one new owned tab."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_tab_id: str = Field(max_length=200)
+    source_ref: str = Field(max_length=200)
+    source_generation: int = Field(ge=0)
+    source_page_fingerprint: str = Field(max_length=200)
+    opened_tab_id: str = Field(max_length=200)
+    link_label: str = Field(default="", max_length=120)
+
+
 class TaskState(BaseModel):
     """Checkpoint-safe task goal, milestones, and explicit bounded budgets."""
+
+    _reasoning_call_limit: int = PrivateAttr(default=50)
 
     task: str
     user_goal: str | None = None
@@ -369,6 +386,14 @@ class TaskState(BaseModel):
     plan_initialized: bool = False
     required_evidence: list[str] = Field(default_factory=list[str], max_length=30)
     deterministic_evidence: list[str] = Field(default_factory=list[str], max_length=30)
+    required_link_refs: list[str] = Field(default_factory=list[str], max_length=8)
+    required_link_source_tab_id: str | None = Field(default=None, max_length=200)
+    required_link_source_generation: int | None = Field(default=None, ge=0)
+    required_link_source_fingerprint: str | None = Field(default=None, max_length=200)
+    verified_link_opens: list[VerifiedLinkOpen] = Field(
+        default_factory=list[VerifiedLinkOpen], max_length=8
+    )
+    confirmation_received: bool = False
     failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
     steps_taken: int = Field(default=0, ge=0)
     llm_calls: int = Field(default=0, ge=0)
@@ -392,6 +417,14 @@ class TaskState(BaseModel):
     run_id: str | None = None
     result_summary: str | None = None
     done: bool = False
+
+    def set_reasoning_call_limit(self, limit: int) -> None:
+        if limit < 0:
+            raise ValueError("reasoning-call limit cannot be negative")
+        self._reasoning_call_limit = limit
+
+    def has_reasoning_call_budget_for(self, calls_used_this_decision: int) -> bool:
+        return self.llm_calls + calls_used_this_decision < self._reasoning_call_limit
 
     @model_validator(mode="after")
     def default_goal(self) -> TaskState:
@@ -419,6 +452,8 @@ class WorkingMemory(BaseModel):
     authorized_transfer_evidence: list[AuthorizedTransferEvidence] = Field(
         default_factory=list[AuthorizedTransferEvidence], max_length=8
     )
+    record_destination_tab_id: str | None = Field(default=None, max_length=200)
+    record_destination_labels: list[str] = Field(default_factory=list[str], max_length=8)
     relevant_entities: list[str] = Field(default_factory=list[str], max_length=100)
     failed_strategies: list[str] = Field(default_factory=list[str], max_length=50)
     irreversible_actions: list[str] = Field(default_factory=list[str], max_length=50)

@@ -17,10 +17,19 @@ def public_response_payload(response: object) -> dict[str, object]:
         if isinstance(value, str):
             payload[name] = value
     usage: object = getattr(response, "usage", None)
-    payload["usage"] = {
+    usage_payload: dict[str, object] = {
         name: getattr(usage, name, None)
         for name in ("input_tokens", "output_tokens", "total_tokens")
     }
+    input_details: object = getattr(usage, "input_tokens_details", None)
+    usage_payload["input_tokens_details"] = {
+        name: getattr(input_details, name, None) for name in ("cached_tokens", "cache_write_tokens")
+    }
+    output_details: object = getattr(usage, "output_tokens_details", None)
+    usage_payload["output_tokens_details"] = {
+        "reasoning_tokens": getattr(output_details, "reasoning_tokens", None)
+    }
+    payload["usage"] = usage_payload
     parsed: object = getattr(response, "output_parsed", None)
     if isinstance(parsed, BaseModel):
         payload["output_parsed"] = parsed.model_dump(mode="json")

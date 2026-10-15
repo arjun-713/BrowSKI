@@ -12,7 +12,9 @@ from browser_agent.decisions.task_sites import (
     task_tab_labels,
 )
 from browser_agent.decisions.task_tabs import explicit_task_destinations
+from browser_agent.progress.completion_policy import required_link_open_checks
 from browser_agent.session import BrowserSession
+from browser_agent.telemetry.debug_sanitize import sanitize_debug_payload
 
 _DESTINATION_FACT_PREFIX = "owned_task_destination:"
 
@@ -25,6 +27,7 @@ class TaskInventory:
         self._owned_tab_urls: dict[str, str] = {}
         self._task_tab_labels: dict[str, str] = {}
         self._destination_checks: dict[str, bool] = {}
+        self._initial_tabs: set[str] | None = None
 
     @property
     def owned_tab_urls(self) -> dict[str, str]:
@@ -58,12 +61,45 @@ class TaskInventory:
 
         tabs: list[TabInfo] = await self._browser.tabs()
         owned = {tab.id: tab.url for tab in tabs if tab.id in snapshot.tabs}
+        if self._initial_tabs is None:
+            self._initial_tabs = set(owned)
         sites = requested_sites(goal, site_aliases)
         self._owned_tab_urls = owned
 
         inventory_goal = destination_task(goal, sites)
         destinations = explicit_task_destinations(inventory_goal)
         self._task_tab_labels = task_tab_labels(inventory_goal, sites, owned)
+        if (
+            task.required_link_source_tab_id in owned
+            and any(
+                not satisfied for satisfied in required_link_open_checks(task, snapshot).values()
+            )
+            and task.required_link_source_tab_id not in self._task_tab_labels
+        ):
+            self._task_tab_labels[task.required_link_source_tab_id] = (
+                "Source page with requested links"
+            )
+        for proof in task.verified_link_opens:
+            if (
+                proof.source_tab_id == task.required_link_source_tab_id
+                and proof.source_generation == task.required_link_source_generation
+                and proof.source_page_fingerprint == task.required_link_source_fingerprint
+                and proof.opened_tab_id in owned
+                and proof.link_label
+                and proof.opened_tab_id not in self._task_tab_labels
+            ):
+                self._task_tab_labels[proof.opened_tab_id] = proof.link_label
+        # Tasks may open observed links rather than explicitly naming URLs.
+        # Give Luna bounded titles for owned tabs; raw URLs remain local.
+        for index, tab in enumerate(tabs[:8], start=1):
+            if (
+                tab.id in owned
+                and tab.id not in self._initial_tabs
+                and tab.id not in self._task_tab_labels
+            ):
+                safe = sanitize_debug_payload({"title": tab.title[:120]})
+                title = str(safe.get("title", ""))[:120]
+                self._task_tab_labels[tab.id] = f"Owned tab {index}: {title}"
         checks: dict[str, bool] = {}
         for index, wanted in enumerate(destinations, start=1):
             normalized_wanted = normalize_task_url(wanted)
@@ -77,6 +113,7 @@ class TaskInventory:
         self._owned_tab_urls.clear()
         self._task_tab_labels.clear()
         self._destination_checks.clear()
+        self._initial_tabs = None
 
     @staticmethod
     def _replace_task_evidence(task: TaskState, checks: Mapping[str, bool]) -> None:

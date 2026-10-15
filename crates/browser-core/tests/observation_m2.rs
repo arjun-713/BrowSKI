@@ -8,6 +8,7 @@
 //! determinism. Corpus pages are local (no external network).
 
 use browser_agent_core::{BrowserSession, SemanticSnapshot};
+use browser_agent_observation::SemanticKind;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -165,6 +166,98 @@ async fn m2_basic_controls_discovered() {
     assert_eq!(snap.form_count, 1);
     assert!(!snap.page_fingerprint.is_empty());
     assert!(snap.text_blocks.iter().any(|b| b.text == "Job application"));
+    session.close().await.expect("close");
+}
+
+/// Definition-list text is exposed as a browser-owned name/value pair while
+/// ordinary form controls keep their existing semantic identity.
+#[tokio::test]
+async fn definition_list_entries_are_named_semantic_text() {
+    let _guard = M2_LOCK.lock().await;
+    let Some(session) = launch().await else {
+        return;
+    };
+    let base = fixture_server().await;
+    session
+        .navigate(&format!("{base}/definition-list.html"))
+        .await
+        .expect("navigate to definition-list fixture");
+    let snapshot = session.observe().await.expect("observe definition list");
+
+    for (term, description) in [("Memory", "16 GB"), ("Storage", "512 GB NVMe")] {
+        let entry = snapshot
+            .elements
+            .iter()
+            .find(|element| {
+                element.semantic_kind == SemanticKind::Text
+                    && element.accessible_name.as_deref() == Some(term)
+                    && element.text.as_deref() == Some(description)
+            })
+            .unwrap_or_else(|| panic!("missing definition {term:?}: {:?}", snapshot.elements));
+        assert!(!entry.interactable);
+    }
+
+    let input = find(&snapshot, "@search");
+    assert_eq!(input.role, "textbox");
+    assert_eq!(input.semantic_kind, SemanticKind::TextInput);
+    assert_eq!(input.accessible_name.as_deref(), Some("Search"));
+    session.close().await.expect("close");
+}
+
+/// Native list rows preserve task context beside repeated action labels.
+#[tokio::test]
+async fn checklist_rows_are_text_and_repeated_buttons_keep_stable_refs() {
+    let _guard = M2_LOCK.lock().await;
+    let Some(session) = launch().await else {
+        return;
+    };
+    let base = fixture_server().await;
+    session
+        .navigate(&format!("{base}/checklist.html"))
+        .await
+        .expect("navigate to checklist fixture");
+
+    let first = session
+        .observe()
+        .await
+        .expect("first checklist observation");
+    for row_text in [
+        "Draft release notes Mark complete",
+        "Review localization Mark complete",
+    ] {
+        assert!(
+            first.elements.iter().any(|element| {
+                element.semantic_kind == SemanticKind::Text
+                    && element.text.as_deref() == Some(row_text)
+                    && !element.interactable
+            }),
+            "missing checklist row {row_text:?}: {:?}",
+            first.elements
+        );
+    }
+
+    let button_refs = |snapshot: &SemanticSnapshot| {
+        let mut refs: Vec<_> = snapshot
+            .elements
+            .iter()
+            .filter(|element| {
+                element.semantic_kind == SemanticKind::Button
+                    && element.accessible_name.as_deref() == Some("Mark complete")
+            })
+            .map(|element| element.reference.clone())
+            .collect();
+        refs.sort();
+        refs
+    };
+    let first_refs = button_refs(&first);
+    assert_eq!(first_refs.len(), 2, "expected both repeated buttons");
+    assert_ne!(first_refs[0], first_refs[1]);
+
+    let second = session
+        .observe()
+        .await
+        .expect("second checklist observation");
+    assert_eq!(button_refs(&second), first_refs);
     session.close().await.expect("close");
 }
 
