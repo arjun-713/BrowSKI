@@ -1,0 +1,9 @@
+{
+  "policy_id": "experimental-explicit-command-20261012-v1-disabled",
+  "checkpoint": "7b928d828b7b0e022f929d9bd2e44165aa270148",
+  "benchmark_sha256": "b2e2381ff1dbcf441a6ce57b75602e78fc3773dcb127da78c982bba3a1cbd137",
+  "template_version": "explicit-command-v1",
+  "enabled": false,
+  "answer_confidence_threshold": 0.6,
+  "minimum_margin": 0.3
+}

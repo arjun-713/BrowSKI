@@ -1,0 +1,32 @@
+{
+  "created_at_utc": "2026-10-12T13:46:10.103375+00:00",
+  "dataset": "laya_probe_frozen_20261012_v2.jsonl",
+  "dataset_sha256": "b2e2381ff1dbcf441a6ce57b75602e78fc3773dcb127da78c982bba3a1cbd137",
+  "case_count": 24,
+  "seed": 20261012,
+  "template_version": "explicit-command-v1",
+  "scoped_template_sha256": "e2d63c893f7350f436eb0b12816d260f320418376d7c4d7ee50c5c8b98adbd0f",
+  "position_probe_case_ids": [
+    "probe-button-01",
+    "probe-button-02",
+    "probe-button-03",
+    "probe-check-01",
+    "probe-check-02",
+    "probe-check-03",
+    "probe-select-01",
+    "probe-select-02",
+    "probe-select-03",
+    "probe-type-01",
+    "probe-type-02",
+    "probe-type-03"
+  ],
+  "in_scope_case_count": 20,
+  "out_of_scope_case_ids": [
+    "probe-unsafe-ambiguous",
+    "probe-unsafe-conflict",
+    "probe-unsafe-missing-data",
+    "probe-unsafe-ambiguous-option"
+  ],
+  "network_calls_made": 0,
+  "holdout_files_read": false
+}

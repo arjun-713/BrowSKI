@@ -1,0 +1,526 @@
+{
+  "common_successful_cases": {
+    "baseline_latency_median_ms": 7902.99,
+    "baseline_luna_calls": 8,
+    "case_ids": [
+      "dev-m-06",
+      "dev-s-01",
+      "dev-s-06"
+    ],
+    "tuned_latency_median_ms": 4450.42,
+    "tuned_luna_calls": 7
+  },
+  "metric_version": 1,
+  "percentile_method": "nearest_rank",
+  "primary_ground_truth": "frozen independent browser-state checks",
+  "runs": {
+    "baseline": {
+      "actions_completed_events": 26,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 6,
+          "latency_p50_ms": 11347.03,
+          "luna_calls": 22,
+          "successes": 0
+        },
+        "medium": {
+          "cases": 6,
+          "latency_p50_ms": 11271.51,
+          "luna_calls": 17,
+          "successes": 1
+        },
+        "small": {
+          "cases": 6,
+          "latency_p50_ms": 7902.99,
+          "luna_calls": 13,
+          "successes": 2
+        }
+      },
+      "directory": "debug-logs/task-mix-20261012/baseline-20261012T133943Z-52d3e696",
+      "expected_cases": 18,
+      "failed_cases": [
+        {
+          "case_id": "dev-s-03",
+          "checks": [
+            "selected:workspace-language",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-m-02",
+          "checks": [
+            "selected:day",
+            "selected:start",
+            "selected:end",
+            "visible_text:Tuesday: 3:00 PM to 4:00 PM.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-s-05",
+          "checks": [
+            "input:name",
+            "visible_text:Workshop choices",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-m-04",
+          "checks": [
+            "selected:workspace-language",
+            "visible_text:Saved: weekly digest on; product news off; language Hindi.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-06",
+          "checks": [
+            "input:model",
+            "input:memory",
+            "input:storage",
+            "visible_text:Recorded Field 13: 16 GB memory, 256 GB storage.",
+            "tab_path:/task-mix/field-13.html",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "dev-m-01",
+          "checks": [
+            "input:query",
+            "selected:queue",
+            "visible_text:Pinned: Screen reader labels.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-s-04",
+          "checks": [
+            "input:query",
+            "visible_text:Search complete: 1 ticket.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-04",
+          "checks": [
+            "input:attendee",
+            "input:email",
+            "input:organization",
+            "checked:accessibility",
+            "selected:date",
+            "selected:session",
+            "user_outcome",
+            "confirmation_status"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-m-05",
+          "checks": [
+            "input:attendee",
+            "input:email",
+            "input:organization",
+            "selected:date",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-01",
+          "checks": [
+            "input:model",
+            "input:memory",
+            "input:storage",
+            "visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.",
+            "tab_path:/task-mix/field-13.html",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "dev-m-03",
+          "checks": [
+            "input:name",
+            "checked:updates",
+            "selected:session",
+            "visible_text:Samira Iqbal \u00b7",
+            "visible_text:future emails: yes",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-03",
+          "checks": [
+            "selected:day",
+            "selected:start",
+            "selected:end",
+            "visible_text:Wednesday: 2:00 PM to 4:00 PM.",
+            "visible_text:4 of 4 release steps complete.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-05",
+          "checks": [
+            "input:query",
+            "selected:queue",
+            "visible_text:Pinned tickets: 418, 442",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-s-02",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-02",
+          "checks": [
+            "input:name",
+            "input:email",
+            "checked:updates",
+            "selected:session",
+            "selected:city",
+            "visible_text:Registration saved for Leena Rao.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        }
+      ],
+      "latency_ms": {
+        "p50": 11347.03,
+        "p95": 43952.25,
+        "p99": 43952.25
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 52,
+      "luna_calls_successful_cases": 8,
+      "luna_input_tokens": 150329,
+      "luna_latency_ms": {
+        "p50": 4611.71,
+        "p95": 8275.73,
+        "p99": 10532.28
+      },
+      "luna_output_tokens": 15027,
+      "mean_luna_calls_successful_case": 2.6666666666666665,
+      "provider_errors": {},
+      "recorded_cases": 18,
+      "results_sha256": "fe9bd1d0855c50f070f2b49378f91f9b66262c857c2ea9a1fd8cfb8ab36e5f37",
+      "runtime_statuses": {
+        "awaiting_user": 14,
+        "completed": 2,
+        "failed": 2
+      },
+      "seed": 20261012,
+      "source_sha256": "f21ff579f176cd99949b07d4dda5e022ac59b10732e58ede716b52163e071a07",
+      "success_rate": 0.16666666666666666,
+      "successes": 3,
+      "successful_case_latency_ms": {
+        "p50": 7902.99,
+        "p95": 21144.54,
+        "p99": 21144.54
+      },
+      "suite": "dev",
+      "unexecuted_cases": [],
+      "variant": "baseline"
+    },
+    "holdout": {
+      "actions_completed_events": 33,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 3,
+          "latency_p50_ms": 36084.08,
+          "luna_calls": 24,
+          "successes": 0
+        },
+        "medium": {
+          "cases": 3,
+          "latency_p50_ms": 20377.47,
+          "luna_calls": 13,
+          "successes": 1
+        },
+        "small": {
+          "cases": 3,
+          "latency_p50_ms": 4642.48,
+          "luna_calls": 3,
+          "successes": 3
+        }
+      },
+      "directory": "debug-logs/task-mix-20261012/optimized-20261014T164100Z-88f67f24",
+      "expected_cases": 9,
+      "failed_cases": [
+        {
+          "case_id": "holdout-m-01",
+          "checks": [
+            "input:query"
+          ],
+          "errors": [],
+          "runtime_status": "completed"
+        },
+        {
+          "case_id": "holdout-m-02",
+          "checks": [
+            "selected:session",
+            "selected:city",
+            "visible_text:Maya Chen \u00b7",
+            "visible_text:Afternoon studio \u00b7 Jaipur",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "holdout-l-02",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "holdout-l-03",
+          "checks": [
+            "visible_text:No reservation submitted.",
+            "user_outcome",
+            "confirmation_status"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "holdout-l-01",
+          "checks": [
+            "input:model",
+            "input:memory",
+            "input:storage",
+            "visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        }
+      ],
+      "latency_ms": {
+        "p50": 20377.47,
+        "p95": 42189.53,
+        "p99": 42189.53
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 40,
+      "luna_calls_successful_cases": 8,
+      "luna_input_tokens": 145054,
+      "luna_latency_ms": {
+        "p50": 2885.63,
+        "p95": 7054.12,
+        "p99": 9001.76
+      },
+      "luna_output_tokens": 6936,
+      "mean_luna_calls_successful_case": 2.0,
+      "provider_errors": {},
+      "recorded_cases": 9,
+      "results_sha256": "a2c19debccb6d3fd888760add1831d3184374edf49e01d45cf0c1e69c027b974",
+      "runtime_statuses": {
+        "awaiting_user": 3,
+        "completed": 4,
+        "failed": 2
+      },
+      "seed": 20261012,
+      "source_sha256": "ecd8e43f287a1170c65bd1405b24300a69c419ab5109a91a3b158e8d62364aba",
+      "success_rate": 0.4444444444444444,
+      "successes": 4,
+      "successful_case_latency_ms": {
+        "p50": 4642.48,
+        "p95": 18505.96,
+        "p99": 18505.96
+      },
+      "suite": "holdout",
+      "unexecuted_cases": [],
+      "variant": "optimized"
+    },
+    "tuned": {
+      "actions_completed_events": 71,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 6,
+          "latency_p50_ms": 36749.5,
+          "luna_calls": 40,
+          "successes": 0
+        },
+        "medium": {
+          "cases": 6,
+          "latency_p50_ms": 21711.71,
+          "luna_calls": 29,
+          "successes": 5
+        },
+        "small": {
+          "cases": 6,
+          "latency_p50_ms": 6716.89,
+          "luna_calls": 9,
+          "successes": 6
+        }
+      },
+      "directory": "debug-logs/task-mix-20261012/optimized-20261012T165848Z-c2c68b12",
+      "expected_cases": 18,
+      "failed_cases": [
+        {
+          "case_id": "dev-l-06",
+          "checks": [
+            "input:model",
+            "input:memory",
+            "input:storage",
+            "visible_text:Recorded Field 13: 16 GB memory, 256 GB storage.",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "dev-l-04",
+          "checks": [
+            "visible_text:No reservation submitted.",
+            "user_outcome",
+            "confirmation_status"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-01",
+          "checks": [
+            "input:model",
+            "input:memory",
+            "input:storage",
+            "visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.",
+            "tab_path:/task-mix/orbit-16.html",
+            "tab_path:/task-mix/field-13.html",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "dev-m-03",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-03",
+          "checks": [
+            "selected:day",
+            "selected:end",
+            "visible_text:Wednesday: 2:00 PM to 4:00 PM.",
+            "visible_text:4 of 4 release steps complete.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-05",
+          "checks": [
+            "input:query",
+            "visible_text:Pinned tickets: 418, 442"
+          ],
+          "errors": [],
+          "runtime_status": "completed"
+        },
+        {
+          "case_id": "dev-l-02",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [
+            "ReasoningProviderProtocolError"
+          ],
+          "runtime_status": "awaiting_user"
+        }
+      ],
+      "latency_ms": {
+        "p50": 17809.61,
+        "p95": 44983.0,
+        "p99": 44983.0
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 78,
+      "luna_calls_successful_cases": 31,
+      "luna_input_tokens": 286811,
+      "luna_latency_ms": {
+        "p50": 3365.49,
+        "p95": 8359.89,
+        "p99": 10704.03
+      },
+      "luna_output_tokens": 14199,
+      "mean_luna_calls_successful_case": 2.8181818181818183,
+      "provider_errors": {
+        "ReasoningProviderProtocolError": 1
+      },
+      "recorded_cases": 18,
+      "results_sha256": "1938170e6e0a052cc6380d0d622e47a1345cc15899e8447f5a822911808649de",
+      "runtime_statuses": {
+        "awaiting_user": 5,
+        "completed": 11,
+        "failed": 2
+      },
+      "seed": 20261012,
+      "source_sha256": "f21ff579f176cd99949b07d4dda5e022ac59b10732e58ede716b52163e071a07",
+      "success_rate": 0.6111111111111112,
+      "successes": 11,
+      "successful_case_latency_ms": {
+        "p50": 10983.74,
+        "p95": 34669.77,
+        "p99": 34669.77
+      },
+      "suite": "dev",
+      "unexecuted_cases": [],
+      "variant": "optimized"
+    }
+  }
+}

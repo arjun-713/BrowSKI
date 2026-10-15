@@ -1,0 +1,46 @@
+variant,case_id,difficulty,success,runtime_status,luna_calls,laya_calls,latency_ms,failed_checks
+baseline,dev-s-03,small,False,awaiting_user,2,0,12905.83,selected:workspace-language;user_outcome
+baseline,dev-m-06,medium,True,completed,5,0,21144.54,
+baseline,dev-m-02,medium,False,awaiting_user,2,0,11271.51,selected:day;selected:start;selected:end;visible_text:Tuesday: 3:00 PM to 4:00 PM.;user_outcome
+baseline,dev-s-05,small,False,awaiting_user,2,0,11782.52,input:name;visible_text:Workshop choices;user_outcome
+baseline,dev-s-06,small,True,awaiting_user,1,0,3143.63,
+baseline,dev-m-04,medium,False,awaiting_user,3,0,21495.16,selected:workspace-language;visible_text:Saved: weekly digest on; product news off; language Hindi.;user_outcome
+baseline,dev-l-06,large,False,failed,8,0,42420.15,"input:model;input:memory;input:storage;visible_text:Recorded Field 13: 16 GB memory, 256 GB storage.;tab_path:/task-mix/field-13.html;user_outcome"
+baseline,dev-m-01,medium,False,awaiting_user,4,0,19573.16,input:query;selected:queue;visible_text:Pinned: Screen reader labels.;user_outcome
+baseline,dev-s-04,small,False,awaiting_user,2,0,5803.62,input:query;visible_text:Search complete: 1 ticket.;user_outcome
+baseline,dev-l-04,large,False,awaiting_user,0,0,157.26,input:attendee;input:email;input:organization;checked:accessibility;selected:date;selected:session;user_outcome;confirmation_status
+baseline,dev-m-05,medium,False,awaiting_user,2,0,9275.08,input:attendee;input:email;input:organization;selected:date;user_outcome
+baseline,dev-l-01,large,False,failed,8,0,43952.25,"input:model;input:memory;input:storage;visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.;tab_path:/task-mix/field-13.html;user_outcome"
+baseline,dev-m-03,medium,False,awaiting_user,1,0,4391.34,input:name;checked:updates;selected:session;visible_text:Samira Iqbal ·;visible_text:future emails: yes;user_outcome
+baseline,dev-l-03,large,False,awaiting_user,2,0,18997.66,selected:day;selected:start;selected:end;visible_text:Wednesday: 2:00 PM to 4:00 PM.;visible_text:4 of 4 release steps complete.;user_outcome
+baseline,dev-l-05,large,False,awaiting_user,2,0,10425.98,"input:query;selected:queue;visible_text:Pinned tickets: 418, 442;user_outcome"
+baseline,dev-s-02,small,False,awaiting_user,4,0,24167.45,user_outcome
+baseline,dev-s-01,small,True,completed,2,0,7902.99,
+baseline,dev-l-02,large,False,awaiting_user,2,0,11347.03,input:name;input:email;checked:updates;selected:session;selected:city;visible_text:Registration saved for Leena Rao.;user_outcome
+tuned,dev-s-03,small,True,completed,1,0,9527.53,
+tuned,dev-m-06,medium,True,completed,5,0,27104.06,
+tuned,dev-m-02,medium,True,completed,5,0,21711.71,
+tuned,dev-s-05,small,True,completed,1,0,6716.89,
+tuned,dev-s-06,small,True,awaiting_user,1,0,3866.49,
+tuned,dev-m-04,medium,True,completed,3,0,13023.06,
+tuned,dev-l-06,large,False,failed,8,0,42667.69,"input:model;input:memory;input:storage;visible_text:Recorded Field 13: 16 GB memory, 256 GB storage.;user_outcome"
+tuned,dev-m-01,medium,True,completed,7,0,34669.77,
+tuned,dev-s-04,small,True,completed,3,0,10983.74,
+tuned,dev-l-04,large,False,awaiting_user,6,0,36749.5,visible_text:No reservation submitted.;user_outcome;confirmation_status
+tuned,dev-m-05,medium,True,completed,2,0,12850.88,
+tuned,dev-l-01,large,False,failed,8,0,44983.0,"input:model;input:memory;input:storage;visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.;tab_path:/task-mix/orbit-16.html;tab_path:/task-mix/field-13.html;user_outcome"
+tuned,dev-m-03,medium,False,awaiting_user,7,0,34365.32,user_outcome
+tuned,dev-l-03,large,False,awaiting_user,3,0,17809.61,selected:day;selected:end;visible_text:Wednesday: 2:00 PM to 4:00 PM.;visible_text:4 of 4 release steps complete.;user_outcome
+tuned,dev-l-05,large,False,completed,7,0,33030.15,"input:query;visible_text:Pinned tickets: 418, 442"
+tuned,dev-s-02,small,True,completed,2,0,7415.86,
+tuned,dev-s-01,small,True,completed,1,0,4450.42,
+tuned,dev-l-02,large,False,awaiting_user,8,0,38010.34,user_outcome
+holdout,holdout-s-02,small,True,completed,1,0,5579.33,
+holdout,holdout-m-01,medium,False,completed,4,0,23533.27,input:query
+holdout,holdout-s-03,small,True,awaiting_user,1,0,3898.36,
+holdout,holdout-m-02,medium,False,awaiting_user,4,0,20377.47,selected:session;selected:city;visible_text:Maya Chen ·;visible_text:Afternoon studio · Jaipur;user_outcome
+holdout,holdout-m-03,medium,True,completed,5,0,18505.96,
+holdout,holdout-l-02,large,False,failed,8,0,31875.08,user_outcome
+holdout,holdout-l-03,large,False,awaiting_user,8,0,36084.08,visible_text:No reservation submitted.;user_outcome;confirmation_status
+holdout,holdout-s-01,small,True,completed,1,0,4642.48,
+holdout,holdout-l-01,large,False,failed,8,0,42189.53,"input:model;input:memory;input:storage;visible_text:Recorded Orbit 14: 16 GB memory, 512 GB storage.;user_outcome"

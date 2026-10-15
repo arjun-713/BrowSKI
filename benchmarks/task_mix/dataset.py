@@ -23,6 +23,20 @@ def load_cases(split: str = "development") -> tuple[TaskCase, ...]:
     if split not in EXPECTED_COUNTS:
         raise ValueError("split must be 'development' or 'holdout'")
     path = DATA_DIR / f"{split}.jsonl"
+    cases = load_case_file(path)
+    actual = {
+        difficulty: sum(case.difficulty == difficulty for case in cases)
+        for difficulty in ("small", "medium", "large")
+    }
+    if actual != EXPECTED_COUNTS[split]:
+        raise ValueError(f"unexpected {split} difficulty counts: {actual}")
+    return cases
+
+
+def load_case_file(path: Path) -> tuple[TaskCase, ...]:
+    """Read an explicitly frozen corpus without modifying the V1 suite shape."""
+    if path.stat().st_size > 3 * 1024 * 1024:
+        raise ValueError("task corpus exceeds the 3 MiB safety bound")
     cases: list[TaskCase] = []
     with path.open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, 1):
@@ -35,13 +49,9 @@ def load_cases(split: str = "development") -> tuple[TaskCase, ...]:
                     ) from exc
     ids = [case.case_id for case in cases]
     if len(ids) != len(set(ids)):
-        raise ValueError(f"duplicate case IDs in {split}")
-    actual = {
-        difficulty: sum(case.difficulty == difficulty for case in cases)
-        for difficulty in ("small", "medium", "large")
-    }
-    if actual != EXPECTED_COUNTS[split]:
-        raise ValueError(f"unexpected {split} difficulty counts: {actual}")
+        raise ValueError(f"duplicate case IDs in {path.name}")
+    if not cases or len(cases) > 100:
+        raise ValueError("an explicit task corpus must contain 1–100 cases")
     return tuple(cases)
 
 
