@@ -74,6 +74,142 @@ async def test_static_plan_evidence_gets_one_bounded_correction() -> None:
     assert "Do not invent future controls" in (provider.calls[1][0].failure_summary or "")
 
 
+async def test_requested_draft_state_is_preserved_while_fields_remain_pending() -> None:
+    task_text = 'Set "Name" to "Taylor" and set "Date" to "Oct 23". Leave it as a draft.'
+    first = "Fill the requested fields."
+    second = "Leave the reservation as a draft."
+    bad = ReasoningDecision(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=[first, second],
+        milestone_evidence={
+            first: "visible_text:Reservation details",
+            second: "visible_text:No reservation submitted",
+        },
+    )
+    good = ReasoningDecision(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=[first, second],
+        milestone_evidence={
+            first: "field_matches_task:@name AND field_matches_task:@date",
+            second: "visible_text:No reservation submitted",
+        },
+    )
+    provider = ScriptedReasoningProvider(bad, good)
+    agent = LunaDecisionAgent(None, provider)
+    snapshot = page(
+        SemanticElement(
+            ref="@name",
+            role="textbox",
+            accessible_name="Name",
+            value="",
+            fingerprint="name",
+        ),
+        SemanticElement(
+            ref="@date",
+            role="textbox",
+            accessible_name="Date",
+            value="",
+            fingerprint="date",
+        ),
+        text("Reservation details\nNo reservation submitted."),
+    )
+
+    decision = await agent.decide(snapshot, TaskState(task=task_text), WorkingMemory())
+
+    assert len(provider.calls) == 2
+    assert decision.plan_initialized
+    assert decision.milestone_evidence == good.milestone_evidence
+    assert not decision.done
+    assert "smaller observable milestone" in (provider.calls[1][0].failure_summary or "")
+
+
+async def test_requested_draft_exception_rejects_contradictory_or_unscoped_status() -> None:
+    milestone = "Leave the reservation as a draft."
+    task = TaskState(task='Fill "Name" with "Taylor Example". Leave it as a draft.')
+    plan = ReasoningDecision(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=[milestone],
+        milestone_evidence={milestone: "visible_text:No reservation submitted"},
+    )
+    cases = (
+        ("Draft submitted", "Draft submitted", "status"),
+        ("Not a draft", "Not a draft", "status"),
+        ("Reservation is not unsubmitted", "Reservation is not unsubmitted", "status"),
+        ("Draft failed", "Draft failed", "status"),
+        (
+            "No reservation submitted. Reservation submitted",
+            "No reservation submitted. Reservation submitted",
+            "status",
+        ),
+        ("No reservation submitted", "No reservation submitted", "heading"),
+    )
+
+    for status_text, evidence_text, status_role in cases:
+        provider = ScriptedReasoningProvider(
+            plan.model_copy(
+                update={"milestone_evidence": {milestone: f"visible_text:{evidence_text}"}}
+            )
+        )
+        agent = LunaDecisionAgent(None, provider)
+        snapshot = page(
+            SemanticElement(
+                ref="@name",
+                role="textbox",
+                accessible_name="Name",
+                value="",
+                fingerprint="name",
+            ),
+            SemanticElement(
+                ref="@status",
+                role=status_role,
+                text=status_text,
+                fingerprint="status",
+            ),
+        )
+
+        decision = await agent.decide(snapshot, task.model_copy(), WorkingMemory())
+
+        assert len(provider.calls) == 2
+        assert decision.ask_user
+        assert not decision.done
+
+
+async def test_unrequested_negative_status_does_not_replace_pending_save_proof() -> None:
+    first = "Fill the requested field."
+    second = "Save the work session."
+    plan = ReasoningDecision(
+        outcome=ReasoningOutcome.MILESTONE_PLAN,
+        milestones=[first, second],
+        milestone_evidence={
+            first: "field_matches_task:@name",
+            second: "visible_text:No work session saved",
+        },
+    )
+    provider = ScriptedReasoningProvider(plan)
+    agent = LunaDecisionAgent(None, provider)
+    snapshot = page(
+        SemanticElement(
+            ref="@name",
+            role="textbox",
+            accessible_name="Name",
+            value="",
+            fingerprint="name",
+        ),
+        text("No work session saved."),
+    )
+
+    decision = await agent.decide(
+        snapshot,
+        TaskState(task='Fill "Name" with "Taylor Example" and save the work session.'),
+        WorkingMemory(),
+    )
+
+    assert len(provider.calls) == 2
+    assert decision.ask_user
+    assert not decision.done
+    assert "smaller observable milestone" in (provider.calls[1][0].failure_summary or "")
+
+
 async def test_verified_action_allows_current_visible_milestone_plan_revision() -> None:
     milestone = "Record the selected model and its specifications."
     current_status = "Recorded Field 13: 16 GB memory, 256 GB storage."

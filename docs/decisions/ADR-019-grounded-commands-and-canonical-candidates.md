@@ -53,6 +53,13 @@ do not justify general execution routing or a production confidence threshold.
   requested destinations, terminal text and explicit confirmation requirements.
   A rejected proposal preserves the plan and continues within the existing
   call and stagnation bounds. It does not authorize another browser action.
+- Consume an action-event witness when it advances a milestone, so one click
+  of a shared control cannot prove two separate item operations. State checks
+  remain reusable. A revised plan preserves completed identifiers only when
+  their evidence is unchanged; a revision does not resurrect consumed events.
+- Distinguish a requested unchanged no-submit/draft status from proof of a new
+  action. That exception requires a current native status and outstanding
+  task-authorized field work; static positive labels remain insufficient.
 - Honor recognized explicit approval requests for each affected mutation,
   including neutral button labels. Approval for an earlier action does not
   authorize the next action. This conservative fallback may request consent

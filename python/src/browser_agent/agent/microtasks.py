@@ -106,11 +106,15 @@ def _grounded_search_microtask(
     if len(fields) != 1:
         return None
     field = fields[0]
+    search_labels = {"search"}
+    field_label = " ".join((field.name or "").split()).casefold()
+    if field_label.startswith("search "):
+        search_labels.add(field_label)
     buttons = [
         element
         for element in observation.elements
         if element.role.casefold() == "button"
-        and " ".join((element.name or "").split()).casefold() == "search"
+        and " ".join((element.name or "").split()).casefold() in search_labels
         and element.interactable
         and "disabled" not in {state.casefold() for state in element.state}
     ]
@@ -119,6 +123,6 @@ def _grounded_search_microtask(
 
     commands = (
         UserCommand("type", field.ref, field.name or "Search", bindings[field_ref]),
-        UserCommand("click", buttons[0].ref, "Search"),
+        UserCommand("click", buttons[0].ref, buttons[0].name or "Search"),
     )
     return MicrotaskPlan(commands, tuple(task_terminal_text(task)))

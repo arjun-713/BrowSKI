@@ -54,6 +54,9 @@ from browser_agent.decisions.task_recording import (
 )
 from browser_agent.decisions.task_sites import DEFAULT_SITE_ALIASES
 from browser_agent.persistence.run_metrics import RunMetricKind
+from browser_agent.planning.evidence_policy import (
+    requested_draft_state_has_pending_field_obligation,
+)
 from browser_agent.progress.completion_policy import (
     outstanding_constraints,
     required_link_open_checks,
@@ -695,6 +698,12 @@ class LunaDecisionAgent(Agent):
                 and ";" not in evidence
                 and " AND " not in evidence
                 and visible_phrase_present(evidence.removeprefix("visible_text:"), snapshot)
+                and not requested_draft_state_has_pending_field_obligation(
+                    evidence,
+                    task,
+                    context.browser_checks,
+                    snapshot,
+                )
             ]
             if preexisting and not verified_plan_revision:
                 if purpose == ReasoningPurpose.PLAN:

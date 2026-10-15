@@ -515,7 +515,14 @@ def build_agent_graph(
             if decision.replace_plan or not task_state.milestones:
                 task_state.milestones = decision.milestones[:10]
                 task_state.required_milestones = list(task_state.milestones)
-                task_state.completed = [] if decision.replace_plan else task_state.completed
+                if decision.replace_plan:
+                    task_state.completed = [
+                        milestone
+                        for milestone in task_state.completed
+                        if milestone in task_state.required_milestones
+                        and task_state.milestone_evidence.get(milestone)
+                        == decision.milestone_evidence.get(milestone)
+                    ]
                 task_state.milestone_evidence = {
                     milestone: evidence
                     for milestone, evidence in task_state.milestone_evidence.items()

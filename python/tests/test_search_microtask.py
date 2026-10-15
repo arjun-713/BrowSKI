@@ -65,6 +65,23 @@ def test_search_uses_the_same_authorized_query_as_candidate_construction() -> No
     assert plan.commands[0].value == "noise cancelling"
 
 
+def test_search_button_can_share_the_grounded_fields_explicit_search_label() -> None:
+    plan = grounded_microtask(
+        TaskState(task="Search for insulated jackets."),
+        _observation(_searchbox(name="Search catalog"), _search_button(name="Search catalog")),
+    )
+    assert plan is not None
+    assert plan.commands[1].label == "Search catalog"
+
+    assert (
+        grounded_microtask(
+            TaskState(task="Search for insulated jackets."),
+            _observation(_searchbox(name="Search catalog"), _search_button(name="Search archive")),
+        )
+        is None
+    )
+
+
 def test_search_requires_unique_eligible_field_and_unique_enabled_button() -> None:
     goal = "Search for screen reader labels"
     assert (

@@ -144,6 +144,66 @@ def visible_phrase_present(phrase: str, snapshot: SemanticSnapshot) -> bool:
     return False
 
 
+_EVIDENCE_PREFIXES = (
+    "field_matches_task:",
+    "selection_matches_task:",
+    "checked_matches_task:",
+    "verified_action:",
+    "owned_task_destination:",
+    "required_link_open:",
+    "visible_text:",
+)
+
+
+def _closed_evidence_terms(evidence: str) -> list[str]:
+    """Split only bounded conjunctions whose terms use closed evidence forms."""
+    parts = [part.strip() for part in re.split(r";|\s+AND\s+", evidence, flags=re.I)]
+    if 1 < len(parts) <= 8 and all(part.startswith(_EVIDENCE_PREFIXES) for part in parts):
+        return parts
+    return [evidence]
+
+
+def _click_state_check_key(
+    evidence: str,
+    snapshot: SemanticSnapshot,
+    checks: dict[str, bool],
+) -> str | None:
+    """Return an authorized checkbox/select value check for a click witness."""
+    if not evidence.startswith("verified_action:click:"):
+        return None
+    ref = evidence.removeprefix("verified_action:click:")
+    element = snapshot.by_ref(ref)
+    replacement = (
+        "checked_matches_task"
+        if element is not None and element.role in {"checkbox", "switch", "radio"}
+        else "selection_matches_task"
+        if element is not None and element.role == "combobox"
+        else None
+    )
+    key = f"{replacement}:{ref}" if replacement is not None else None
+    return key if key is not None and key in checks else None
+
+
+def _consumable_action_witnesses(
+    evidence: str,
+    task: TaskState,
+    snapshot: SemanticSnapshot,
+    checks: dict[str, bool],
+) -> set[str]:
+    """Find runtime action events used as evidence, excluding value fallbacks."""
+    witnesses = set(task.deterministic_evidence)
+    consumed: set[str] = set()
+    for term in _closed_evidence_terms(evidence):
+        if not term.startswith("verified_action:") or term not in witnesses:
+            continue
+        state_key = _click_state_check_key(term, snapshot, checks)
+        if state_key is not None and checks[state_key]:
+            continue
+        if checks.get(term, False):
+            consumed.add(term)
+    return consumed
+
+
 def local_browser_checks(
     task: TaskState,
     snapshot: SemanticSnapshot,
@@ -209,40 +269,21 @@ def evidence_satisfied(
     snapshot: SemanticSnapshot,
     checks: dict[str, bool],
 ) -> bool:
-    if evidence.startswith("verified_action:click:"):
-        ref = evidence.removeprefix("verified_action:click:")
-        element = snapshot.by_ref(ref)
-        replacement = (
-            "checked_matches_task"
-            if element is not None and element.role in {"checkbox", "switch", "radio"}
-            else "selection_matches_task"
-            if element is not None and element.role == "combobox"
-            else None
-        )
-        key = f"{replacement}:{ref}" if replacement is not None else None
-        if key is not None and key in checks:
-            # Canonical checkbox/select actions are not clicks. Only a value
-            # independently authorized by the user's task can establish this
-            # alternative typed proof; generic toggles have no such check.
-            return checks[key]
-    prefixes = (
-        "field_matches_task:",
-        "selection_matches_task:",
-        "checked_matches_task:",
-        "verified_action:",
-        "owned_task_destination:",
-        "required_link_open:",
-        "visible_text:",
-    )
+    state_key = _click_state_check_key(evidence, snapshot, checks)
+    if state_key is not None:
+        # Canonical checkbox/select actions are not clicks. Only a value
+        # independently authorized by the user's task can establish this
+        # alternative typed proof; generic toggles have no such check.
+        return checks[state_key]
     # Some structured provider responses use AND for a conjunction. Accept
     # it only when every term is one of our closed evidence forms. Literal
     # visible text containing a semicolon or AND remains a single text check.
-    parts = [part.strip() for part in re.split(r";|\s+AND\s+", evidence, flags=re.I)]
-    if 1 < len(parts) <= 8 and all(part.startswith(prefixes) for part in parts):
+    parts = _closed_evidence_terms(evidence)
+    if len(parts) > 1:
         return all(evidence_satisfied(part, task, snapshot, checks) for part in parts)
-    if evidence.startswith(prefixes[:-1]):
+    if evidence.startswith(_EVIDENCE_PREFIXES[:-1]):
         return checks.get(evidence, False)
-    if evidence.startswith("visible_text:"):
+    if evidence.startswith(_EVIDENCE_PREFIXES[-1]):
         phrase = evidence.removeprefix("visible_text:").strip()
         return visible_phrase_present(phrase, snapshot)
     # Preserve historical literal evidence for existing plans. Arbitrary form
@@ -266,6 +307,13 @@ def complete_observed_milestones(
         evidence = task.milestone_evidence.get(milestone)
         if not evidence or not evidence_satisfied(evidence, task, snapshot, checks):
             break
+        consumed_witnesses = _consumable_action_witnesses(evidence, task, snapshot, checks)
+        if consumed_witnesses:
+            task.deterministic_evidence = [
+                item for item in task.deterministic_evidence if item not in consumed_witnesses
+            ]
+            for witness in consumed_witnesses:
+                checks.pop(witness, None)
         task.completed.append(milestone)
         completed.append(milestone)
     return completed

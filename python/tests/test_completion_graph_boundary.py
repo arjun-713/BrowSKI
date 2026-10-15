@@ -81,3 +81,71 @@ async def test_completion_proposal_cannot_replace_unfinished_proof(
         else:
             assert result.status == "failed"
             assert "Save the requested effect" not in result.completed
+
+
+class _ReplanningAgent(Agent):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.evidence: dict[str, str] = {}
+
+    async def decide(
+        self, snapshot: SemanticSnapshot, task: TaskState, memory: WorkingMemory
+    ) -> AgentDecision:
+        _ = task, memory
+        self.calls += 1
+        start = next(item for item in snapshot.elements if item.accessible_name == "Start")
+        milestones = ["Start workflow", "Finish workflow"]
+        if self.calls == 1:
+            self.evidence = {
+                milestones[0]: f"verified_action:click:{start.ref}",
+                milestones[1]: "visible_text:Unknown future status",
+            }
+        if self.calls == 2:
+            self.evidence[milestones[1]] = "visible_text:Workflow finished"
+            return AgentDecision(
+                milestones=milestones,
+                milestone_evidence=dict(self.evidence),
+                replace_plan=True,
+                plan_initialized=True,
+            )
+        name = "Start" if self.calls == 1 else "Finish"
+        target = next(item for item in snapshot.elements if item.accessible_name == name)
+        return AgentDecision(
+            action=BrowserAction(
+                type="click",
+                target=ElementRef(ref=target.ref, id=target.id, generation=target.generation),
+            ),
+            milestones=milestones if self.calls == 1 else [],
+            milestone_evidence=dict(self.evidence) if self.calls == 1 else {},
+            plan_initialized=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_replanning_preserves_completed_steps_with_unchanged_proof(tmp_path: Path) -> None:
+    fixture = tmp_path / "replan.html"
+    fixture.write_text(
+        """<!doctype html>
+<html lang="en">
+  <body>
+    <p role="status">Waiting</p>
+    <button onclick="document.querySelector('p').textContent = 'Workflow started'">
+      Start
+    </button>
+    <button onclick="document.querySelector('p').textContent = 'Workflow finished'">
+      Finish
+    </button>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    async with BrowserSession.launch() as browser:
+        await browser.navigate(fixture.as_uri())
+        agent = _ReplanningAgent()
+        runtime = AgentRuntime(agent, browser, config=AgentConfig(max_llm_calls=4))
+        result = await runtime.run("Start and finish the workflow.")
+        assert result.done
+        assert result.completed == ["Start workflow", "Finish workflow"]
+        assert result.steps_taken == 2
+        assert agent.calls == 3
