@@ -63,15 +63,25 @@ class FullDemoReasoner:
             assert url_match is not None
             action = ReasoningAction(type="new_tab", url=url_match.group(1))
         elif step in {5, 6}:
-            activation = next(
-                description
-                for description in context.candidate_options.values()
-                if description.startswith("Activate the already owned browser tab ")
+            if step == 5:
+                description = next(
+                    description
+                    for description in context.candidate_options.values()
+                    if description.startswith("Activate the already owned tab labeled ")
+                )
+            else:
+                description = "Activate another already owned browser tab."
+            candidate_id = next(
+                candidate_id
+                for candidate_id, option in context.candidate_options.items()
+                if option == description
             )
-            tab = activation.removeprefix("Activate the already owned browser tab ").removesuffix(
-                "."
+            return ReasoningDecision(
+                outcome=ReasoningOutcome.NEXT_ACTION,
+                candidate_id=candidate_id,
+                evidence_ref=_ref(context, "Reference code") if step == 6 else None,
+                summary="Perform the next deterministic local-fixture step.",
             )
-            action = ReasoningAction(type="activate_tab", tab=tab)
         elif step == 7:
             # No reference value is cached in this provider. The graph must
             # have grounded and preserved it in its typed working memory.
@@ -88,7 +98,6 @@ class FullDemoReasoner:
         return ReasoningDecision(
             outcome=ReasoningOutcome.NEXT_ACTION,
             action=action,
-            evidence_ref=_ref(context, "Reference code") if step == 6 else None,
             summary="Perform the next deterministic local-fixture step.",
         )
 
