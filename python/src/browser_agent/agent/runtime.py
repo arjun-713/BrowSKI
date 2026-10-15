@@ -36,6 +36,7 @@ from browser_agent.persistence.run_identity import resolve_run_id, validate_run_
 from browser_agent.persistence.run_metadata import SQLiteRunMetadataStore
 from browser_agent.persistence.run_metrics import RunMetricKind, RunMetricsAggregator
 from browser_agent.session import BrowserSession
+from browser_agent.telemetry.debug_errors import exception_debug_metadata
 from browser_agent.telemetry.debug_log import DebugLogConfig, DebugRecorder, record_debug
 
 logger = logging.getLogger(__name__)
@@ -199,7 +200,7 @@ class AgentRuntime:
             try:
                 result = await self._run(task, run_id=thread_id)
             except BaseException as error:
-                record_debug("task.error", {"error_type": type(error).__name__})
+                record_debug("task.error", exception_debug_metadata(error))
                 raise
             record_debug(
                 "task.result",
@@ -419,7 +420,7 @@ class AgentRuntime:
             try:
                 result = await self._resume_graph(run_id, confirmation)
             except BaseException as error:
-                record_debug("task.error", {"error_type": type(error).__name__})
+                record_debug("task.error", exception_debug_metadata(error))
                 raise
             record_debug(
                 "task.result",

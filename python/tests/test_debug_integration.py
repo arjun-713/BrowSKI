@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from browser_agent import AgentDecision
 from browser_agent._types import (
     BBox,
@@ -124,6 +126,26 @@ async def test_runtime_debug_records_are_isolated_by_run(tmp_path: Path) -> None
         assert "browser.observation" in names
         assert "runtime.event" in names
         assert "task.result" in names
+
+
+async def test_observation_failure_logs_locations_without_private_text(tmp_path: Path) -> None:
+    class FailingBrowser:
+        async def observe(self) -> SemanticSnapshot:
+            raise RuntimeError("private-page-value-fixture")
+
+    runtime = AgentRuntime(
+        AskingUserAgent(),
+        FailingBrowser(),  # type: ignore[arg-type]
+        debug_config=DebugLogConfig(enabled=True, directory=tmp_path),
+    )
+    with pytest.raises(RuntimeError, match="private-page-value-fixture"):
+        await runtime.run("Inspect the current page", run_id="failed-observation")
+
+    events = _events(tmp_path, "failed-observation")
+    failure = next(event for event in events if event["event"] == "task.error")
+    assert failure["payload"]["error_type"] == "RuntimeError"
+    assert failure["payload"]["frames"][-1]["function"] == "observe"
+    assert "private-page-value-fixture" not in json.dumps(events)
 
 
 async def test_candidate_mismatch_is_logged_without_changing_rejection(

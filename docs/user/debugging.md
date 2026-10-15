@@ -25,6 +25,9 @@ sequence, run ID, runtime session ID, event name, optional step, and payload.
 - `task.received`, `task.prompt`, `task.control`, and `task.result`: the task instruction,
   pause/resume/stop/approval controls, and final or interrupted status.
 - `runtime.event`: the structured events used by the side-panel timeline.
+- `task.error`: runtime exception class and up to 12 code locations (file
+  basename, function and line). Raw exception messages, source lines and local
+  variables are excluded because they can contain private page content.
 - `provider.request`: provider, operation, model, effort, instructions,
   structured input, and output-schema metadata.
 - `provider.response`: public structured/message output, token usage, and
