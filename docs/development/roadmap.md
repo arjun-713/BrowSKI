@@ -130,7 +130,7 @@ health and timeout handling, provider-specific acceptance, and observable
 adaptive routing. Optional live checks remain opt-in; live quality and
 benchmark validation are not established by contract tests.
 
-## M6. GPT-6 Luna + adaptive reasoning (IMPLEMENTED; live API unverified)
+## M6. GPT-6 Luna + adaptive reasoning (IMPLEMENTED; limited live evidence)
 
 Added the only generative reasoning provider in the baseline and a
 deterministic `ComplexityGate`. The OpenAI adapter uses the Responses API with
@@ -157,7 +157,15 @@ Fake-backed adapter and agent tests do not establish live API availability,
 model quality, or task success. Focused checks passed for model configuration,
 per-call effort reset, adapter contracts, and deterministic escalation. The
 live OpenAI test is opt-in and requires `BROWSKI_LIVE_OPENAI=1` plus an API key;
-no live request was made for this validation run.
+no live request was made for the original milestone validation run.
+Subsequent [live repair](live-agent-repair-2026-10-12.md) and
+[frozen mixed-task](task-mix-evaluation-2026-10-14.md) evaluations record real
+API outcomes. The latter passed 11/18 development tasks and 4/9 held-out tasks;
+long-task reliability remains unestablished. The adapter now records explicit
+prompt-cache reads and writes; see [the cache boundary](../architecture/prompt-caching.md).
+The final frozen V8 rerun later passed 16/18 development checks but 0/6 on a
+fresh independent holdout, so the development result did not generalize. See
+the [final long-task evaluation](long-task-diagnostics-2026-10-15.md).
 
 ## M7. Memory, progress, and recovery (CORE IMPLEMENTED)
 
@@ -258,7 +266,9 @@ release builds, wheel installation and checksum checks passed. The
 [validation record](productization-validation.md) separates this software
 evidence from live-provider acceptance and agent reliability.
 
-## M12. Benchmark hardening (DEFERRED)
+## M12. Benchmark hardening (BROADER VALIDATION DEFERRED)
 
-Run representative long-horizon evaluations and publish reproducible results.
-No comparative claim without controlled benchmark evidence.
+The frozen local V8 task-mix evaluation is complete: 16/18 development checks
+and 0/6 independent holdout checks. The development score did not generalize.
+Representative broader long-horizon evaluation and reproducible comparative
+claims remain outstanding. See the [final evaluation report](long-task-diagnostics-2026-10-15.md).

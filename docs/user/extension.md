@@ -15,6 +15,17 @@ npm run dev
 For an unpacked production build, run `npm run build` and load
 `extension/.output/chrome-mv3` through `chrome://extensions`.
 
+On Linux, the `.output` directory is hidden. In Chrome's **Load unpacked**
+folder chooser, press **Ctrl+L**, paste the full absolute path ending in
+`extension/.output/chrome-mv3`, and press Enter. After rebuilding an installed
+extension, use its **Reload** button on `chrome://extensions` and reopen the
+side panel. The panel footer displays the installed manifest version.
+
+The panel keeps the task composer and run controls at the bottom, with the
+action timeline above. Connection, tab attachment, approval requests and errors
+remain visible; configuration is under the collapsed settings section. The
+orange accent indicates the working interface, not proof that a task succeeded.
+
 The extension reviews an active tab only after the user selects **Capture
 active tab**, then requires **Confirm and attach**. It forwards only the
 runtime's permitted CDP commands and events. Fixed internal Rust-owned
@@ -51,11 +62,12 @@ fill "Email address" with "alex@example.invalid"
 type "Bengaluru" into "Preferred city"
 ```
 
-The quoted field label must uniquely match an interactable semantic input's
-accessible name. Unquoted values, ambiguous labels, and page-provided values
-do not create typing actions. This is a small explicit grammar, not general
-natural-language field interpretation. The task still passes through the
-configured provider privacy mode; see [privacy modes](privacy.md).
+The field label must uniquely match an interactable semantic input's
+accessible name. Some unquoted assignments and uniquely grounded native option
+names are supported too; ambiguous or missing values still abstain. Untrusted
+page text alone cannot authorize a field value. This remains a bounded grammar,
+not universal natural-language field interpretation. The task still passes
+through the configured provider privacy mode; see [privacy modes](privacy.md).
 
 ## Owned supporting tabs
 

@@ -26,7 +26,10 @@ async with BrowserSession.launch() as browser:
 > deterministic provider fixtures. Live Luna also completes the controlled
 > click, select, scroll, form, and multi-tab tasks in the
 > [repair smoke report](docs/development/live-agent-repair-2026-10-12.md).
-> Public-site reliability remains unverified. Opt-in vision and isolated semantic-data
+> The final [V8 long-task evaluation](docs/development/long-task-diagnostics-2026-10-15.md)
+> passed 16/18 development checks, then 0/6 on a fresh independent holdout.
+> It does not establish long-task reliability. Public-site reliability remains unverified.
+> Opt-in vision and isolated semantic-data
 > transforms are implemented; screenshot redaction and complete PII detection
 > are unavailable. See the [roadmap](docs/development/roadmap.md).
 
@@ -97,6 +100,9 @@ agent ownership.
 - LangGraph task control, bounded memory, encrypted checkpoints and local traces.
 - Luna decisions with code-controlled reasoning effort; optional Laya shadow
   comparison cannot choose or execute actions. Jev is not required.
+- A fixed-prefix [prompt cache](docs/architecture/prompt-caching.md) and
+  provider-reported cache usage. Current page context is still sent on every
+  decision; cached prompts never replace observation or authorize actions.
 - Explicit form-value grammar and bounded owned-tab workflows. These are not
   universal natural-language form interpretation; see [extension usage](docs/user/extension.md).
 - On-demand viewport vision, disabled by default and blocked in privacy-first
@@ -220,8 +226,9 @@ M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
 M3 executor + verification, M4 LangGraph runtime, M5 decision providers, M6
 adaptive Luna reasoning, M7 bounded memory/recovery and M8–M11 product
 capabilities are implemented to the scopes documented above. Limited live Luna
-fixture tests pass; broad agent reliability remains unverified. M12 large-scale benchmark
-hardening is deferred until productization review. See the
+fixture tests pass; broad agent reliability remains unverified. The final V8
+task-mix evaluation scored 16/18 on development and 0/6 on the independent
+holdout. Broader M12 benchmark hardening remains outstanding. See the
 [roadmap](docs/development/roadmap.md) for gates and later optional milestones.
 
 ## Contributing / security

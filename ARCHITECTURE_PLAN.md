@@ -12,20 +12,22 @@ need. The Native Messaging relay, attached Rust transport, and extension task
 dispatch are implemented, with real packaged-browser software acceptance passed.
 An opt-in isolated semantic-data transform, optional provider privacy modes,
 encrypted checkpoints, local metrics, settings and Linux source installation
-are implemented. Screenshot redaction and live-provider task acceptance remain
-unverified or unavailable. Do not describe fixture-backed software tests as
+are implemented. Screenshot redaction remains unavailable. Limited live-provider
+fixture tasks have been tested; general public-site reliability remains unverified.
+Do not describe fixture-backed software tests as
 proof of autonomous task reliability.
 
 **Current runtime policy (supersedes older System One routing below):**
 GPT-6 Luna is the only active decision provider permitted to produce
 executable actions. Laya is shadow-only and is not trusted for execution. Jev
-is disabled and is not required. Do not call Jev or tune Laya during the
-productization phase. Bound Luna actions to runtime-generated semantic
+is disabled and is not required. Do not call Jev. The current targeted task and
+call-budget evaluation may probe Laya's interface without modifying its weights;
+this does not enable general execution routing. Bound Luna actions to runtime-generated semantic
 candidates, then require deterministic verification in Rust.
 
 Laya-only benchmark evaluation has been performed and did not establish trust
-for execution. Jev has not been called. Live OpenAI inference remains
-unverified.
+for general execution. Jev has not been called. Limited live OpenAI fixture
+inference is recorded in the [repair report](docs/development/live-agent-repair-2026-10-12.md).
 
 **Primary objective:** Build a reliable, open-source, provider-aware browser
 agent that can complete long-running browser tasks with low latency and low
@@ -278,11 +280,9 @@ No language is added for architectural novelty.
 
 # 5. Current Foundation
 
-The M0–M2 completion status below is preserved from the prior BROWSKI runtime
-work. The current checkout does not contain the Rust workspace or its runtime
-implementation, so those milestones cannot be independently inspected here.
-The status is retained as project history; the README describes the code
-available in this checkout.
+The M0–M2 completion status below describes the Rust workspace and Python
+boundary in this implementation repository. The separate screenshot benchmark
+checkout is historical; it does not own these foundations.
 
 ## Milestone 0 — Scaffold
 
@@ -382,8 +382,7 @@ It refers to semantic targets supplied by the runtime.
 
 # 6. Milestone 3 — Executor + Verification
 
-**Implemented in Mango.** The contract below records the M3 architecture; the
-implementation repository is Mango, not this documentation/benchmark checkout.
+**Implemented in this repository.** The contract below records the M3 architecture.
 
 M3 turns structured intent into a browser state transition and proves whether the intended effect occurred.
 
@@ -591,6 +590,13 @@ receive a separate comparison request after Luna selects; its response is
 never used to execute or authorize an action.
 
 Code retains authority over whether the action is permitted.
+
+Canonical candidate IDs identify runtime-owned actions without asking Luna to
+reconstruct private values or action parameters. IDs resolve only against the
+current finite candidate set; an unknown ID cannot fall back to an alternative
+action supplied by the model. Batches remain bounded, with each operation
+revalidated and verified separately. See
+[ADR-019](docs/decisions/ADR-019-grounded-commands-and-canonical-candidates.md).
 
 ---
 
@@ -1645,8 +1651,7 @@ After replanning, the system returns to Luna's bounded action decision path.
 
 ## M3 — Executor + Deterministic Verification
 
-**DONE in Mango.** The current architecture/benchmark checkout does not include
-those Rust sources.
+**DONE in this repository.** The Rust sources and browser tests are present.
 
 Implemented typed actions, trusted input, bounded settling, deterministic
 postcondition verification, structured failures, and evidence-bearing outcomes.
@@ -1676,8 +1681,7 @@ no unbounded retries
 
 ## M4 — Agent Graph
 
-**IMPLEMENTED in Mango.** This benchmark checkout does not contain these
-sources. The installed `browski run` command wires Luna, optional non-executing
+**IMPLEMENTED in this repository.** The installed `browski run` command wires Luna, optional non-executing
 Laya shadow comparison, the browser session, and SQLite graph runtime;
 `browski task` is an equivalent spelling. The
 `resume` command now reopens a durable graph checkpoint, including
@@ -1755,6 +1759,29 @@ form, and multi-tab fixture tasks. Broad public-site reliability remains
 unverified; see the [live repair report](docs/development/live-agent-repair-2026-10-12.md).
 Local task checks and bounded, individually verified Luna batches are recorded
 in [ADR-018](docs/decisions/ADR-018-locally-verified-luna-actions.md).
+
+The fixed developer-instruction prefix uses an explicit Responses prompt-cache
+breakpoint. Dynamic task, memory and browser state follow the breakpoint and
+are sent on each call. Cache reads, writes and uncached input are measured from
+provider usage, not assumed. Caching does not reuse decisions or bypass browser
+verification. See [prompt caching](docs/architecture/prompt-caching.md).
+
+The [frozen V1 task mix](docs/development/task-mix-evaluation-2026-10-14.md)
+passed 11/18 development cases and 4/9 held-out cases, with no long-case passes.
+These results supersede any inference of broad reliability from earlier smoke
+successes. Later runtime changes require separate, frozen re-evaluation.
+
+The final frozen V8 rerun passed 16/18 development checks but scored 0/6 on a
+fresh independently authored holdout. This is evidence that the development
+score did not generalize and that arbitrary long-task reliability is not
+established. See the [final long-task evaluation](docs/development/long-task-diagnostics-2026-10-15.md).
+
+The reasoning contract includes an explicit `task_complete` proposal. It must
+preserve the initialized required milestone identifiers and proof; correcting
+earlier evidence requires a separate plan revision. Runtime completion still
+requires verified browser effects and all independently checked user constraints.
+Rejected proposals continue only within the existing call and stagnation limits.
+This is an internal Python provider contract, not a new browser-side schema.
 
 The implementation covers:
 
@@ -1887,7 +1914,7 @@ offline modes block screenshot inference.
 
 ---
 
-## M11 — Product Surface (local software acceptance passed; live Luna acceptance pending)
+## M11 — Product Surface (software acceptance and limited live fixture tests passed)
 
 Add:
 
@@ -1916,9 +1943,13 @@ for evidence and readiness limits.
 
 ---
 
-## M12 — Benchmark Hardening (deferred until productization review)
+## M12 — Benchmark Hardening (broader validation remains deferred)
 
-Run representative long-horizon evaluation and publish reproducible results.
+The final frozen local task-mix evaluation is recorded in
+[`docs/development/long-task-diagnostics-2026-10-15.md`](docs/development/long-task-diagnostics-2026-10-15.md):
+V8 passed 16/18 development checks and 0/6 independent holdout checks. The
+development result did not generalize. Representative broader long-horizon
+validation remains outstanding.
 
 No "beats Browser Use" claim without controlled benchmark evidence.
 
@@ -2067,7 +2098,7 @@ M8–M11 productization and security integration (local review candidate)
         ↓
 review product and software readiness
         ↓
-M12 large-scale reliability and task-success evaluation
+M12 broader reliability and task-success evaluation (local V8 task mix complete)
 ```
 
 This preserves the engineering rule followed successfully through M1/M2:

@@ -1,0 +1,507 @@
+{
+  "common_successful_cases": {
+    "baseline_latency_median_ms": 19482.72,
+    "baseline_luna_calls": 47,
+    "case_ids": [
+      "dev-l-04",
+      "dev-m-01",
+      "dev-m-02",
+      "dev-m-03",
+      "dev-m-04",
+      "dev-m-05",
+      "dev-m-06",
+      "dev-s-01",
+      "dev-s-02",
+      "dev-s-03",
+      "dev-s-05",
+      "dev-s-06"
+    ],
+    "tuned_latency_median_ms": 17480.215,
+    "tuned_luna_calls": 49
+  },
+  "metric_version": 1,
+  "percentile_method": "nearest_rank",
+  "primary_ground_truth": "frozen independent browser-state checks",
+  "runs": {
+    "baseline": {
+      "actions_completed_events": 88,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 6,
+          "latency_p50_ms": 40801.32,
+          "luna_calls": 59,
+          "successes": 1
+        },
+        "medium": {
+          "cases": 6,
+          "latency_p50_ms": 22512.58,
+          "luna_calls": 35,
+          "successes": 6
+        },
+        "small": {
+          "cases": 6,
+          "latency_p50_ms": 6608.09,
+          "luna_calls": 11,
+          "successes": 5
+        }
+      },
+      "directory": "debug-logs/task-mix-20261015/optimized-20261015T062809Z-431c1570",
+      "execution_policy": {
+        "budget_scale": 3,
+        "difficulty": "all",
+        "max_case_seconds": null,
+        "max_luna_calls": 30,
+        "max_steps": 120
+      },
+      "expected_cases": 18,
+      "failed_cases": [
+        {
+          "case_id": "dev-l-06",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-s-04",
+          "checks": [
+            "visible_text:Search complete: 1 ticket."
+          ],
+          "errors": [],
+          "runtime_status": "completed"
+        },
+        {
+          "case_id": "dev-l-01",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [
+            "ReasoningProviderProtocolError"
+          ],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-03",
+          "checks": [
+            "visible_text:4 of 4 release steps complete.",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "dev-l-05",
+          "checks": [
+            "input:query",
+            "visible_text:Pinned tickets: 418, 442"
+          ],
+          "errors": [],
+          "runtime_status": "completed"
+        },
+        {
+          "case_id": "dev-l-02",
+          "checks": [
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        }
+      ],
+      "latency_ms": {
+        "p50": 22825.91,
+        "p95": 85451.03,
+        "p99": 85451.03
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 105,
+      "luna_calls_successful_cases": 47,
+      "luna_latency_ms": {
+        "p50": 3834.33,
+        "p95": 8471.29,
+        "p99": 10192.49
+      },
+      "luna_token_usage": {
+        "cache_write_tokens": {
+          "missing_events": 0,
+          "reported_events": 105,
+          "reported_total": 6588,
+          "total": 6588
+        },
+        "cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 105,
+          "reported_total": 223992,
+          "total": 223992
+        },
+        "events": 105,
+        "input_tokens": {
+          "missing_events": 0,
+          "reported_events": 105,
+          "reported_total": 417538,
+          "total": 417538
+        },
+        "non_cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 105,
+          "reported_total": 193546,
+          "total": 193546
+        },
+        "output_tokens": {
+          "missing_events": 0,
+          "reported_events": 105,
+          "reported_total": 20410,
+          "total": 20410
+        }
+      },
+      "mean_luna_calls_successful_case": 3.9166666666666665,
+      "provider_errors": {
+        "ReasoningProviderProtocolError": 1
+      },
+      "recorded_cases": 18,
+      "results_sha256": "a1c1a9d83eb70983f861350ca4c5dc6617939c7b7e171fe655a65a4cf07618f7",
+      "runtime_statuses": {
+        "awaiting_user": 5,
+        "completed": 12,
+        "pending_confirmation": 1
+      },
+      "seed": 20261012,
+      "source_sha256": "f21ff579f176cd99949b07d4dda5e022ac59b10732e58ede716b52163e071a07",
+      "success_rate": 0.6666666666666666,
+      "successes": 12,
+      "successful_case_latency_ms": {
+        "p50": 17540.19,
+        "p95": 74751.03,
+        "p99": 74751.03
+      },
+      "suite": "dev",
+      "unexecuted_cases": [],
+      "variant": "optimized"
+    },
+    "holdout": {
+      "actions_completed_events": 29,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 4,
+          "latency_p50_ms": 19540.89,
+          "luna_calls": 35,
+          "successes": 0
+        },
+        "medium": {
+          "cases": 2,
+          "latency_p50_ms": 8894.75,
+          "luna_calls": 6,
+          "successes": 0
+        },
+        "small": {
+          "cases": 0,
+          "latency_p50_ms": null,
+          "luna_calls": 0,
+          "successes": 0
+        }
+      },
+      "directory": "debug-logs/task-mix-20261015/optimized-20261015T180838Z-972dd430",
+      "execution_policy": {
+        "budget_scale": 1,
+        "difficulty": "all",
+        "max_case_seconds": 180,
+        "max_luna_calls": 30,
+        "max_steps": 120
+      },
+      "expected_cases": 6,
+      "failed_cases": [
+        {
+          "case_id": "v3-l-01",
+          "checks": [
+            "input:project-code",
+            "input:steward",
+            "input:retention",
+            "checked:source-checked",
+            "visible_text:Archive note saved for ORCH-27.",
+            "visible_text:Steward: Mina Patel",
+            "visible_text:Retention: 7 years",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "v3-m-01",
+          "checks": [
+            "input:project-name",
+            "input:requested-date",
+            "selected:review-level",
+            "visible_text:Review stage",
+            "visible_text:Cedar Room Refresh",
+            "visible_text:2026-11-12",
+            "visible_text:Not submitted",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "v3-l-03",
+          "checks": [
+            "input:staff-name",
+            "input:access-end",
+            "checked:promotional-notices",
+            "selected:team",
+            "selected:region",
+            "visible_text:Access profile saved for Rowan Ellis.",
+            "visible_text:Access ends 2027-03-31",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "v3-l-02",
+          "checks": [
+            "input:recipient",
+            "input:amount",
+            "input:transfer-date",
+            "input:reference",
+            "checked:recipient-verified",
+            "selected:source-account",
+            "visible_text:Transfer details ready",
+            "user_outcome",
+            "confirmation_status"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "v3-l-04",
+          "checks": [
+            "input:item-title",
+            "input:asset-tag",
+            "input:quantity",
+            "input:storage-location",
+            "checked:safety-checked",
+            "selected:category",
+            "selected:condition",
+            "visible_text:Catalog entry saved",
+            "visible_text:River Survey Kit",
+            "visible_text:RS-209",
+            "visible_text:14 units",
+            "visible_text:Bay 3",
+            "visible_text:Safety checked",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        },
+        {
+          "case_id": "v3-m-02",
+          "checks": [
+            "selected:record-filter",
+            "visible_text:Juniper Works \u2014 Reviewed",
+            "visible_text:Alder Street Cafe \u2014 Reviewed",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        }
+      ],
+      "latency_ms": {
+        "p50": 18270.5,
+        "p95": 129702.75,
+        "p99": 129702.75
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 41,
+      "luna_calls_successful_cases": 0,
+      "luna_latency_ms": {
+        "p50": 4239.03,
+        "p95": 6988.71,
+        "p99": 12119.64
+      },
+      "luna_token_usage": {
+        "cache_write_tokens": {
+          "missing_events": 0,
+          "reported_events": 41,
+          "reported_total": 0,
+          "total": 0
+        },
+        "cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 41,
+          "reported_total": 94095,
+          "total": 94095
+        },
+        "events": 41,
+        "input_tokens": {
+          "missing_events": 0,
+          "reported_events": 41,
+          "reported_total": 149360,
+          "total": 149360
+        },
+        "non_cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 41,
+          "reported_total": 55265,
+          "total": 55265
+        },
+        "output_tokens": {
+          "missing_events": 0,
+          "reported_events": 41,
+          "reported_total": 11574,
+          "total": 11574
+        }
+      },
+      "mean_luna_calls_successful_case": null,
+      "provider_errors": {},
+      "recorded_cases": 6,
+      "results_sha256": "aac60cb0957c9a515b24b99c44e37755e758988bf8d29e9d17b01d4bab767b71",
+      "runtime_statuses": {
+        "awaiting_user": 5,
+        "failed": 1
+      },
+      "seed": 20261015,
+      "source_sha256": "0df2e4c5a16699d19f9f7691a8109283da0c831d70122f6cfcb6e2711c64824e",
+      "success_rate": 0.0,
+      "successes": 0,
+      "successful_case_latency_ms": {
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "suite": "holdout",
+      "unexecuted_cases": [],
+      "variant": "optimized"
+    },
+    "tuned": {
+      "actions_completed_events": 92,
+      "complete": true,
+      "difficulty": {
+        "large": {
+          "cases": 6,
+          "latency_p50_ms": 49514.95,
+          "luna_calls": 81,
+          "successes": 4
+        },
+        "medium": {
+          "cases": 6,
+          "latency_p50_ms": 18127.92,
+          "luna_calls": 32,
+          "successes": 6
+        },
+        "small": {
+          "cases": 6,
+          "latency_p50_ms": 6765.23,
+          "luna_calls": 12,
+          "successes": 6
+        }
+      },
+      "directory": "debug-logs/task-mix-20261015/optimized-20261015T175825Z-d63004a3",
+      "execution_policy": {
+        "budget_scale": 3,
+        "difficulty": "all",
+        "max_case_seconds": null,
+        "max_luna_calls": 30,
+        "max_steps": 120
+      },
+      "expected_cases": 18,
+      "failed_cases": [
+        {
+          "case_id": "dev-l-03",
+          "checks": [
+            "visible_text:4 of 4 release steps complete.",
+            "user_outcome"
+          ],
+          "errors": [
+            "runtime_failed"
+          ],
+          "runtime_status": "failed"
+        },
+        {
+          "case_id": "dev-l-05",
+          "checks": [
+            "input:query",
+            "selected:queue",
+            "visible_text:Pinned tickets: 418, 442",
+            "user_outcome"
+          ],
+          "errors": [],
+          "runtime_status": "awaiting_user"
+        }
+      ],
+      "latency_ms": {
+        "p50": 17502.61,
+        "p95": 131324.39,
+        "p99": 131324.39
+      },
+      "laya_accepted": 0,
+      "laya_calls": 0,
+      "luna_calls": 125,
+      "luna_calls_successful_cases": 99,
+      "luna_latency_ms": {
+        "p50": 3144.84,
+        "p95": 6629.46,
+        "p99": 9418.49
+      },
+      "luna_token_usage": {
+        "cache_write_tokens": {
+          "missing_events": 0,
+          "reported_events": 125,
+          "reported_total": 0,
+          "total": 0
+        },
+        "cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 125,
+          "reported_total": 286875,
+          "total": 286875
+        },
+        "events": 125,
+        "input_tokens": {
+          "missing_events": 0,
+          "reported_events": 125,
+          "reported_total": 519121,
+          "total": 519121
+        },
+        "non_cached_input_tokens": {
+          "missing_events": 0,
+          "reported_events": 125,
+          "reported_total": 232246,
+          "total": 232246
+        },
+        "output_tokens": {
+          "missing_events": 0,
+          "reported_events": 125,
+          "reported_total": 28349,
+          "total": 28349
+        }
+      },
+      "mean_luna_calls_successful_case": 6.1875,
+      "provider_errors": {},
+      "recorded_cases": 18,
+      "results_sha256": "5e2b52dfb492808712fe23c7aab748f7c8ae35b0de707391e9ad2e8c45139901",
+      "runtime_statuses": {
+        "awaiting_user": 2,
+        "completed": 14,
+        "failed": 1,
+        "pending_confirmation": 1
+      },
+      "seed": 20261012,
+      "source_sha256": "f21ff579f176cd99949b07d4dda5e022ac59b10732e58ede716b52163e071a07",
+      "success_rate": 0.8888888888888888,
+      "successes": 16,
+      "successful_case_latency_ms": {
+        "p50": 17502.61,
+        "p95": 99825.4,
+        "p99": 99825.4
+      },
+      "suite": "dev",
+      "unexecuted_cases": [],
+      "variant": "optimized"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+variant,case_id,difficulty,success,runtime_status,luna_calls,laya_calls,latency_ms,failed_checks
+baseline,dev-s-03,small,True,completed,1,0,8356.24,
+baseline,dev-m-06,medium,True,completed,5,0,22512.58,
+baseline,dev-m-02,medium,True,completed,5,0,21425.25,
+baseline,dev-s-05,small,True,completed,1,0,6608.09,
+baseline,dev-s-06,small,True,awaiting_user,1,0,3218.42,
+baseline,dev-m-04,medium,True,completed,3,0,17540.19,
+baseline,dev-l-06,large,False,awaiting_user,11,0,65398.26,user_outcome
+baseline,dev-m-01,medium,True,completed,6,0,30385.96,
+baseline,dev-s-04,small,False,completed,4,0,22825.91,visible_text:Search complete: 1 ticket.
+baseline,dev-l-04,large,True,pending_confirmation,5,0,40801.32,
+baseline,dev-m-05,medium,True,completed,4,0,27168.11,
+baseline,dev-l-01,large,False,awaiting_user,16,0,85451.03,user_outcome
+baseline,dev-m-03,medium,True,completed,12,0,74751.03,
+baseline,dev-l-03,large,False,awaiting_user,12,0,61061.45,visible_text:4 of 4 release steps complete.;user_outcome
+baseline,dev-l-05,large,False,completed,6,0,24245.64,"input:query;visible_text:Pinned tickets: 418, 442"
+baseline,dev-s-02,small,True,completed,3,0,10728.76,
+baseline,dev-s-01,small,True,completed,1,0,3365.28,
+baseline,dev-l-02,large,False,awaiting_user,9,0,40435.64,user_outcome
+tuned,dev-s-03,small,True,completed,3,0,17502.61,
+tuned,dev-m-06,medium,True,completed,6,0,24154.21,
+tuned,dev-m-02,medium,True,completed,5,0,18127.92,
+tuned,dev-s-05,small,True,completed,2,0,6970.42,
+tuned,dev-s-06,small,True,awaiting_user,1,0,2898.91,
+tuned,dev-m-04,medium,True,completed,3,0,12929.25,
+tuned,dev-l-06,large,True,completed,20,0,99825.4,
+tuned,dev-m-01,medium,True,completed,7,0,34060.17,
+tuned,dev-s-04,small,True,completed,1,0,6362.72,
+tuned,dev-l-04,large,True,pending_confirmation,6,0,29252.14,
+tuned,dev-m-05,medium,True,completed,4,0,17457.82,
+tuned,dev-l-01,large,True,completed,17,0,74019.78,
+tuned,dev-m-03,medium,True,completed,7,0,32495.98,
+tuned,dev-l-03,large,False,failed,24,0,131324.39,visible_text:4 of 4 release steps complete.;user_outcome
+tuned,dev-l-05,large,False,awaiting_user,2,0,12147.89,"input:query;selected:queue;visible_text:Pinned tickets: 418, 442;user_outcome"
+tuned,dev-s-02,small,True,completed,3,0,11245.48,
+tuned,dev-s-01,small,True,completed,2,0,6765.23,
+tuned,dev-l-02,large,True,completed,12,0,49514.95,
+holdout,v3-l-01,large,False,failed,24,0,129702.75,input:project-code;input:steward;input:retention;checked:source-checked;visible_text:Archive note saved for ORCH-27.;visible_text:Steward: Mina Patel;visible_text:Retention: 7 years;user_outcome
+holdout,v3-m-01,medium,False,awaiting_user,4,0,18270.5,input:project-name;input:requested-date;selected:review-level;visible_text:Review stage;visible_text:Cedar Room Refresh;visible_text:2026-11-12;visible_text:Not submitted;user_outcome
+holdout,v3-l-03,large,False,awaiting_user,5,0,25200.16,input:staff-name;input:access-end;checked:promotional-notices;selected:team;selected:region;visible_text:Access profile saved for Rowan Ellis.;visible_text:Access ends 2027-03-31;user_outcome
+holdout,v3-l-02,large,False,awaiting_user,2,0,10776.45,input:recipient;input:amount;input:transfer-date;input:reference;checked:recipient-verified;selected:source-account;visible_text:Transfer details ready;user_outcome;confirmation_status
+holdout,v3-l-04,large,False,awaiting_user,4,0,19540.89,input:item-title;input:asset-tag;input:quantity;input:storage-location;checked:safety-checked;selected:category;selected:condition;visible_text:Catalog entry saved;visible_text:River Survey Kit;visible_text:RS-209;visible_text:14 units;visible_text:Bay 3;visible_text:Safety checked;user_outcome
+holdout,v3-m-02,medium,False,awaiting_user,2,0,8894.75,selected:record-filter;visible_text:Juniper Works — Reviewed;visible_text:Alder Street Cafe — Reviewed;user_outcome

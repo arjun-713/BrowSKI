@@ -26,3 +26,13 @@ records failures observed with real Luna responses. The
 [repair and re-evaluation report](development/live-agent-repair-2026-10-12.md)
 records subsequent fixes, successful controlled tasks, failed intermediate
 runs, and the remaining public-site reliability limits.
+
+The [frozen mixed-task evaluation](development/task-mix-evaluation-2026-10-14.md)
+reports development and held-out outcomes separately, including long-task and
+confirmation failures. The [prompt caching note](architecture/prompt-caching.md)
+records the cache boundary, usage semantics and a controlled live cache probe.
+
+The [final V8 long-task evaluation](development/long-task-diagnostics-2026-10-15.md)
+records the frozen development rerun, independently authored holdout and blind
+packet review. V8 passed 16/18 development checks and 0/6 holdout checks; the
+development score did not generalize.

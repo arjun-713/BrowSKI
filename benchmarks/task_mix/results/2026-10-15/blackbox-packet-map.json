@@ -1,0 +1,98 @@
+{
+  "0e817071e22e": {
+    "case_id": "dev-m-02",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "22f660554e6c": {
+    "case_id": "dev-m-03",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "2d0abc34413f": {
+    "case_id": "dev-m-01",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "367f72911108": {
+    "case_id": "dev-s-02",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "3f93ff273e48": {
+    "case_id": "dev-s-06",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "49f7e3d949f3": {
+    "case_id": "dev-m-05",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "4a3e18a4c813": {
+    "case_id": "dev-l-06",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "5c01154ff044": {
+    "case_id": "dev-l-03",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "6f7e18380042": {
+    "case_id": "dev-m-04",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "712096ca3ebe": {
+    "case_id": "dev-m-06",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "780796ff9266": {
+    "case_id": "dev-s-04",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "83d69004ca5a": {
+    "case_id": "dev-l-02",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "9ba18a89aa9c": {
+    "case_id": "dev-l-04",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "9bac75626feb": {
+    "case_id": "dev-l-05",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "a971a7b997cf": {
+    "case_id": "dev-s-01",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "b1c0b4a27d2e": {
+    "case_id": "dev-l-01",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "b2607a766fa7": {
+    "case_id": "dev-s-05",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "fe54050aa101": {
+    "case_id": "dev-s-03",
+    "run_directory": "optimized-20261015T175825Z-d63004a3"
+  },
+  "0aa530c0840c": {
+    "case_id": "v3-l-04",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  },
+  "102e3896af18": {
+    "case_id": "v3-l-01",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  },
+  "37b54aab7c32": {
+    "case_id": "v3-m-01",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  },
+  "3d9809d18e15": {
+    "case_id": "v3-m-02",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  },
+  "40d36e7f622b": {
+    "case_id": "v3-l-02",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  },
+  "507971b0770d": {
+    "case_id": "v3-l-03",
+    "run_directory": "optimized-20261015T180838Z-972dd430"
+  }
+}
