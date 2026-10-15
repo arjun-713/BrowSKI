@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Record queue</title>
+  </head>
+  <body>
+    <main>
+      <h1>Record queue</h1>
+      <label for="record-filter">Status</label>
+      <select id="record-filter" name="record-filter">
+        <option value="all">All records</option>
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+      </select>
+      <table>
+        <caption>Service records</caption>
+        <thead>
+          <tr><th scope="col">Organization</th><th scope="col">Status</th><th scope="col">Action</th></tr>
+        </thead>
+        <tbody>
+          <tr data-status="open">
+            <th scope="row">Juniper Works</th>
+            <td class="status">Open</td>
+            <td><button type="button">Mark reviewed</button></td>
+          </tr>
+          <tr data-status="open">
+            <th scope="row">Alder Street Cafe</th>
+            <td class="status">Open</td>
+            <td><button type="button">Mark reviewed</button></td>
+          </tr>
+          <tr data-status="closed">
+            <th scope="row">Pine Ferry Co-op</th>
+            <td class="status">Closed</td>
+            <td><button type="button" disabled>Already closed</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+    <script>
+      const filter = document.querySelector("#record-filter");
+      filter.addEventListener("change", () => {
+        for (const row of document.querySelectorAll("tbody tr")) {
+          row.hidden = filter.value !== "all" && row.dataset.status !== filter.value;
+        }
+      });
+
+      for (const button of document.querySelectorAll("tbody button:not(:disabled)")) {
+        button.addEventListener("click", () => {
+          const row = button.closest("tr");
+          row.querySelector(".status").textContent = "Reviewed";
+          button.disabled = true;
+          button.textContent = "Reviewed";
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Review request</title>
+  </head>
+  <body>
+    <main>
+      <h1>Northside studio request</h1>
+      <form>
+        <label for="project-name">Project name</label>
+        <input id="project-name" name="project-name" type="text" required>
+
+        <label for="requested-date">Requested date</label>
+        <input id="requested-date" name="requested-date" type="date" required>
+
+        <label for="review-level">Review level</label>
+        <select id="review-level" name="review-level">
+          <option value="standard">Standard review</option>
+          <option value="expedited">Expedited review</option>
+        </select>
+
+        <button id="review-request" type="button">Open review stage</button>
+      </form>
+      <section aria-live="polite" hidden id="review-stage">
+        <h2>Review stage</h2>
+        <p id="review-project"></p>
+        <p id="review-date"></p>
+        <p id="review-level-value"></p>
+        <p>Not submitted</p>
+      </section>
+    </main>
+    <script>
+      const reviewButton = document.querySelector("#review-request");
+      reviewButton.addEventListener("click", () => {
+        const project = document.querySelector("#project-name").value;
+        const date = document.querySelector("#requested-date").value;
+        const level = document.querySelector("#review-level");
+
+        document.querySelector("#review-project").textContent = project;
+        document.querySelector("#review-date").textContent = date;
+        document.querySelector("#review-level-value").textContent =
+          level.selectedOptions[0].textContent;
+        document.querySelector("#review-stage").hidden = false;
+      });
+    </script>
+  </body>
+</html>

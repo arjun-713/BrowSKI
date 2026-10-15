@@ -1,0 +1,56 @@
+{
+  "version": 3,
+  "split": "holdout",
+  "seed": 20261015,
+  "frozen_before_inference": true,
+  "corpus": {
+    "path": "benchmarks/task_mix/holdout_v3.jsonl",
+    "sha256": "0df2e4c5a16699d19f9f7691a8109283da0c831d70122f6cfcb6e2711c64824e"
+  },
+  "case_order": [
+    "v3-m-01",
+    "v3-m-02",
+    "v3-l-01",
+    "v3-l-02",
+    "v3-l-03",
+    "v3-l-04"
+  ],
+  "category_counts": {
+    "medium": 2,
+    "large": 4
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/task_mix/v3-review-request.html",
+      "sha256": "d22b9e37f259dbe716b0a8f951c96cd0776f1ba79ecbbd55b66b71d73361308b"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-record-queue.html",
+      "sha256": "f58266ac121071df1367b64b7353dc7638dc1955ccd2cde03c36374817d8a45a"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-reference-desk.html",
+      "sha256": "6ed26d59a4cc2f6f2ceff2868ba559a5d69595111578d1d46184d92f0561a9ea"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-reference-record.html",
+      "sha256": "09646bdd85fae67fb416c97801e89a269190dd5219feadd577b7f7fe91bf6539"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-reference-definitions.html",
+      "sha256": "e47c1a97ec185ad7f083f0c0056f9c5e3992a4c6ef3a50b8f22e855a87df0338"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-release-preparation.html",
+      "sha256": "5e4ef5cbcfee81fa35832ac79bb1733befb663e31571f6214d603f279ffd3548"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-access-profile.html",
+      "sha256": "d484b65ea37859004b912e117564d8412f903d63c0be487832b90399b9ba68ce"
+    },
+    {
+      "path": "tests/fixtures/task_mix/v3-catalog-entry.html",
+      "sha256": "28ac27ae382d4df4073baec88eccdedb5cc2092b631ebe64a8800a3a6fe9f6b6"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Archive desk</title>
+  </head>
+  <body>
+    <main>
+      <h1>Archive desk</h1>
+      <p>Open both reference pages, then save a note.</p>
+      <ul>
+        <li><a href="/task-mix/v3-reference-record.html" target="_blank" rel="noopener">Project record</a></li>
+        <li><a href="/task-mix/v3-reference-definitions.html" target="_blank" rel="noopener">Field definitions</a></li>
+      </ul>
+      <form>
+        <label for="project-code">Project code</label>
+        <input id="project-code" name="project-code" type="text" required>
+        <label for="steward">Steward</label>
+        <input id="steward" name="steward" type="text" required>
+        <label for="retention">Retention period</label>
+        <input id="retention" name="retention" type="text" required>
+        <label><input id="source-checked" name="source-checked" type="checkbox"> I checked the source pages</label>
+        <button id="save-note" type="button">Save note</button>
+      </form>
+      <section aria-live="polite" id="saved-note"></section>
+    </main>
+    <script>
+      document.querySelector("#save-note").addEventListener("click", () => {
+        const code = document.querySelector("#project-code").value;
+        const steward = document.querySelector("#steward").value;
+        const retention = document.querySelector("#retention").value;
+        const note = document.querySelector("#saved-note");
+        note.replaceChildren();
+
+        const heading = document.createElement("p");
+        heading.textContent = `Archive note saved for ${code}.`;
+        const stewardLine = document.createElement("p");
+        stewardLine.textContent = `Steward: ${steward}`;
+        const retentionLine = document.createElement("p");
+        retentionLine.textContent = `Retention: ${retention}`;
+        note.append(heading, stewardLine, retentionLine);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Prepare transfer</title>
+  </head>
+  <body>
+    <main>
+      <h1>Scheduled transfer</h1>
+      <form>
+        <label for="recipient">Recipient</label>
+        <input id="recipient" name="recipient" type="text" required>
+        <label for="amount">Amount in USD</label>
+        <input id="amount" name="amount" type="number" step="0.01" required>
+        <label for="transfer-date">Transfer date</label>
+        <input id="transfer-date" name="transfer-date" type="date" required>
+        <label for="reference">Reference</label>
+        <input id="reference" name="reference" type="text" required>
+        <label for="source-account">Source account</label>
+        <select id="source-account" name="source-account">
+          <option value="1180">Operations reserve •• 1180</option>
+          <option value="4402">Operating account •• 4402</option>
+          <option value="7915">Payroll account •• 7915</option>
+        </select>
+        <label><input id="recipient-verified" name="recipient-verified" type="checkbox"> Recipient details verified</label>
+        <p id="readiness" aria-live="polite">Complete the transfer details.</p>
+        <button id="release-transfer" type="button">Release transfer</button>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector("form");
+      const readiness = document.querySelector("#readiness");
+      form.addEventListener("input", () => {
+        const complete = [...form.querySelectorAll("input[required]")]
+          .every((input) => input.value.trim() !== "");
+        readiness.textContent = complete
+          ? "Transfer details ready"
+          : "Complete the transfer details.";
+      });
+    </script>
+  </body>
+</html>

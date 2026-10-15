@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Catalog entry</title>
+  </head>
+  <body>
+    <main>
+      <h1>Equipment catalog entry</h1>
+      <form>
+        <label for="item-title">Item title</label>
+        <input id="item-title" name="item-title" type="text" required>
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="">Choose a category</option>
+          <option value="survey-equipment">Survey Equipment</option>
+          <option value="safety-gear">Safety Gear</option>
+        </select>
+        <label for="asset-tag">Asset tag</label>
+        <input id="asset-tag" name="asset-tag" type="text" required>
+        <label for="quantity">Quantity</label>
+        <input id="quantity" name="quantity" type="number" min="1" required>
+        <label for="storage-location">Storage location</label>
+        <input id="storage-location" name="storage-location" type="text" required>
+        <label for="condition">Condition</label>
+        <select id="condition" name="condition">
+          <option value="">Choose condition</option>
+          <option value="ready">Ready for issue</option>
+          <option value="service">Needs service</option>
+        </select>
+        <label><input id="safety-checked" name="safety-checked" type="checkbox"> Safety check completed</label>
+        <button id="save-entry" type="button">Save entry</button>
+      </form>
+      <section aria-live="polite" id="entry-status"></section>
+    </main>
+    <script>
+      document.querySelector("#save-entry").addEventListener("click", () => {
+        const title = document.querySelector("#item-title").value;
+        const tag = document.querySelector("#asset-tag").value;
+        const quantity = document.querySelector("#quantity").value;
+        const location = document.querySelector("#storage-location").value;
+        const category = document.querySelector("#category").selectedOptions[0].textContent;
+        const condition = document.querySelector("#condition").selectedOptions[0].textContent;
+        const checked = document.querySelector("#safety-checked").checked;
+        const status = document.querySelector("#entry-status");
+        status.replaceChildren();
+
+        for (const line of [
+          "Catalog entry saved",
+          title,
+          category,
+          tag,
+          `${quantity} units`,
+          location,
+          condition,
+          ...(checked ? ["Safety checked"] : []),
+        ]) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = line;
+          status.append(paragraph);
+        }
+      });
+    </script>
+  </body>
+</html>

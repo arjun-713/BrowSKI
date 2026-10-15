@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Access profile</title>
+  </head>
+  <body>
+    <main>
+      <h1>Staff access profile</h1>
+      <form>
+        <label for="staff-name">Staff member</label>
+        <input id="staff-name" name="staff-name" type="text" required>
+        <label for="team">Team</label>
+        <select id="team" name="team">
+          <option value="">Choose a team</option>
+          <option value="field-operations">Field Operations</option>
+          <option value="records">Records</option>
+        </select>
+        <label for="region">Region</label>
+        <select id="region" name="region">
+          <option value="">Choose a region</option>
+          <option value="north">North</option>
+          <option value="south">South</option>
+        </select>
+        <label for="access-end">Access end date</label>
+        <input id="access-end" name="access-end" type="date" required>
+        <fieldset>
+          <legend>Notifications</legend>
+          <label><input id="incident-reports" name="incident-reports" type="checkbox"> Incident reports</label>
+          <label><input id="weekly-summaries" name="weekly-summaries" type="checkbox"> Weekly summaries</label>
+          <label><input id="promotional-notices" name="promotional-notices" type="checkbox" checked> Promotional notices</label>
+        </fieldset>
+        <button id="save-profile" type="button">Save profile</button>
+      </form>
+      <section aria-live="polite" id="save-status"></section>
+    </main>
+    <script>
+      document.querySelector("#save-profile").addEventListener("click", () => {
+        const name = document.querySelector("#staff-name").value;
+        const team = document.querySelector("#team").selectedOptions[0].textContent;
+        const region = document.querySelector("#region").selectedOptions[0].textContent;
+        const date = document.querySelector("#access-end").value;
+        const status = document.querySelector("#save-status");
+        status.replaceChildren();
+
+        for (const line of [
+          `Access profile saved for ${name}.`,
+          team,
+          region,
+          `Access ends ${date}`,
+        ]) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = line;
+          status.append(paragraph);
+        }
+      });
+    </script>
+  </body>
+</html>
