@@ -149,3 +149,67 @@ async def test_replanning_preserves_completed_steps_with_unchanged_proof(tmp_pat
         assert result.completed == ["Start workflow", "Finish workflow"]
         assert result.steps_taken == 2
         assert agent.calls == 3
+
+
+class _StaleVerificationAgent(Agent):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.progress_signals: list[list[str]] = []
+
+    async def decide(
+        self, snapshot: SemanticSnapshot, task: TaskState, memory: WorkingMemory
+    ) -> AgentDecision:
+        _ = memory
+        self.calls += 1
+        self.progress_signals.append(list(task.progress_signals))
+        if self.calls == 3:
+            return AgentDecision(ask_user=["The latest click had no verified effect."])
+
+        target = next(item for item in snapshot.elements if item.accessible_name == "Save")
+        return AgentDecision(
+            action=BrowserAction(
+                type="click",
+                target=ElementRef(ref=target.ref, id=target.id, generation=target.generation),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_noop_after_success_clears_stale_verification_before_next_decision(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "stale-verification.html"
+    fixture.write_text(
+        """<!doctype html>
+<html lang="en">
+  <body>
+    <p role="status">Waiting</p>
+    <button type="button" onclick="
+      const status = document.querySelector('p');
+      if (status.textContent !== 'Saved') status.textContent = 'Saved';
+    ">Save</button>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    async with BrowserSession.launch() as browser:
+        await browser.navigate(fixture.as_uri())
+        agent = _StaleVerificationAgent()
+        runtime = AgentRuntime(
+            agent,
+            browser,
+            config=AgentConfig(max_llm_calls=4, max_stagnant_steps=3),
+        )
+        result = await runtime.run("Save the requested effect.", run_id="stale-verification")
+        graph_state = await runtime.graph.aget_state(
+            {"configurable": {"thread_id": "stale-verification"}}
+        )
+
+    assert not result.done
+    assert result.status == "awaiting_user"
+    assert agent.calls == 3
+    assert "verification_success" in agent.progress_signals[1]
+    assert "verification_success" not in agent.progress_signals[2]
+    history = graph_state.values["action_history"]
+    assert [event["verification_status"] for event in history] == ["SUCCESS", "FAILURE"]

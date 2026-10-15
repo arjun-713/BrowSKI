@@ -941,6 +941,9 @@ def build_agent_graph(
             task_state.steps_taken += 1
             task_state.recovery_count += 1
             task_state.recovery_streak += 1
+            task_state.progress_signals = [
+                signal for signal in progress_signals if signal != "verification_success"
+            ]
             memory = WorkingMemory.model_validate(state["memory"])
             failed_strategy = f"{action_signature}: {verification_status}"
             if failed_strategy not in memory.failed_strategies:
