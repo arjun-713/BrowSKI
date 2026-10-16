@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from browser_agent.reasoning.context_budget import ContextBudgetExceeded, fit_observation_context
 from browser_agent.reasoning.contracts import (
     ReasoningAction,
     ReasoningContext,
@@ -16,6 +17,7 @@ from browser_agent.reasoning.contracts import (
     ReasoningEffort,
     ReasoningProvider,
 )
+from browser_agent.telemetry.debug_log import record_debug
 from browser_agent.vision.contracts import VisionInterpretation, VisionProvider, VisionRequest
 
 
@@ -27,6 +29,17 @@ class PrivacyMode(StrEnum):
 
 class ProviderBoundaryError(RuntimeError):
     """Raised when policy does not permit an outbound provider request."""
+
+    user_message = "Local privacy policy blocked this model request. Check the privacy setting."
+
+
+class ProviderContextTooLarge(ProviderBoundaryError):
+    """Required context cannot be reduced safely to the configured budget."""
+
+    user_message = (
+        "The required task and page context exceeds the model request limit. "
+        "Narrow the task or use a simpler page. No API request was sent."
+    )
 
 
 class OutboundProvider(BaseModel):
@@ -181,15 +194,39 @@ class ProviderBoundary:
     ) -> ReasoningDecision:
         """Apply mode policy before forwarding the typed context."""
         if self._mode == PrivacyMode.OFFLINE:
+            record_debug("provider.boundary_blocked", {"reason": "offline_mode"})
             raise ProviderBoundaryError("Privacy mode offline blocks remote providers")
 
         vault = LocalTokenVault()
         try:
-            self.inspect(context)
             safe_context = (
                 self._sanitize_context(context, vault)
                 if self._mode == PrivacyMode.PRIVACY_FIRST
                 else context
+            )
+            original_size = len(safe_context.model_dump_json(exclude_none=True))
+            try:
+                safe_context = fit_observation_context(
+                    safe_context, max_characters=self._max_context_characters
+                )
+            except ContextBudgetExceeded as error:
+                record_debug(
+                    "provider.boundary_blocked",
+                    {"reason": "required_context_limit", "context_characters": original_size},
+                )
+                raise ProviderContextTooLarge(
+                    "Outbound provider context exceeds configured limit"
+                ) from error
+            metadata = self.inspect(safe_context)
+            record_debug(
+                "provider.context_budget",
+                {
+                    "original_characters": original_size,
+                    "outbound_characters": metadata.context_characters,
+                    "original_elements": len(context.observation.elements),
+                    "outbound_elements": len(safe_context.observation.elements),
+                    "truncated": safe_context.observation.truncated,
+                },
             )
             decision = await self._provider.reason(safe_context, model=model, effort=effort)
             if self._mode != PrivacyMode.PRIVACY_FIRST:
@@ -224,7 +261,7 @@ class ProviderBoundary:
         """Return safe metadata only; never retain or log the payload."""
         serialized = context.model_dump_json(exclude_none=True)
         if len(serialized) > self._max_context_characters:
-            raise ProviderBoundaryError("Outbound provider context exceeds configured limit")
+            raise ProviderContextTooLarge("Outbound provider context exceeds configured limit")
         count = 0
         if self._mode == PrivacyMode.PRIVACY_FIRST:
             count = self._count_sensitive_values(context.model_dump(mode="json"))
@@ -245,7 +282,9 @@ class ProviderBoundary:
             context.model_dump(mode="json", exclude_none=False),
         )
         sanitized = self._sanitize_value(payload, vault)
-        return ReasoningContext.model_validate(sanitized)
+        return ReasoningContext.model_validate(sanitized).model_copy(
+            update={"required_observation_refs": context.required_observation_refs}
+        )
 
     def _sanitize_value(
         self,

@@ -25,6 +25,7 @@ from browser_agent.decisions import (
     DecisionResult,
 )
 from browser_agent.persistence.run_metrics import RunMetricsAggregator
+from browser_agent.providers.privacy import ProviderContextTooLarge
 from browser_agent.reasoning import (
     ReasoningAction,
     ReasoningContext,
@@ -276,6 +277,20 @@ async def test_oversized_reasoning_context_is_not_retried_as_a_protocol_repair()
     assert decision.ask_user
     assert len(provider.calls) == 1
     assert agent.last_reasoning_calls == 1
+
+
+async def test_local_context_limit_is_reported_without_claiming_luna_is_unavailable() -> None:
+    provider = ProtocolFailureThenProvider(
+        ProviderContextTooLarge("Outbound provider context exceeds configured limit")
+    )
+    agent = LunaDecisionAgent(None, provider)
+
+    decision = await agent.decide(snapshot(), task_state(), WorkingMemory())
+
+    assert decision.action is None
+    assert decision.ask_user == [ProviderContextTooLarge.user_message]
+    assert len(provider.calls) == 1
+    assert "No API request was sent" in decision.ask_user[0]
 
 
 async def test_plan_next_action_cannot_bypass_finite_candidates() -> None:

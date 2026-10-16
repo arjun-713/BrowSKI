@@ -67,6 +67,7 @@ from browser_agent.progress.evidence import (
     visible_phrase_present,
 )
 from browser_agent.progress.task_state import check_completion
+from browser_agent.providers.privacy import ProviderBoundaryError
 from browser_agent.reasoning import (
     ComplexityGate,
     ComplexityLevel,
@@ -518,6 +519,11 @@ class LunaDecisionAgent(Agent):
             visual_observation=visual_context,
             failure_summary=failure_summary,
             candidate_options=candidate_options or {},
+            required_observation_refs=tuple(
+                candidate.target_ref
+                for candidate in bounded_candidates or []
+                if candidate.target_ref is not None
+            ),
             browser_checks=local_browser_checks(
                 task,
                 snapshot,
@@ -594,7 +600,7 @@ class LunaDecisionAgent(Agent):
             )
             message = (
                 exc.user_message
-                if isinstance(exc, ReasoningProviderRequestError)
+                if isinstance(exc, (ReasoningProviderRequestError, ProviderBoundaryError))
                 else "Luna reasoning was unavailable. Review the current browser state "
                 "and provide guidance before continuing."
             )

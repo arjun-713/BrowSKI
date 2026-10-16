@@ -391,3 +391,27 @@ def test_provider_context_size_is_bounded_before_forwarding() -> None:
         boundary.inspect(context_with_private_values())
 
     assert provider.contexts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [PrivacyMode.STANDARD, PrivacyMode.PRIVACY_FIRST])
+async def test_large_page_is_compacted_before_forwarding_without_expanding_budget(
+    mode: PrivacyMode,
+) -> None:
+    provider = FakeReasoningProvider()
+    boundary = ProviderBoundary(provider, mode=mode)
+    context = context_with_private_values().model_copy(
+        update={"required_observation_refs": ("@noise-439",)}
+    )
+    context.observation.elements.extend(
+        PrunedElement(ref=f"@noise-{index}", role="text", text="Navigation " * 40)
+        for index in range(440)
+    )
+    await boundary.reason(context, model="gpt-6-luna", effort=ReasoningEffort.LOW)
+
+    assert len(provider.contexts) == 1
+    assert provider.contexts[0].observation.truncated
+    assert len(provider.contexts[0].model_dump_json(exclude_none=True)) <= 32_000
+    assert len(context.observation.elements) == 441
+    assert "@noise-439" in {item.ref for item in provider.contexts[0].observation.elements}
+    assert "required_observation_refs" not in provider.contexts[0].model_dump()

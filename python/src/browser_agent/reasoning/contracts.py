@@ -241,6 +241,8 @@ class ReasoningContext(BaseModel):
     visual_observation: str | None = Field(default=None, max_length=1_200)
     failure_summary: str | None = Field(default=None, max_length=1_000)
     candidate_options: dict[str, str] = Field(default_factory=dict, max_length=16)
+    # Local projection metadata; never sent as part of the provider prompt.
+    required_observation_refs: tuple[str, ...] = Field(default=(), exclude=True)
     browser_checks: dict[str, bool] = Field(default_factory=dict, max_length=64)
     task_tab_labels: dict[str, str] = Field(default_factory=dict, max_length=8)
     browser_code_enabled: bool = False
