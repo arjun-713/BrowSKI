@@ -94,13 +94,13 @@ preflight
 printf '\n==> Sync the checkout-local Python environment\n'
 uv sync --locked --project "$ROOT_DIR/python" --extra dev
 
-printf '\n==> Build the Rust workspace\n'
-cargo build --workspace
+printf '\n==> Build the optimized Rust workspace\n'
+cargo build --workspace --release
 
 printf '\n==> Build the Python bindings in the checkout-local environment\n'
 (
   cd "$ROOT_DIR/python"
-  uv run maturin develop
+  uv run maturin develop --release
 )
 
 printf '\n==> Install locked extension dependencies in extension/node_modules\n'

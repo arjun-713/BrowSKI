@@ -38,8 +38,10 @@ It creates no files. Use `./scripts/install.sh --help` to see installer options.
 
 The installer uses the existing lockfiles and keeps its dependencies in the
 checkout: Python's `python/.venv`, Cargo's `target/`, and the extension's
-`extension/node_modules/`. The Rust workspace and PyO3 bindings are built, and
-WXT creates both extension outputs:
+`extension/node_modules/`. The Rust workspace and PyO3 bindings use optimized
+release builds for the installed runtime. Developer commands such as
+`make bindings` still build the development profile. WXT creates both
+extension outputs:
 
 | Build | Output directory | Use |
 |---|---|---|
