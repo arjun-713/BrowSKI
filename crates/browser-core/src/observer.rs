@@ -1530,21 +1530,11 @@ async fn observe_full_attempt(
     // Next fresh id base (registry allocates).
     for old_id in prev_ids {
         match registry.reacquire(old_id, &candidates, &alive) {
-            ReacquireOutcome::Bound { id, .. } => {
-                // Find the best candidate index again for binding (first
-                // unclaimed candidate with score above floor).
-                let mut best: Option<(usize, u32)> = None;
-                for (idx, cand) in candidates.iter().enumerate() {
-                    if claimed_new.contains(&idx) {
-                        continue;
-                    }
-                    let stored = registry.signals_of(id).expect("entry present");
-                    let s = score(stored, &cand.signals);
-                    if s >= SCORE_WEAK && best.map_or(true, |(_, bs)| s > bs) {
-                        best = Some((idx, s));
-                    }
-                }
-                if let Some((idx, _)) = best {
+            ReacquireOutcome::Bound { id, level, .. } => {
+                let stored = registry.signals_of(id).expect("entry present");
+                if let Some(idx) =
+                    reacquired_candidate_index(stored, level, &candidates, &claimed_new)
+                {
                     claimed_new.insert(idx);
                     let alias = registry.alias_of(id).expect("alias present").to_string();
                     registry.refresh(id, generation);
@@ -1710,6 +1700,39 @@ async fn observe_full_attempt(
 
 fn should_retry_observation(captured: u64, current: u64, retries: u8) -> bool {
     captured != current && retries == 0
+}
+
+fn reacquired_candidate_index(
+    stored: &FingerprintSignals,
+    level: u8,
+    candidates: &[ReacquireCandidate],
+    claimed: &HashSet<usize>,
+) -> Option<usize> {
+    if level == 2 {
+        // The registry already proved unique live backend identity. Re-scoring
+        // every element both wastes work and can override that identity with
+        // an unrelated control whose old label happens to match more closely.
+        let backend = stored.backend?;
+        let mut matches = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| candidate.signals.backend == Some(backend));
+        let (index, _) = matches.next()?;
+        return (matches.next().is_none() && !claimed.contains(&index)).then_some(index);
+    }
+
+    let mut best: Option<(usize, u32)> = None;
+    for (index, candidate) in candidates.iter().enumerate() {
+        if claimed.contains(&index) {
+            continue;
+        }
+        let candidate_score = score(stored, &candidate.signals);
+        if candidate_score >= SCORE_WEAK && best.map_or(true, |(_, score)| candidate_score > score)
+        {
+            best = Some((index, candidate_score));
+        }
+    }
+    best.map(|(index, _)| index)
 }
 
 fn eval_string(
@@ -1939,6 +1962,69 @@ fn build_dialogs(elements: &[SemanticElement]) -> Vec<DialogSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn identity_candidate(backend: i64, name: &str) -> ReacquireCandidate {
+        ReacquireCandidate {
+            signals: FingerprintSignals {
+                backend: Some(backend),
+                role: "button".into(),
+                name: Some(name.into()),
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn confirmed_backend_identity_survives_label_drift() {
+        let stored = identity_candidate(42, "Before").signals;
+        let candidates = [
+            identity_candidate(99, "Before"),
+            identity_candidate(42, "After"),
+        ];
+        assert_eq!(
+            reacquired_candidate_index(&stored, 2, &candidates, &HashSet::new()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn confirmed_backend_never_uses_a_duplicate_or_claimed_candidate() {
+        let stored = identity_candidate(42, "Before").signals;
+        let duplicates = [
+            identity_candidate(42, "First"),
+            identity_candidate(42, "Second"),
+        ];
+        assert_eq!(
+            reacquired_candidate_index(&stored, 2, &duplicates, &HashSet::new()),
+            None
+        );
+        assert_eq!(
+            reacquired_candidate_index(
+                &stored,
+                2,
+                &[identity_candidate(42, "After")],
+                &HashSet::from([0])
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn semantic_reacquisition_keeps_first_unclaimed_best_match() {
+        let stored = identity_candidate(42, "Before").signals;
+        let candidates = [
+            identity_candidate(99, "Before"),
+            identity_candidate(98, "Before"),
+        ];
+        assert_eq!(
+            reacquired_candidate_index(&stored, 3, &candidates, &HashSet::new()),
+            Some(0)
+        );
+        assert_eq!(
+            reacquired_candidate_index(&stored, 3, &candidates, &HashSet::from([0])),
+            Some(1)
+        );
+    }
 
     #[test]
     fn observation_generation_fence_retries_once_without_advancing_generation() {
