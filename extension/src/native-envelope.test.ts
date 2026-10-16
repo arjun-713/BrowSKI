@@ -15,4 +15,12 @@ describe("extension-runtime wire envelope", () => {
 
     expect(packet).toEqual(helloPacket);
   });
+
+  it("keeps wire sequences increasing across outgoing message types", () => {
+    const first = createNativeEnvelope("runtime.snapshot.request", { afterSequence: 0 });
+    const second = createNativeEnvelope("runtime.task.control", { control: "pause" });
+
+    expect(second.sequence).toBe(first.sequence + 1);
+    expect(Number.isSafeInteger(second.sequence)).toBe(true);
+  });
 });

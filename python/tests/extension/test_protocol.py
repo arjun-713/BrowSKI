@@ -198,3 +198,58 @@ def test_validator_exhausts_bounded_replay_window() -> None:
 
     with pytest.raises(ExtensionProtocolError, match="window is exhausted"):
         validator.validate(_message("snapshot-1", "runtime.snapshot.request", {"afterSequence": 0}))
+
+
+def test_sequenced_connection_outlives_uuid_window_and_rejects_old_packets() -> None:
+    validator = ExtensionMessageValidator(max_messages=8)
+    hello = {**_hello(), "sequence": 1}
+    validator.validate(hello)
+    for sequence in range(2, 4_200):
+        validator.validate(
+            {
+                **_message(
+                    f"snapshot-{sequence}", "runtime.snapshot.request", {"afterSequence": 0}
+                ),
+                "sequence": sequence,
+            }
+        )
+
+    assert validator.remembered_message_count == 8
+    with pytest.raises(ExtensionProtocolError, match="sequence is invalid or replayed"):
+        validator.validate(hello)
+    with pytest.raises(ExtensionProtocolError, match="already used"):
+        validator.validate(
+            {
+                **_message("snapshot-4199", "runtime.snapshot.request", {"afterSequence": 0}),
+                "sequence": 4_200,
+            }
+        )
+
+
+@pytest.mark.parametrize("sequence", [None, True, 1, 0, -1, 1.5, 1 << 53])
+def test_sequenced_connection_rejects_invalid_sequence(sequence: object) -> None:
+    validator = ExtensionMessageValidator()
+    validator.validate({**_hello(), "sequence": 1})
+    with pytest.raises(ExtensionProtocolError, match="sequence is invalid or replayed"):
+        validator.validate(
+            {
+                **_message("snapshot-2", "runtime.snapshot.request", {"afterSequence": 0}),
+                "sequence": sequence,
+            }
+        )
+
+
+def test_sequence_mode_cannot_change_and_invalid_payload_does_not_advance_it() -> None:
+    validator = ExtensionMessageValidator()
+    validator.validate({**_hello(), "sequence": 10})
+    snapshot = _message("snapshot-1", "runtime.snapshot.request", {"afterSequence": 0})
+    with pytest.raises(ExtensionProtocolError, match="sequence mode changed"):
+        validator.validate(snapshot)
+    with pytest.raises(ExtensionProtocolError, match="payload is invalid"):
+        validator.validate({**snapshot, "sequence": 500, "payload": {"unexpected": True}})
+    assert validator.validate({**snapshot, "sequence": 11})["sequence"] == 11
+
+    legacy = ExtensionMessageValidator()
+    legacy.validate(_hello())
+    with pytest.raises(ExtensionProtocolError, match="sequence mode changed"):
+        legacy.validate({**snapshot, "sequence": 1})

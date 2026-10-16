@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Mapping
 from typing import TypeGuard, cast
 from urllib.parse import urlsplit
@@ -11,6 +12,7 @@ DEBUGGER_PROTOCOL_VERSION = 1
 MAX_EVENT_ID_LENGTH = 128
 MAX_DEBUGGER_CAPABILITIES = 128
 MAX_TASK_LENGTH = 4_000
+MAX_MESSAGE_SEQUENCE = (1 << 53) - 1
 
 
 class ExtensionProtocolError(ValueError):
@@ -217,13 +219,23 @@ class ExtensionMessageValidator:
             raise ValueError("message replay window must be greater than zero")
         self._max_messages = max_messages
         self._seen_ids: set[str] = set()
+        self._recent_ids: deque[str] = deque()
         self._hello_seen = False
+        self._sequenced = False
+        self._last_sequence = 0
+
+    @property
+    def remembered_message_count(self) -> int:
+        """Number of UUIDs retained for duplicate detection on this connection."""
+        return len(self._seen_ids)
 
     def validate(self, value: object) -> dict[str, object]:
         if not _is_record(value):
             raise ExtensionProtocolError("extension message must be an object")
         message = value
-        if not _has_only_keys(message, {"protocolVersion", "type", "eventId", "payload"}):
+        if not _has_only_keys(
+            message, {"protocolVersion", "type", "eventId", "sequence", "payload"}
+        ):
             raise ExtensionProtocolError("extension message has unexpected envelope fields")
         if (
             type(message.get("protocolVersion")) is not int
@@ -236,7 +248,15 @@ class ExtensionMessageValidator:
             raise ExtensionProtocolError("extension message type or event ID is invalid")
         if event_id in self._seen_ids:
             raise ExtensionProtocolError("extension message event ID was already used")
-        if len(self._seen_ids) >= self._max_messages:
+        sequenced = "sequence" in message
+        sequence = message.get("sequence")
+        if self._hello_seen and sequenced != self._sequenced:
+            raise ExtensionProtocolError("extension message sequence mode changed")
+        if sequenced and (
+            not _is_int(sequence) or not self._last_sequence < sequence <= MAX_MESSAGE_SEQUENCE
+        ):
+            raise ExtensionProtocolError("extension message sequence is invalid or replayed")
+        if not sequenced and len(self._seen_ids) >= self._max_messages:
             raise ExtensionProtocolError("extension message replay window is exhausted")
         if not _valid_payload(message_type, message.get("payload")):
             raise ExtensionProtocolError("extension message payload is invalid")
@@ -245,6 +265,15 @@ class ExtensionMessageValidator:
         if self._hello_seen and message_type == "extension.hello":
             raise ExtensionProtocolError("extension hello may only be sent once per connection")
 
+        # Sequenced connections reject every old packet by its monotonic number.
+        # Keep only a bounded UUID window for accidental duplicate-ID detection;
+        # browser traffic must not impose a lifetime limit on a healthy session.
+        if sequenced:
+            if len(self._recent_ids) >= self._max_messages:
+                self._seen_ids.remove(self._recent_ids.popleft())
+            self._last_sequence = cast(int, sequence)
+            self._recent_ids.append(event_id)
         self._seen_ids.add(event_id)
+        self._sequenced = sequenced
         self._hello_seen = self._hello_seen or message_type == "extension.hello"
         return message

@@ -38,7 +38,21 @@ versioned surfaces:
 Native Messaging protocol v1 uses the envelope fields `protocolVersion`,
 `type`, `eventId`, and `payload` in both directions. Every message has a fresh
 UUID `eventId`; the runtime rejects duplicate IDs within a bounded connection
-window. CDP command correlation uses `payload.commandId`, while the internal
+window. Extension 0.1.7 adds an outbound `sequence` field: a positive,
+strictly increasing JavaScript safe integer. Its presence in `extension.hello`
+selects sequenced mode for that connection; subsequent messages must keep the
+same mode. The runtime rejects old sequence numbers even after their UUIDs
+leave the bounded cache, permitting long sessions without an unbounded replay
+set. Invalid messages never advance the sequence. The counter can continue
+across reconnects; each authenticated connection establishes its own baseline.
+
+Legacy senders without `sequence` remain supported with their original
+4,096-message lifetime limit. Upgrade the runtime and reload extension 0.1.7
+together to use long sessions. Older runtimes reject the additive field;
+this is a coordinated v0.x upgrade. [ADR-021](../decisions/ADR-021-sequenced-extension-sessions.md)
+records the compatibility and replay policy.
+
+CDP command correlation uses `payload.commandId`, while the internal
 Rust/backend protocol uses a separate integer `requestId`.
 
 The shared [hello fixture](../../tests/fixtures/extension/hello.v1.json) is
