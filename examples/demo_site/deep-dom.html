@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>BROWSKI nested DOM regression</title>
+    <style>
+      .catalogue {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin: 1rem;
+      }
+
+      .catalogue article {
+        min-width: 0;
+        padding: 0.75rem;
+        border: 1px solid #bbb;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="root"></main>
+    <script>
+      const crowded = new URLSearchParams(location.search).has("crowded");
+      if (crowded) {
+        const catalogue = document.createElement("section");
+        catalogue.className = "catalogue";
+        catalogue.setAttribute("aria-label", "Related catalogue items");
+        for (let index = 1; index <= 360; index += 1) {
+          const code = String(index).padStart(4, "0");
+          const card = document.createElement("article");
+          const heading = document.createElement("h2");
+          heading.textContent = `Workflow ${code}: Browser reliability toolkit`;
+          const detail = document.createElement("p");
+          detail.textContent =
+            `Local reference entry ${code}. Includes audit notes, compatibility details, ` +
+            "maintenance history, and integration guidance for review.";
+          const compareLabel = document.createElement("label");
+          const compare = document.createElement("input");
+          compare.type = "checkbox";
+          compareLabel.append(compare, ` Compare workflow ${code}`);
+          const details = document.createElement("button");
+          details.type = "button";
+          details.textContent = `Open details for workflow ${code}`;
+          card.append(heading, detail, compareLabel, details);
+          catalogue.append(card);
+        }
+        // Keep the primary deeply nested action near the start of document
+        // order so native observation caps retain it ahead of catalogue noise.
+        document.body.append(catalogue);
+      }
+      // Component wrappers can exceed serde_json's default nesting limit even
+      // when the page and its browser protocol response are very small.
+      let container = document.getElementById("root");
+      for (let index = 0; index < 80; index += 1) {
+        const wrapper = document.createElement("div");
+        container.append(wrapper);
+        container = wrapper;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Reveal result";
+      button.addEventListener("click", () => {
+        const result = document.createElement("h1");
+        result.textContent = "Nested action verified";
+        container.replaceChildren(result);
+      });
+      if (crowded) {
+        // The crowded case isolates provider-context projection. Keep its
+        // primary action shallow; the uncrowded case covers deep resolution.
+        document.getElementById("root").append(button);
+      } else {
+        container.append(button);
+      }
+    </script>
+  </body>
+</html>

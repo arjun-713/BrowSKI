@@ -414,7 +414,7 @@ async def test_owned_tabs_use_one_engine_and_reject_unowned_targets(
     assert [tab.id for tab in await harness.browser.tabs()] == [original.active_tab]
 
 
-def _use_scripted_reasoner(
+def use_scripted_reasoner(
     monkeypatch: pytest.MonkeyPatch,
     provider: ReasoningProvider,
 ) -> None:
@@ -431,7 +431,7 @@ async def test_full_multistep_demo_preserves_grounded_memory_and_stops_before_su
 ) -> None:
     harness = attached_harness
     provider = FullDemoReasoner()
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     pause_received = asyncio.Event()
     original_pause = AgentRuntime.pause
 
@@ -507,7 +507,7 @@ async def test_sidepanel_task_pauses_resumes_and_streams_verified_events(
         evidence="2. Role details",
         blocked=True,
     )
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     pause_received = asyncio.Event()
     original_pause = AgentRuntime.pause
 
@@ -550,7 +550,7 @@ async def test_sidepanel_stop_cancels_decision_without_clicking(
         evidence="2. Role details",
         blocked=True,
     )
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     await harness.panel.get_by_label("Task instruction").fill("Continue to role details.")
     await harness.panel.get_by_role("button", name="Send task").click()
     await asyncio.wait_for(provider.deciding.wait(), timeout=15)
@@ -579,7 +579,7 @@ async def test_owned_session_loss_cancels_pending_decision(
         evidence="2. Role details",
         blocked=True,
     )
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     await harness.panel.get_by_label("Task instruction").fill("Continue to role details.")
     await harness.panel.get_by_role("button", name="Send task").click()
     await asyncio.wait_for(provider.deciding.wait(), timeout=15)
@@ -628,7 +628,7 @@ async def test_sidepanel_high_risk_denial_prevents_submission(
         evidence="Submission is disabled in this demo",
         blocked=pause_before_confirmation,
     )
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     pause_received = asyncio.Event()
     original_pause = AgentRuntime.pause
 
@@ -712,7 +712,7 @@ async def test_sidepanel_explicit_approval_executes_only_the_pending_local_actio
         target_name="Submit application",
         evidence="Submission is disabled in this demo",
     )
-    _use_scripted_reasoner(monkeypatch, provider)
+    use_scripted_reasoner(monkeypatch, provider)
     await harness.panel.get_by_label("Task instruction").fill("Submit the local demo application.")
     await harness.panel.get_by_role("button", name="Send task").click()
     approve = harness.panel.get_by_role("button", name="Approve action")

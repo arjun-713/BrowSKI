@@ -8,7 +8,8 @@ description = "Minimal typed CDP transport and protocol adapters (direct websock
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+serde_stacker = "0.1"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

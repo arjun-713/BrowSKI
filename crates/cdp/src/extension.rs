@@ -4,7 +4,9 @@ use crate::error::CdpError;
 use crate::event::CdpEvent;
 use crate::ids::{CdpSessionId, TargetId};
 use crate::transport::{CdpTransport, OwnedTab};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use serde_stacker::Deserializer as StackSafeDeserializer;
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
@@ -19,6 +21,7 @@ use tokio::task::JoinHandle;
 
 const PROTOCOL_VERSION: u64 = 1;
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
+const MAX_JSON_DEPTH: usize = 256;
 const COMMAND_QUEUE_CAPACITY: usize = 128;
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
@@ -410,24 +413,27 @@ async fn reader_task(
     state: Arc<TransportState>,
     event_tx: broadcast::Sender<CdpEvent>,
 ) {
-    loop {
+    let disconnect_error = loop {
         let message = match read_frame(&mut reader).await {
             Ok(message) => message,
-            Err(_) => break,
+            Err(error) => break error,
         };
-        match message.get("type").and_then(Value::as_str) {
-            Some("backend.response") => handle_response(&state, &message),
+        let message_type = message
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        match message_type.as_deref() {
+            Some("backend.response") => handle_response(&state, message),
             Some("backend.event") => handle_event(&event_tx, &state, &message),
-            Some("backend.detached") => break,
-            _ => break,
+            _ => break CdpError::ConnectionLost,
         }
-    }
+    };
     state.connected.store(false, Ordering::SeqCst);
-    fail_pending(&state, CdpError::ConnectionLost);
+    fail_pending(&state, disconnect_error);
     let _ = event_tx.send(CdpEvent::ConnectionLost);
 }
 
-fn handle_response(state: &TransportState, message: &Value) {
+fn handle_response(state: &TransportState, mut message: Value) {
     let Some(request_id) = message.get("requestId").and_then(Value::as_u64) else {
         return;
     };
@@ -437,8 +443,8 @@ fn handle_response(state: &TransportState, message: &Value) {
         .unwrap_or_else(|error| error.into_inner())
         .remove(&request_id);
     if let Some(sender) = sender {
-        let result = if let Some(result) = message.get("result") {
-            Ok(result.clone())
+        let result = if let Some(result) = message.get_mut("result") {
+            Ok(std::mem::take(result))
         } else if let Some(error) = message.get("error").and_then(Value::as_str) {
             Err(CdpError::ExtensionBridge(error.to_string()))
         } else {
@@ -485,7 +491,7 @@ where
     reader
         .read_exact(&mut header)
         .await
-        .map_err(|error| CdpError::ExtensionBridge(error.to_string()))?;
+        .map_err(|_| CdpError::ExtensionBridge("extension bridge frame read failed".into()))?;
     let length = u32::from_le_bytes(header) as usize;
     if length == 0 || length > MAX_FRAME_BYTES {
         return Err(CdpError::ExtensionBridge(
@@ -496,8 +502,59 @@ where
     reader
         .read_exact(&mut bytes)
         .await
-        .map_err(|error| CdpError::ExtensionBridge(error.to_string()))?;
-    serde_json::from_slice(&bytes).map_err(|error| CdpError::ExtensionBridge(error.to_string()))
+        .map_err(|_| CdpError::ExtensionBridge("extension bridge frame read failed".into()))?;
+    ensure_json_depth_within_limit(&bytes)?;
+
+    let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
+    deserializer.disable_recursion_limit();
+    let stack_safe = StackSafeDeserializer::new(&mut deserializer);
+    let value = Value::deserialize(stack_safe).map_err(safe_frame_parse_error)?;
+    deserializer.end().map_err(safe_frame_parse_error)?;
+    Ok(value)
+}
+
+fn ensure_json_depth_within_limit(bytes: &[u8]) -> Result<(), CdpError> {
+    let mut depth = 0_usize;
+    let mut inside_string = false;
+    let mut escaped = false;
+
+    for byte in bytes {
+        if inside_string {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                inside_string = false;
+            }
+            continue;
+        }
+
+        match *byte {
+            b'"' => inside_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > MAX_JSON_DEPTH {
+                    return Err(frame_depth_error());
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn frame_depth_error() -> CdpError {
+    CdpError::ExtensionBridge("recursion limit exceeded".into())
+}
+
+fn safe_frame_parse_error(error: serde_json::Error) -> CdpError {
+    if error.to_string().contains("recursion limit exceeded") {
+        return CdpError::ExtensionBridge("recursion limit exceeded".into());
+    }
+    CdpError::ExtensionBridge("invalid extension bridge JSON frame".into())
 }
 
 async fn write_frame<W>(writer: &mut W, message: &Value) -> Result<(), CdpError>
@@ -559,7 +616,43 @@ fn fail_pending(state: &TransportState, error: CdpError) {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::net::UnixListener;
+    use tokio::net::{UnixListener, UnixStream};
+
+    async fn pending_result_for_frame(payload: &[u8]) -> Result<Value, CdpError> {
+        let (mut writer, stream) = UnixStream::pair().expect("socket pair should be created");
+        let (reader, _reader_writer) = stream.into_split();
+        let state = Arc::new(TransportState {
+            connected: AtomicBool::new(true),
+            pending: Mutex::new(HashMap::new()),
+            owned_sessions: Mutex::new(HashMap::new()),
+        });
+        let (pending_sender, pending_receiver) = oneshot::channel();
+        state
+            .pending
+            .lock()
+            .expect("pending lock")
+            .insert(7, pending_sender);
+        let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let reader_task = tokio::spawn(reader_task(reader, Arc::clone(&state), event_tx));
+
+        let mut frame = Vec::with_capacity(payload.len() + 4);
+        frame.extend_from_slice(
+            &u32::try_from(payload.len())
+                .expect("test frame length fits in u32")
+                .to_le_bytes(),
+        );
+        frame.extend_from_slice(payload);
+        writer
+            .write_all(&frame)
+            .await
+            .expect("test frame should be written");
+        drop(writer);
+
+        reader_task.await.expect("reader task should finish");
+        pending_receiver
+            .await
+            .expect("pending command should receive disconnect")
+    }
 
     #[tokio::test]
     async fn extension_transport_correlates_commands_and_forwards_events() {
@@ -694,5 +787,93 @@ mod tests {
         }
         receiver.await.expect("receiver should finish");
         assert_eq!(transport.pending_commands(), 0);
+    }
+
+    #[tokio::test]
+    async fn malformed_frame_propagates_safe_error_to_pending_command() {
+        let payload = br#"{"private":"PAGE_CONTENT""#;
+
+        let error = pending_result_for_frame(payload)
+            .await
+            .expect_err("malformed frame should fail the pending command");
+
+        assert!(matches!(
+            &error,
+            CdpError::ExtensionBridge(message)
+                if message == "invalid extension bridge JSON frame"
+        ));
+        assert!(!error.to_string().contains("PAGE_CONTENT"));
+    }
+
+    #[tokio::test]
+    async fn trailing_json_content_is_rejected_without_echoing_payload() {
+        let payload =
+            br#"{"type":"backend.response","requestId":7,"result":{}}{"private":"PAGE_CONTENT"}"#;
+
+        let error = pending_result_for_frame(payload)
+            .await
+            .expect_err("trailing JSON content should be rejected");
+
+        assert!(matches!(
+            &error,
+            CdpError::ExtensionBridge(message)
+                if message == "invalid extension bridge JSON frame"
+        ));
+        assert!(!error.to_string().contains("PAGE_CONTENT"));
+    }
+
+    #[tokio::test]
+    async fn deep_frame_propagates_safe_depth_error_to_pending_command() {
+        let depth = MAX_JSON_DEPTH + 1;
+        let nested = format!("{}0{}", "[".repeat(depth), "]".repeat(depth));
+        let payload = format!(r#"{{"type":"backend.response","requestId":7,"result":{nested}}}"#);
+
+        let error = pending_result_for_frame(payload.as_bytes())
+            .await
+            .expect_err("overly deep frame should fail the pending command");
+
+        assert!(matches!(
+            &error,
+            CdpError::ExtensionBridge(message) if message == "recursion limit exceeded"
+        ));
+        assert!(error.to_string().len() < 128);
+    }
+
+    #[tokio::test]
+    async fn bounded_deep_dom_response_reaches_pending_command() {
+        let depth = 171;
+        let nested = format!("{}0{}", "[".repeat(depth), "]".repeat(depth));
+        let payload =
+            format!(r#"{{"type":"backend.response","requestId":7,"result":{{"dom":{nested}}}}}"#);
+
+        let result = pending_result_for_frame(payload.as_bytes())
+            .await
+            .expect("bounded deep response should parse and reach caller");
+        let mut value = &result["dom"];
+        let mut parsed_depth = 0;
+        while let Value::Array(items) = value {
+            parsed_depth += 1;
+            value = &items[0];
+        }
+
+        assert_eq!(parsed_depth, depth);
+        assert_eq!(value, &Value::from(0));
+    }
+
+    #[tokio::test]
+    async fn bracket_characters_in_escaped_strings_do_not_count_as_depth() {
+        let text = "[\\\"{".repeat(MAX_JSON_DEPTH);
+        let payload = json!({
+            "type": "backend.response",
+            "requestId": 7,
+            "result": { "text": text },
+        })
+        .to_string();
+
+        let result = pending_result_for_frame(payload.as_bytes())
+            .await
+            .expect("escaped brackets in strings should not count as nesting");
+
+        assert_eq!(result["text"], text);
     }
 }
