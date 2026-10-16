@@ -17,6 +17,7 @@ export type RuntimeStatus =
 
 export type RuntimeSession = {
   sessionId: string;
+  runId?: string;
   status: RuntimeStatus;
   taskLabel?: string;
   updatedAt: string;
@@ -29,26 +30,47 @@ export type TimelineEvent = {
   sequence: number;
   step?: number;
   createdAt: string;
-  type?:
-    | "RunStarted"
-    | "RunResumed"
-    | "ObservationCompleted"
-    | "DecisionMade"
-    | "ActionStarted"
-    | "ActionCompleted"
-    | "VerificationCompleted"
-    | "RecoveryStarted"
-    | "BrowserCodeStarted"
-    | "BrowserCodeCompleted"
-    | "ConfirmationRequired"
-    | "RunPaused"
-    | "RunStopped"
-    | "RunCompleted"
-    | "RunFailed";
+  // Trace kinds are append-only diagnostics; unknown kinds cannot authorize actions.
+  type?: string;
   label: string;
   detail?: string;
   browserCode?: BrowserCodeTraceMetadata;
+  browserSessionId?: string;
+  requestId?: string;
+  traceId?: string;
+  stepId?: string;
+  failure?: SafeFailureMetadata;
   status: "info" | "running" | "completed" | "failed";
+};
+
+export type SafeFailureMetadata = {
+  component: string;
+  operation: string;
+  failureKind:
+    | "GROUNDING"
+    | "PLANNING"
+    | "MEMORY"
+    | "EXECUTION"
+    | "VERIFICATION"
+    | "RECOVERY"
+    | "VISION"
+    | "NAVIGATION"
+    | "FRAME"
+    | "TAB"
+    | "UPLOAD"
+    | "DOWNLOAD"
+    | "AUTH"
+    | "TIMEOUT"
+    | "STAGNATION"
+    | "SITE_BLOCK"
+    | "MODEL_FORMAT"
+    | "SAFETY"
+    | "UNKNOWN";
+  recoverable: boolean;
+  category: "browser" | "provider" | "persistence" | "transport" | "runtime";
+  debugId: string;
+  safeMessage: string;
+  nativeErrorType?: string;
 };
 
 export type BrowserCodeTraceMetadata = {
@@ -79,7 +101,9 @@ export type RuntimeSettingsStatus = RuntimeSettingsSnapshot | { error: string };
 const RUNTIME_EVENT_TYPES = new Set<NonNullable<TimelineEvent["type"]>>([
   "RunStarted",
   "RunResumed",
+  "ObservationStarted",
   "ObservationCompleted",
+  "DecisionStarted",
   "DecisionMade",
   "ActionStarted",
   "ActionCompleted",
@@ -94,7 +118,7 @@ const RUNTIME_EVENT_TYPES = new Set<NonNullable<TimelineEvent["type"]>>([
   "RunFailed",
 ]);
 
-export function isRuntimeEventType(
+export function isKnownRuntimeEventType(
   value: unknown,
 ): value is NonNullable<TimelineEvent["type"]> {
   return (
@@ -121,7 +145,12 @@ export function isTimelineEvent(value: unknown): value is TimelineEvent {
     typeof value.createdAt === "string" &&
     value.createdAt.length <= 64 &&
     Number.isFinite(Date.parse(value.createdAt)) &&
-    (value.type === undefined || isRuntimeEventType(value.type)) &&
+    isOptionalBoundedId(value.browserSessionId, 128) &&
+    isOptionalBoundedId(value.requestId, 128) &&
+    isOptionalBoundedId(value.traceId, 128) &&
+    isOptionalBoundedId(value.stepId, 160) &&
+    (value.type === undefined ||
+      (typeof value.type === "string" && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value.type))) &&
     typeof value.label === "string" &&
     value.label.length > 0 &&
     value.label.length <= 160 &&
@@ -130,7 +159,98 @@ export function isTimelineEvent(value: unknown): value is TimelineEvent {
     (value.browserCode === undefined ||
       ((value.type === "BrowserCodeStarted" || value.type === "BrowserCodeCompleted") &&
         isBrowserCodeTraceMetadata(value.browserCode))) &&
+    (value.failure === undefined ||
+      (value.type === "RunFailed" && isSafeFailureMetadata(value.failure))) &&
     ["info", "running", "completed", "failed"].includes(String(value.status))
+  );
+}
+
+function isOptionalBoundedId(value: unknown, maximumLength: number): boolean {
+  return (
+    value === undefined ||
+    (typeof value === "string" && value.length > 0 && value.length <= maximumLength)
+  );
+}
+
+function isSafeFailureMetadata(value: unknown): value is SafeFailureMetadata {
+  const failureKinds = [
+    "GROUNDING",
+    "PLANNING",
+    "MEMORY",
+    "EXECUTION",
+    "VERIFICATION",
+    "RECOVERY",
+    "VISION",
+    "NAVIGATION",
+    "FRAME",
+    "TAB",
+    "UPLOAD",
+    "DOWNLOAD",
+    "AUTH",
+    "TIMEOUT",
+    "STAGNATION",
+    "SITE_BLOCK",
+    "MODEL_FORMAT",
+    "SAFETY",
+    "UNKNOWN",
+  ];
+  const categories = ["browser", "provider", "persistence", "transport", "runtime"];
+  const nativeErrorTypes = [
+    "FRAME_DETACHED",
+    "TARGET_CLOSED",
+    "COMMAND_TIMEOUT",
+    "PROTOCOL_ERROR",
+    "NAVIGATION_FAILED",
+    "NO_ACTIVE_TAB",
+    "INVALID_RESPONSE",
+    "CONNECTION_LOST",
+    "SESSION_CLOSED",
+    "BRIDGE_JSON_DEPTH_LIMIT",
+    "BRIDGE_MESSAGE_TOO_LARGE",
+    "EXTENSION_COMMAND_REJECTED",
+    "EXTENSION_SESSION_MISMATCH",
+    "EXTENSION_COMMAND_TIMEOUT",
+    "EXTENSION_BRIDGE_FAILURE",
+    "OBSERVATION_TIMEOUT",
+    "BROWSER_RUNTIME_FAILURE",
+    "APIConnectionError",
+    "APITimeoutError",
+    "AuthenticationError",
+    "BadRequestError",
+    "RateLimitError",
+    "InternalServerError",
+  ];
+  if (
+    !isPlainRecord(value) ||
+    !hasOnlyKeys(value, [
+      "component",
+      "operation",
+      "failureKind",
+      "recoverable",
+      "category",
+      "debugId",
+      "safeMessage",
+      "nativeErrorType",
+    ])
+  ) {
+    return false;
+  }
+  return (
+    typeof value.component === "string" &&
+    /^[A-Za-z0-9_]{1,64}$/.test(value.component) &&
+    typeof value.operation === "string" &&
+    /^[A-Za-z0-9_]{1,64}$/.test(value.operation) &&
+    failureKinds.includes(String(value.failureKind)) &&
+    typeof value.recoverable === "boolean" &&
+    categories.includes(String(value.category)) &&
+    typeof value.debugId === "string" &&
+    /^[0-9a-f]{32}$/.test(value.debugId) &&
+    typeof value.safeMessage === "string" &&
+    value.safeMessage.length > 0 &&
+    value.safeMessage.length <= 200 &&
+    (value.nativeErrorType === undefined ||
+      (typeof value.nativeErrorType === "string" &&
+        nativeErrorTypes.includes(value.nativeErrorType)))
   );
 }
 
@@ -238,9 +358,11 @@ export type NativeHostMessage =
       "runtime.task.result",
       {
         sessionId: string;
+        runId?: string;
         outcome: "verified_success" | "stopped" | "failed";
         summary: string;
         finishedAt: string;
+        failure?: SafeFailureMetadata;
       }
     >
   | EventEnvelope<"debugger.command", DebuggerCommandRequest>
@@ -670,6 +792,41 @@ export function isNativeHostMessage(value: unknown): value is NativeHostMessage 
   if (value.type === "runtime.timeline") {
     return isPlainRecord(value.payload) && isTimelineEvent(value.payload.event);
   }
+  if (value.type === "runtime.snapshot") {
+    const payload = value.payload;
+    return (
+      isPlainRecord(payload) &&
+      (payload.session === null || isRuntimeSession(payload.session)) &&
+      Array.isArray(payload.events) &&
+      payload.events.every(isTimelineEvent)
+    );
+  }
+  if (value.type === "runtime.task.result") {
+    const payload = value.payload;
+    return (
+      isPlainRecord(payload) &&
+      typeof payload.sessionId === "string" &&
+      payload.sessionId.length > 0 &&
+      payload.sessionId.length <= 128 &&
+      (payload.runId === undefined || isOptionalBoundedId(payload.runId, 128)) &&
+      ["verified_success", "stopped", "failed"].includes(String(payload.outcome)) &&
+      typeof payload.summary === "string" &&
+      payload.summary.length <= 2_000 &&
+      typeof payload.finishedAt === "string" &&
+      Number.isFinite(Date.parse(payload.finishedAt)) &&
+      (payload.failure === undefined ||
+        (payload.outcome === "failed" && isSafeFailureMetadata(payload.failure)))
+    );
+  }
+  if (value.type === "runtime.approval.cleared") {
+    const payload = value.payload;
+    return (
+      isPlainRecord(payload) &&
+      typeof payload.approvalId === "string" &&
+      payload.approvalId.length > 0 &&
+      payload.approvalId.length <= 128
+    );
+  }
   if (value.type === "runtime.credentials.status") {
     const payload = value.payload;
     if (!isPlainRecord(payload)) {
@@ -686,4 +843,28 @@ export function isNativeHostMessage(value: unknown): value is NativeHostMessage 
     return isPlainRecord(value.payload) && isRuntimeSettingsStatus(value.payload);
   }
   return true;
+}
+
+function isRuntimeSession(value: unknown): value is RuntimeSession {
+  return (
+    isPlainRecord(value) &&
+    typeof value.sessionId === "string" &&
+    value.sessionId.length > 0 &&
+    value.sessionId.length <= 128 &&
+    (value.runId === undefined || isOptionalBoundedId(value.runId, 128)) &&
+    [
+      "idle",
+      "running",
+      "paused",
+      "awaiting_approval",
+      "completed",
+      "stopped",
+      "failed",
+    ].includes(String(value.status)) &&
+    (value.taskLabel === undefined ||
+      (typeof value.taskLabel === "string" && value.taskLabel.length <= 200)) &&
+    typeof value.updatedAt === "string" &&
+    value.updatedAt.length <= 64 &&
+    Number.isFinite(Date.parse(value.updatedAt))
+  );
 }

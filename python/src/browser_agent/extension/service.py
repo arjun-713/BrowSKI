@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import hmac
-import io
 import logging
 import os
 import secrets
 import stat
-import struct
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -23,11 +22,13 @@ from browser_agent.extension.backend import (
     ExtensionBackendError,
     ExtensionCdpBackend,
 )
+from browser_agent.extension.diagnostics import (
+    DiagnosticRequest,
+    DiagnosticResponse,
+    inspect_attached_runtime,
+)
 from browser_agent.extension.native_messaging import (
     MAX_NATIVE_MESSAGE_BYTES,
-    NativeMessagingProtocolError,
-    read_native_message,
-    write_native_message,
 )
 from browser_agent.extension.protocol import (
     DEBUGGER_PROTOCOL_VERSION,
@@ -36,6 +37,9 @@ from browser_agent.extension.protocol import (
     ExtensionProtocolError,
 )
 from browser_agent.extension.settings_service import ExtensionSettingsService
+from browser_agent.extension.wire import HEADER as _HEADER
+from browser_agent.extension.wire import read_native_frame as _read_native_frame
+from browser_agent.extension.wire import write_native_frame as _write_native_frame
 from browser_agent.telemetry.debug_log import DebugRecorder, record_debug
 
 if TYPE_CHECKING:
@@ -43,11 +47,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_HEADER = struct.Struct("<I")
 _AUTH_TIMEOUT_SECONDS = 3
 _HELLO_TIMEOUT_SECONDS = 5
 _MESSAGE_TIMEOUT_SECONDS = 300
-_WRITE_TIMEOUT_SECONDS = 5
 
 
 class BridgeServiceError(RuntimeError):
@@ -59,30 +61,6 @@ def default_socket_path() -> Path:
     if runtime_dir:
         return Path(runtime_dir) / "browski" / "bridge.sock"
     return Path.home() / ".local" / "state" / "browski" / "bridge.sock"
-
-
-async def _read_native_frame(
-    reader: asyncio.StreamReader,
-) -> dict[str, object]:
-    header = await reader.readexactly(_HEADER.size)
-    (length,) = _HEADER.unpack(header)
-    if length == 0 or length > MAX_NATIVE_MESSAGE_BYTES:
-        raise NativeMessagingProtocolError("native messaging frame size is outside limits")
-    payload = await reader.readexactly(length)
-    message = read_native_message(io.BytesIO(header + payload))
-    if message is None:
-        raise NativeMessagingProtocolError("native messaging frame is empty")
-    return message
-
-
-async def _write_native_frame(
-    writer: asyncio.StreamWriter,
-    message: dict[str, object],
-) -> None:
-    buffer = io.BytesIO()
-    write_native_message(buffer, message)
-    writer.write(buffer.getvalue())
-    await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_SECONDS)
 
 
 class ExtensionBridgeService:
@@ -132,10 +110,13 @@ class ExtensionBridgeService:
         self._agent_runtime: object | None = None
         self._runtime_context: object | None = None
         self._run_id: str | None = None
+        self._request_id: str | None = None
         self._task_label: str | None = None
         self._pending_approval_id: str | None = None
         self._runtime_suspended = False
         self._closed = False
+        self._diagnostic_task: asyncio.Task[DiagnosticResponse] | None = None
+        self._diagnostic_request_ids: set[str] = set()
 
     @property
     def runtime_session(self) -> dict[str, object] | None:
@@ -220,6 +201,13 @@ class ExtensionBridgeService:
         if self._closed:
             return
         self._closed = True
+        diagnostic_task = self._diagnostic_task
+        if diagnostic_task is not None and not diagnostic_task.done():
+            # Cancelling to_thread does not stop Rust. Close the transport first
+            # so outstanding native commands settle before releasing ownership.
+            if self._backend is not None:
+                await self._backend.close()
+            await asyncio.gather(diagnostic_task, return_exceptions=True)
         self._attachment_started.set()
         task_task, self._task_task = self._task_task, None
         if task_task is not None and not task_task.done():
@@ -332,20 +320,69 @@ class ExtensionBridgeService:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        if self._closed or self._active_connection or self._token is None:
+        if self._closed or len(self._writers) >= 16 or self._token is None:
             writer.close()
             await writer.wait_closed()
             return
-        self._active_connection = True
         self._writers.add(writer)
-        phase = "authentication"
         try:
             await self._authenticate(reader)
-            phase = "handshake"
-            validator = ExtensionMessageValidator()
             hello_value = await asyncio.wait_for(
                 _read_native_frame(reader), timeout=_HELLO_TIMEOUT_SECONDS
             )
+            if hello_value.get("type") == "runtime.diagnostics":
+                request = DiagnosticRequest.model_validate(hello_value)
+                request_id = request.validated_id()
+                if request_id in self._diagnostic_request_ids:
+                    raise ExtensionProtocolError("diagnostic request was already processed")
+                if len(self._diagnostic_request_ids) >= 256:
+                    raise ExtensionProtocolError(
+                        "diagnostic request budget reached; restart runtime"
+                    )
+                self._diagnostic_request_ids.add(request_id)
+                if self._diagnostic_task is not None and not self._diagnostic_task.done():
+                    raise ExtensionProtocolError("a diagnostic probe is already running")
+                self._diagnostic_task = asyncio.create_task(
+                    self._probe_attached_browser(request_id), name="browski-readonly-diagnostics"
+                )
+                response = await asyncio.shield(self._diagnostic_task)
+                await _write_native_frame(writer, response.model_dump())
+            elif not self._active_connection:
+                self._active_connection = True
+                await self._serve_extension(reader, writer, hello_value)
+        except (TimeoutError, asyncio.IncompleteReadError, OSError, ValueError) as exc:
+            logger.info("Local bridge client closed", extra={"error_type": type(exc).__name__})
+        finally:
+            self._writers.discard(writer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+
+    async def _probe_attached_browser(self, request_id: str) -> DiagnosticResponse:
+        browser = cast("BrowserSession | None", self._browser_session)
+        if self._runtime_session is None:
+            browser = None
+        return await inspect_attached_runtime(
+            request_id=request_id,
+            browser=browser,
+            extension_connected=self._extension_writer is not None,
+            run_owns_browser=self._runtime_suspended
+            or (self._task_task is not None and not self._task_task.done()),
+            config_path=self.config_path,
+            database_path=self.database_path,
+        )
+
+    async def _serve_extension(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        hello_value: dict[str, object],
+    ) -> None:
+        phase = "handshake"
+        try:
+            validator = ExtensionMessageValidator()
             hello = validator.validate(hello_value)
             if hello.get("type") != "extension.hello":
                 raise ExtensionProtocolError("extension hello must be the first message")
@@ -396,12 +433,6 @@ class ExtensionBridgeService:
             if self._extension_writer is writer:
                 self._extension_writer = None
             self._active_connection = False
-            self._writers.discard(writer)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
 
     async def _authenticate(self, reader: asyncio.StreamReader) -> None:
         value = await asyncio.wait_for(_read_native_frame(reader), timeout=_AUTH_TIMEOUT_SECONDS)
@@ -468,6 +499,8 @@ class ExtensionBridgeService:
                 await self._send_runtime_snapshot(writer)
         elif message_type == "runtime.task.submit":
             payload = cast(dict[str, object], message["payload"])
+            if self._diagnostic_task is not None and not self._diagnostic_task.done():
+                raise ExtensionProtocolError("wait for the read-only browser diagnostic to finish")
             if (
                 self._runtime_session is None
                 or self._backend is None
@@ -482,13 +515,24 @@ class ExtensionBridgeService:
                 raise ExtensionProtocolError("resume or stop the suspended task first")
             self._task_label = cast(str, payload["task"])[:160]
             self._run_id = str(uuid.uuid4())
+            self._request_id = cast(str, message["eventId"])
             recorder = DebugRecorder(load_config(self.config_path).debug)
             with recorder.bind(self._run_id, cast(str, self._runtime_session["sessionId"])):
-                record_debug("task.received", {"prompt": payload["task"], "source": "extension"})
+                record_debug(
+                    "task.received",
+                    {
+                        "prompt": payload["task"],
+                        "source": "extension",
+                        "request_id": self._request_id,
+                        "trace_id": self._run_id,
+                        "tab_id": self._backend.attachment.tab_id,
+                    },
+                )
             self._pending_approval_id = None
             self._pending_approval = None
             self._timeline_events = []
             self._runtime_session["taskLabel"] = self._task_label
+            self._runtime_session["runId"] = self._run_id
             self._runtime_session["status"] = "running"
             self._runtime_session["updatedAt"] = datetime.now(UTC).isoformat()
             self._task_task = asyncio.create_task(
@@ -573,6 +617,7 @@ class ExtensionBridgeService:
 
     def _reset_task_state(self) -> None:
         self._run_id = None
+        self._request_id = None
         self._task_label = None
         self._pending_approval_id = None
         self._runtime_suspended = False
@@ -670,17 +715,16 @@ class ExtensionBridgeService:
         task: str,
         run_id: str,
     ) -> None:
-        browser = await self.wait_for_attached_browser()
-        if browser is None:
-            recorder = DebugRecorder(load_config(self.config_path).debug)
-            with recorder.bind(run_id, str(uuid.uuid4())):
-                record_debug("task.error", {"reason": "attached_browser_unavailable"})
-            await self._finish_task(
-                writer, success=False, summary="The attached browser is unavailable."
-            )
-            return
         context = None
         try:
+            browser = await self.wait_for_attached_browser()
+            if browser is None:
+                await self._finish_task(
+                    writer,
+                    success=False,
+                    summary="The attached browser is unavailable. Reattach the tab.",
+                )
+                return
             from browser_agent.agent import AgentRuntime, LunaDecisionAgent
             from browser_agent.cli.config import DecisionMode
             from browser_agent.cli.main import (
@@ -717,8 +761,6 @@ class ExtensionBridgeService:
 
             async def event_sink(event: object) -> None:
                 payload = cast(Any, event).to_protocol_payload()
-                if self._runtime_session is not None:
-                    payload["sessionId"] = self._runtime_session["sessionId"]
                 await self._send_timeline(writer, payload)
 
             context = AgentRuntime.open_sqlite(
@@ -727,6 +769,8 @@ class ExtensionBridgeService:
                 database=self.database_path,
                 event_sink=event_sink,
                 debug_config=config.debug,
+                session_id=cast(str, (self._runtime_session or {})["sessionId"]),
+                request_id=self._request_id,
             )
             runtime = await context.__aenter__()
             self._agent_runtime = runtime
@@ -735,13 +779,9 @@ class ExtensionBridgeService:
             await self._handle_task_result(writer, result)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             logger.error("Attached browser task failed safely")
-            await self._finish_task(
-                writer,
-                success=False,
-                summary="The task stopped because the local runtime could not complete it.",
-            )
+            await self._report_task_failure(writer, error)
         finally:
             if context is not None and not self._runtime_suspended:
                 await context.__aexit__(None, None, None)
@@ -770,11 +810,9 @@ class ExtensionBridgeService:
                 await self._close_runtime_context()
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             logger.error("Attached browser task could not resume safely")
-            await self._finish_task(
-                writer, success=False, summary="The task could not resume safely."
-            )
+            await self._report_task_failure(writer, error)
             await self._close_runtime_context()
 
     async def _stop_attached_task(self, writer: asyncio.StreamWriter, run_id: str) -> None:
@@ -870,6 +908,48 @@ class ExtensionBridgeService:
             or ("Task completed." if status == "completed" else "Task stopped."),
         )
 
+    async def _report_task_failure(
+        self,
+        writer: asyncio.StreamWriter,
+        error: Exception,
+    ) -> None:
+        from browser_agent.agent.events import RuntimeEvent, RuntimeEventType, SafeFailureEnvelope
+
+        failure = next(
+            (
+                cast(dict[str, object], event["failure"])
+                for event in reversed(self._timeline_events)
+                if event.get("runId") == self._run_id
+                and event.get("type") == "RunFailed"
+                and isinstance(event.get("failure"), dict)
+            ),
+            None,
+        )
+        if failure is None:
+            envelope = SafeFailureEnvelope.from_exception(error)
+            failure = dict(envelope.to_protocol_payload())
+            session_id = cast(str, (self._runtime_session or {}).get("sessionId", "unavailable"))
+            event = RuntimeEvent.create(
+                session_id=session_id,
+                run_id=self._run_id or str(uuid.uuid4()),
+                sequence=max(
+                    (cast(int, item["sequence"]) for item in self._timeline_events), default=0
+                )
+                + 1,
+                step=0,
+                event_type=RuntimeEventType.RUN_FAILED,
+                status="failed",
+                failure=envelope,
+                request_id=self._request_id,
+            )
+            await self._send_timeline(writer, event.to_protocol_payload())
+        await self._finish_task(
+            writer,
+            success=False,
+            summary=cast(str, failure["safeMessage"]),
+            failure=failure,
+        )
+
     async def _finish_task(
         self,
         writer: asyncio.StreamWriter,
@@ -877,6 +957,7 @@ class ExtensionBridgeService:
         success: bool,
         summary: str,
         stopped: bool = False,
+        failure: Mapping[str, object] | None = None,
     ) -> None:
         session = self._runtime_session
         if session is None or writer.is_closing():
@@ -901,13 +982,16 @@ class ExtensionBridgeService:
                 "eventId": str(uuid.uuid4()),
                 "payload": {
                     "sessionId": session_id,
+                    **({"runId": self._run_id} if self._run_id is not None else {}),
                     "outcome": outcome,
                     "summary": summary[:2_000],
                     "finishedAt": datetime.now(UTC).isoformat(),
+                    **({"failure": dict(failure)} if failure is not None else {}),
                 },
             },
         )
         self._run_id = None
+        self._request_id = None
         self._pending_approval_id = None
         self._pending_approval = None
 
@@ -927,6 +1011,9 @@ class ExtensionBridgeService:
     async def _send_timeline(self, writer: asyncio.StreamWriter, event: dict[str, object]) -> None:
         if writer.is_closing():
             return
+        if event.get("type") == "RunFailed" and isinstance(event.get("failure"), dict):
+            failure = cast(dict[str, object], event["failure"])
+            event["detail"] = failure.get("safeMessage", "The browser task failed.")
         self._timeline_events.append(dict(event))
         self._timeline_events = self._timeline_events[-200:]
         await _write_native_frame(

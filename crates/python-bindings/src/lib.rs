@@ -9,7 +9,7 @@
 //! API changes here follow `docs/protocols/versioning.md`.
 
 use browser_agent_cdp::ExtensionCdpTransport;
-use browser_agent_core::BrowserSession;
+use browser_agent_core::{BrowserRuntimeError, BrowserSession};
 use browser_agent_observation::{CdpSessionId, TargetId};
 use pyo3::prelude::*;
 use serde::Deserialize;
@@ -19,6 +19,9 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 
 mod browser_code;
+mod native_errors;
+
+use native_errors::map_browser_runtime_err;
 
 fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
@@ -165,15 +168,31 @@ impl PyBrowserSession {
     /// Observe the current page state. Returns a JSON string encoding a
     /// `SemanticSnapshot` (schema v1; see the `observation` crate).
     fn observe_json(&self, py: Python<'_>) -> PyResult<String> {
-        py.detach(|| {
+        let snapshot = py
+            .detach(|| -> Result<_, BrowserRuntimeError> {
+                let guard = self
+                    .inner
+                    .lock()
+                    .map_err(|_| BrowserRuntimeError::SessionClosed)?;
+                let session = guard.as_ref().ok_or(BrowserRuntimeError::SessionClosed)?;
+                runtime().block_on(session.observe())
+            })
+            .map_err(|error| map_browser_runtime_err(py, "observe", error))?;
+        serde_json::to_string(&snapshot).map_err(map_err)
+    }
+
+    /// Perform a fixed, read-only browser protocol roundtrip without returning
+    /// page content or metadata.
+    fn probe_connection(&self, py: Python<'_>) -> PyResult<()> {
+        py.detach(|| -> Result<(), BrowserRuntimeError> {
             let guard = self
                 .inner
                 .lock()
-                .map_err(|_| map_err("session lock poisoned"))?;
-            let session = guard.as_ref().ok_or_else(|| map_err("session is closed"))?;
-            let snapshot = runtime().block_on(session.observe()).map_err(map_err)?;
-            serde_json::to_string(&snapshot).map_err(map_err)
+                .map_err(|_| BrowserRuntimeError::SessionClosed)?;
+            let session = guard.as_ref().ok_or(BrowserRuntimeError::SessionClosed)?;
+            runtime().block_on(session.probe_connection())
         })
+        .map_err(|error| map_browser_runtime_err(py, "probe_connection", error))
     }
 
     /// Capture the active page viewport as transient base64 PNG data.

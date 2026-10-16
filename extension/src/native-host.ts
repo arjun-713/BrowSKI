@@ -7,6 +7,7 @@ import {
   MAX_HOST_TO_EXTENSION_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   isNativeHostMessage,
+  isKnownRuntimeEventType,
   isPlainRecord,
   isTimelineEvent,
   type DebuggerMethod,
@@ -35,6 +36,7 @@ export class NativeHostController {
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private hostNegotiated = false;
   private sequence = 0;
+  private activeRunId: string | null = null;
   private readonly negotiatedMethods = new Set<DebuggerMethod>();
   private readonly negotiatedEvents = new Set<string>();
 
@@ -54,7 +56,7 @@ export class NativeHostController {
   };
 
   setHostError = (message: string): void => {
-    this.clearHandshakeTimer();
+    this.disconnectHost();
     const { snapshot, publishSnapshot } = this.dependencies;
     snapshot.host = "error";
     snapshot.hostError = message;
@@ -123,8 +125,9 @@ export class NativeHostController {
       true,
     );
     void this.dependencies.clearSelectedTab();
-    this.nativePort?.disconnect();
+    const port = this.nativePort;
     this.nativePort = null;
+    port?.disconnect();
     snapshot.host = "disconnected";
     snapshot.hostError = null;
     snapshot.protocolReady = false;
@@ -271,9 +274,16 @@ export class NativeHostController {
       return;
     }
     snapshot.session = session;
+    this.activeRunId = session?.runId ?? events.at(-1)?.runId ?? null;
     snapshot.protocolReady = true;
     this.clearHandshakeTimer();
-    snapshot.events = events.slice(-MAX_TIMELINE_EVENTS);
+    snapshot.events = events
+      .filter(
+        (event) =>
+          (!this.activeRunId || event.runId === this.activeRunId) &&
+          (event.type === undefined || isKnownRuntimeEventType(event.type)),
+      )
+      .slice(-MAX_TIMELINE_EVENTS);
     snapshot.pendingApproval = pendingApproval;
     if (snapshot.attachment && snapshot.attachment.sessionId !== session?.sessionId) {
       void this.dependencies.detachOwnedTab(
@@ -296,7 +306,17 @@ export class NativeHostController {
       this.setHostError("Native host sent an invalid runtime session status.");
       return;
     }
-    snapshot.session = message.payload.session;
+    const nextSession = message.payload.session;
+    if (
+      nextSession.sessionId !== snapshot.session?.sessionId ||
+      (nextSession.runId !== undefined && nextSession.runId !== this.activeRunId)
+    ) {
+      this.sequence = 0;
+      this.activeRunId = nextSession.runId ?? null;
+      snapshot.events = [];
+      snapshot.pendingApproval = null;
+    }
+    snapshot.session = nextSession;
     if (
       snapshot.attachment &&
       snapshot.attachment.sessionId !== message.payload.session.sessionId
@@ -315,7 +335,21 @@ export class NativeHostController {
       this.setHostError("Native host sent an invalid timeline event.");
       return;
     }
+    if (value.type !== undefined && !isKnownRuntimeEventType(value.type)) return;
     if (snapshot.session && value.sessionId !== snapshot.session.sessionId) return;
+    // Legacy v1 runtimes omit session.runId; RunStarted is their explicit
+    // sequence-reset boundary. Current runtimes announce the run in status.
+    if (
+      !snapshot.session?.runId &&
+      value.type === "RunStarted" &&
+      value.runId &&
+      value.runId !== this.activeRunId
+    ) {
+      this.sequence = 0;
+      this.activeRunId = value.runId;
+      snapshot.events = [];
+    }
+    if (this.activeRunId && value.runId !== this.activeRunId) return;
     if (value.sequence <= this.sequence) return;
     this.sequence = value.sequence;
     snapshot.events = [...snapshot.events, value].slice(-MAX_TIMELINE_EVENTS);
@@ -342,6 +376,8 @@ export class NativeHostController {
       this.setHostError("Native host sent an invalid task result.");
       return;
     }
+    if (snapshot.session?.sessionId !== payload.sessionId) return;
+    if (payload.runId !== undefined && payload.runId !== this.activeRunId) return;
     const status: TimelineEvent["status"] =
       payload.outcome === "verified_success" ? "completed" : "failed";
     if (snapshot.session?.sessionId === payload.sessionId) {
@@ -351,13 +387,30 @@ export class NativeHostController {
         updatedAt: payload.finishedAt,
       };
     }
-    snapshot.events = [
-      ...snapshot.events,
-      {
+    const terminalType =
+      payload.outcome === "verified_success"
+        ? "RunCompleted"
+        : payload.outcome === "stopped"
+          ? "RunStopped"
+          : "RunFailed";
+    const summary = payload.summary;
+    const terminal = [...snapshot.events]
+      .reverse()
+      .find((event) => event.type === terminalType && event.runId === this.activeRunId);
+    if (terminal) {
+      // The result enriches the graph's terminal event; it is not a second
+      // failure or completion. Preserve its step, event ID and debug metadata.
+      snapshot.events = snapshot.events.map((event) =>
+        event.eventId === terminal.eventId ? { ...event, detail: summary } : event,
+      );
+    } else {
+      const event: TimelineEvent = {
         eventId: crypto.randomUUID(),
         sessionId: payload.sessionId,
+        runId: this.activeRunId ?? undefined,
         sequence: this.sequence + 1,
         createdAt: payload.finishedAt,
+        type: terminalType,
         label:
           payload.outcome === "verified_success"
             ? "Task verified"
@@ -365,10 +418,11 @@ export class NativeHostController {
               ? "Task stopped by user"
               : "Task failed",
         detail: payload.summary,
-        status,
-      },
-    ].slice(-MAX_TIMELINE_EVENTS);
-    this.sequence += 1;
+        status: payload.outcome === "stopped" ? "info" : status,
+      };
+      snapshot.events = [...snapshot.events, event].slice(-MAX_TIMELINE_EVENTS);
+      this.sequence += 1;
+    }
     publishSnapshot();
   }
 }
@@ -377,7 +431,11 @@ function isRuntimeSession(value: unknown): value is RuntimeSession {
   if (!isPlainRecord(value)) return false;
   return (
     typeof value.sessionId === "string" &&
+    value.sessionId.length > 0 &&
+    value.sessionId.length <= 128 &&
     typeof value.updatedAt === "string" &&
+    value.updatedAt.length <= 64 &&
+    Number.isFinite(Date.parse(value.updatedAt)) &&
     [
       "idle",
       "running",
@@ -387,7 +445,12 @@ function isRuntimeSession(value: unknown): value is RuntimeSession {
       "stopped",
       "failed",
     ].includes(String(value.status)) &&
-    (value.taskLabel === undefined || typeof value.taskLabel === "string")
+    (value.taskLabel === undefined ||
+      (typeof value.taskLabel === "string" && value.taskLabel.length <= 200)) &&
+    (value.runId === undefined ||
+      (typeof value.runId === "string" &&
+        value.runId.length > 0 &&
+        value.runId.length <= 128))
   );
 }
 

@@ -706,6 +706,29 @@ impl BrowserSession {
         self.observe_tab(&tab.id).await
     }
 
+    /// Verify that the active tab's CDP session answers a bounded, read-only
+    /// layout query. The response is checked locally and discarded.
+    pub async fn probe_connection(&self) -> Result<(), BrowserRuntimeError> {
+        let tab = self
+            .active_tab()
+            .await
+            .ok_or(BrowserRuntimeError::NoActiveTab)?;
+        let (_target, session) = self.tab_session(&tab.id).await?;
+        let response = self
+            .cmd(
+                Some(&session),
+                "Page.getLayoutMetrics",
+                serde_json::json!({}),
+            )
+            .await?;
+        if !response.get("layoutViewport").is_some_and(Value::is_object) {
+            return Err(BrowserRuntimeError::InvalidResponse {
+                method: "Page.getLayoutMetrics".to_string(),
+            });
+        }
+        Ok(())
+    }
+
     pub async fn observe_tab(&self, tab: &TabId) -> Result<SemanticSnapshot, BrowserRuntimeError> {
         crate::observer::observe_full(self, tab).await
     }
@@ -1448,7 +1471,11 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
             Box::pin(async move {
                 self.commands.lock().unwrap().push(method.to_string());
-                Ok(Value::Null)
+                if method == "Page.getLayoutMetrics" {
+                    Ok(serde_json::json!({"layoutViewport": {}}))
+                } else {
+                    Ok(Value::Null)
+                }
             })
         }
 
@@ -1532,6 +1559,11 @@ mod tests {
             *commands.lock().unwrap(),
             ["Page.enable", "DOM.enable", "CSS.enable", "Runtime.enable"]
         );
+        session.probe_connection().await.unwrap();
+        assert_eq!(
+            commands.lock().unwrap().last().map(String::as_str),
+            Some("Page.getLayoutMetrics")
+        );
         assert!(matches!(
             session.reconnect().await,
             Err(BrowserRuntimeError::ConnectionLost)
@@ -1545,5 +1577,46 @@ mod tests {
             .lock()
             .unwrap()
             .contains(&"Browser.close".to_string()));
+    }
+
+    #[tokio::test]
+    async fn connection_probe_works_for_managed_sessions() {
+        let transport = Arc::new(MockTransport::new());
+        let target = TargetId::from("managed-tab");
+        let cdp_session = CdpSessionId::from("managed-session");
+        let mut registry = TabRegistry::new();
+        registry.upsert_target(
+            target.clone(),
+            "Managed".into(),
+            "https://example.test".into(),
+        );
+        registry.bind_session(cdp_session, target.clone());
+        registry.set_active(target);
+        let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let session = BrowserSession {
+            session_id: "managed-session".into(),
+            mode: SessionMode::Managed,
+            initial_attached_target: None,
+            chrome: None,
+            base_url: String::new(),
+            transport: RwLock::new(transport.clone()),
+            tabs: Arc::new(RwLock::new(registry)),
+            event_tx,
+            generation: Arc::new(AtomicU64::new(0)),
+            navigation_timeout: LaunchOptions::default().navigation_timeout,
+            command_timeout: LaunchOptions::default().command_timeout,
+            closed: Arc::new(AtomicBool::new(false)),
+            pump: tokio::sync::Mutex::new(None),
+            registries: Arc::new(RwLock::new(HashMap::new())),
+            snapshots: Arc::new(RwLock::new(HashMap::new())),
+            deltas: Arc::new(RwLock::new(HashMap::new())),
+            dialog_open_flag: Arc::new(AtomicBool::new(false)),
+        };
+
+        session.probe_connection().await.unwrap();
+        assert_eq!(
+            *transport.commands.lock().unwrap(),
+            ["Page.getLayoutMetrics"]
+        );
     }
 }

@@ -161,7 +161,9 @@ def build_agent_graph(
         steps_taken = raw_task_state.get("steps_taken", 0)
         step = steps_taken if type(steps_taken) is int else 0
         if event_type in {
+            RuntimeEventType.OBSERVATION_STARTED,
             RuntimeEventType.OBSERVATION_COMPLETED,
+            RuntimeEventType.DECISION_STARTED,
             RuntimeEventType.DECISION_MADE,
             RuntimeEventType.ACTION_STARTED,
             RuntimeEventType.ACTION_COMPLETED,
@@ -228,18 +230,26 @@ def build_agent_graph(
     ) -> SemanticSnapshot:
         snapshot = cached_snapshot(state, after=after)
         if snapshot is None:
-            snapshot = await browser.observe()
-            save_snapshot(state, snapshot, after=after)
+            snapshot = await observe_live(state, after=after)
+        return snapshot
+
+    async def observe_live(
+        state: AgentState,
+        *,
+        after: bool = False,
+    ) -> SemanticSnapshot:
+        await notify(state, RuntimeEventType.OBSERVATION_STARTED, "running")
+        snapshot = await browser.observe()
+        save_snapshot(state, snapshot, after=after)
+        await notify(state, RuntimeEventType.OBSERVATION_COMPLETED, "completed")
         return snapshot
 
     async def observe_node(state: AgentState) -> dict[str, Any]:
         controlled = control_result(state)
         if controlled is not None:
             return controlled
-        snapshot = await browser.observe()
-        save_snapshot(state, snapshot)
+        snapshot = await observe_live(state)
         record_debug("browser.observation", {"snapshot": snapshot_checkpoint(snapshot)})
-        await notify(state, RuntimeEventType.OBSERVATION_COMPLETED, "completed")
         return {"snapshot": snapshot_checkpoint(snapshot)}
 
     async def decide_node(state: AgentState) -> dict[str, Any]:
@@ -321,6 +331,7 @@ def build_agent_graph(
         remember_record_inspection(task_state, memory, snapshot)
         task_state.set_reasoning_call_limit(limits.max_llm_calls)
         task_state.llm_calls += 1
+        await notify(state, RuntimeEventType.DECISION_STARTED, "running")
         control = control_for_run(cache_key(state)) if control_for_run is not None else None
         if control is None:
             decision = await agent.decide(
@@ -434,7 +445,7 @@ def build_agent_graph(
                 )
                 return controlled
             try:
-                fresh_snapshot = await browser.observe()
+                fresh_snapshot = await observe_live(state)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -684,8 +695,7 @@ def build_agent_graph(
         key = cache_key(state)
         decision = decision_cache.get(key)
         if cached_snapshot(state) is None:
-            fresh_snapshot = await browser.observe()
-            save_snapshot(state, fresh_snapshot)
+            fresh_snapshot = await observe_live(state)
             if not state["confirmation_approved"] or not same_checkpoint_page(
                 state["snapshot"], fresh_snapshot
             ):
@@ -764,7 +774,7 @@ def build_agent_graph(
             decision_cache.pop(key, None)
             return {"status": "failed", "result_summary": "No active browser tab was observed."}
 
-        fresh_snapshot = await browser.observe()
+        fresh_snapshot = await observe_live(state)
         if not same_decision_state(snapshot, fresh_snapshot):
             record_debug(
                 "browser.action_invalidated",
@@ -807,8 +817,7 @@ def build_agent_graph(
         # Always observe after execution. `current_snapshot(after=True)` may be
         # used for a restored checkpoint, but an in-process action must not
         # reuse a prior action's cached post-state.
-        observed_after = await browser.observe()
-        save_snapshot(state, observed_after, after=True)
+        observed_after = await observe_live(state, after=True)
         raw_verification = outcome.get("verification", {})
         verification = (
             cast(dict[str, Any], raw_verification) if isinstance(raw_verification, dict) else {}

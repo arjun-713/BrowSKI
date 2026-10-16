@@ -72,6 +72,146 @@ describe("versioned native host envelope", () => {
     ).toBe(true);
   });
 
+  it("accepts bounded runtime correlation IDs and started lifecycle events", () => {
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.timeline",
+        eventId: "event-observation-started",
+        payload: {
+          event: {
+            eventId: "timeline-observation-started",
+            sessionId: "attachment-session-1",
+            browserSessionId: "rust-session-1",
+            requestId: "request-1",
+            traceId: "run-1",
+            stepId: "run-1:0",
+            runId: "run-1",
+            sequence: 1,
+            step: 0,
+            createdAt: "2026-10-07T00:00:00+00:00",
+            type: "ObservationStarted",
+            label: "Observing browser state",
+            status: "running",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects malformed authoritative approval-cleared messages", () => {
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.approval.cleared",
+        eventId: "approval-cleared-1",
+        payload: { approvalId: "" },
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts a bounded safe failure envelope only on RunFailed", () => {
+    const failure = {
+      component: "browser_core",
+      operation: "observe",
+      failureKind: "NAVIGATION",
+      recoverable: true,
+      category: "browser",
+      debugId: "a".repeat(32),
+      safeMessage: "Browser navigation failed.",
+      nativeErrorType: "NAVIGATION_FAILED",
+    };
+    const event = {
+      eventId: "timeline-failed-1",
+      sessionId: "attachment-session-1",
+      runId: "run-1",
+      sequence: 2,
+      step: 1,
+      createdAt: "2026-10-07T00:00:00+00:00",
+      type: "RunFailed",
+      label: "Task stopped without completion",
+      status: "failed",
+      failure,
+    };
+    const message = {
+      protocolVersion: PROTOCOL_VERSION,
+      type: "runtime.timeline",
+      eventId: "event-failed-1",
+      payload: { event },
+    };
+    expect(isNativeHostMessage(message)).toBe(true);
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.task.result",
+        eventId: "result-failed-1",
+        payload: {
+          sessionId: "attachment-session-1",
+          runId: "run-1",
+          outcome: "failed",
+          summary: "Task stopped.",
+          finishedAt: "2026-10-07T00:00:00+00:00",
+          failure,
+          futureCompatibleField: true,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isNativeHostMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "runtime.snapshot",
+        eventId: "snapshot-run-1",
+        payload: {
+          session: {
+            sessionId: "attachment-session-1",
+            runId: "run-1",
+            status: "running",
+            updatedAt: "2026-10-07T00:00:00+00:00",
+            futureCompatibleField: true,
+          },
+          events: [event],
+          pendingApproval: null,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isNativeHostMessage({
+        ...message,
+        payload: { event: { ...event, type: "DecisionMade" } },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        ...message,
+        payload: {
+          event: {
+            ...event,
+            failure: { ...failure, nativeMessage: "private exception detail" },
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        ...message,
+        payload: {
+          event: { ...event, failure: { ...failure, component: "../private-page" } },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isNativeHostMessage({
+        ...message,
+        payload: {
+          event: {
+            ...event,
+            failure: { ...failure, nativeErrorType: "PrivatePageError" },
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("accepts credential presence status without accepting secret values", () => {
     expect(
       isNativeHostMessage({
@@ -94,15 +234,16 @@ describe("versioned native host envelope", () => {
     ).toBe(false);
   });
 
-  it("rejects unknown or oversized timeline fields", () => {
+  it("accepts append-only trace kinds and rejects oversized timeline fields", () => {
     const event = {
       eventId: "timeline-1",
       sessionId: "session-1",
       sequence: 1,
       createdAt: "2026-10-07T00:00:00+00:00",
-      type: "UnexpectedEvent",
+      type: "FutureTraceKind",
       label: "Something happened",
       status: "completed",
+      futureTraceMetadata: { version: 2 },
     };
     expect(
       isNativeHostMessage({
@@ -111,7 +252,7 @@ describe("versioned native host envelope", () => {
         eventId: "event-4",
         payload: { event },
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isNativeHostMessage({
         protocolVersion: PROTOCOL_VERSION,

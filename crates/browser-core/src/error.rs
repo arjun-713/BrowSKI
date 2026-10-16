@@ -31,6 +31,8 @@ pub enum BrowserRuntimeError {
     SessionClosed,
     #[error("session has no active tab")]
     NoActiveTab,
+    #[error("browser returned an invalid response for {method}")]
+    InvalidResponse { method: String },
     #[error("navigation to {url} failed: {reason}")]
     NavigationFailed { url: String, reason: String },
 }

@@ -42,6 +42,7 @@ benchmarks/reports/*
 !benchmarks/reports/*.md
 
 # Browser profiles
+.cache/ms-playwright/
 .browser-data/
 profiles/
 chrome-profile-*/
@@ -67,4 +68,5 @@ Thumbs.db
 *.dylib
 
 # uv
+.cache/uv/
 .uv/

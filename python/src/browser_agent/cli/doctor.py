@@ -273,7 +273,16 @@ ConfigPathOption = Annotated[
 ]
 
 
-def doctor(config_path: ConfigPathOption = None) -> None:
+def doctor(
+    config_path: ConfigPathOption = None,
+    extension: Annotated[
+        bool,
+        typer.Option(
+            "--extension",
+            help="Probe idle attached browser through authenticated runtime; no model calls.",
+        ),
+    ] = False,
+) -> None:
     """Check local BROWSKI prerequisites without running a browser task."""
     try:
         config = load_config(config_path)
@@ -282,6 +291,25 @@ def doctor(config_path: ConfigPathOption = None) -> None:
         raise typer.Exit(code=1) from exc
 
     checks = _collect_doctor_checks(config)
+    if extension:
+        from browser_agent.extension.diagnostics import probe_runtime
+        from browser_agent.extension.native_host import NativeHostError
+        from browser_agent.extension.service import default_socket_path
+
+        try:
+            response = asyncio.run(probe_runtime(default_socket_path()))
+            checks.extend(
+                DoctorCheck(check.name, CheckStatus(check.status), check.detail)
+                for check in response.checks
+            )
+        except (OSError, ValueError, TimeoutError, asyncio.IncompleteReadError, NativeHostError):
+            checks.append(
+                DoctorCheck(
+                    "Local runtime",
+                    CheckStatus.FAIL,
+                    "authenticated probe unavailable; start current runtime and connect extension",
+                )
+            )
     for check in checks:
         typer.echo(f"{check.status.value:<4} {check.name}: {check.detail}")
 

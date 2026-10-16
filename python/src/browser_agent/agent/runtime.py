@@ -26,6 +26,7 @@ from browser_agent.agent.events import (
     BrowserCodeEventMetadata,
     RuntimeEvent,
     RuntimeEventType,
+    SafeFailureEnvelope,
 )
 from browser_agent.agent.graph import build_agent_graph
 from browser_agent.agent.state import AgentState
@@ -129,13 +130,20 @@ class AgentRuntime:
         interrupt_before: Sequence[str] = (),
         event_sink: RuntimeEventSink | None = None,
         debug_config: DebugLogConfig | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
     ) -> None:
         self.agent = agent
         self.browser = browser
         self.config = config or AgentConfig()
         self.checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
         self.run_metadata_store = run_metadata_store
-        self.session_id = str(uuid.uuid4())
+        self.session_id = session_id or str(uuid.uuid4())
+        if not self.session_id or len(self.session_id) > 128:
+            raise ValueError("runtime session ID is invalid")
+        if request_id is not None and (not request_id or len(request_id) > 128):
+            raise ValueError("runtime request ID is invalid")
+        self.request_id = request_id
         self._event_sink = event_sink
         self._debug_recorder = DebugRecorder(debug_config or DebugLogConfig())
         self._event_sequence = 0
@@ -169,6 +177,8 @@ class AgentRuntime:
         interrupt_before: Sequence[str] = (),
         event_sink: RuntimeEventSink | None = None,
         debug_config: DebugLogConfig | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
     ) -> AsyncGenerator[AgentRuntime, None]:
         """Open a durable checkpointed runtime for the lifetime of a context.
 
@@ -186,6 +196,8 @@ class AgentRuntime:
                 interrupt_before=interrupt_before,
                 event_sink=event_sink,
                 debug_config=debug_config,
+                session_id=session_id,
+                request_id=request_id,
             )
 
     async def run(self, task: str | TaskState, run_id: str | None = None) -> TaskState:
@@ -265,12 +277,13 @@ class AgentRuntime:
                 TaskState(task=task_state.task, run_id=thread_id, status="failed")
             )
             raise
-        except Exception:
+        except Exception as exc:
             await self._emit_event(
                 RuntimeEventType.RUN_FAILED,
                 thread_id,
                 task_state.steps_taken,
                 "failed",
+                failure=SafeFailureEnvelope.from_exception(exc),
             )
             await self._record_run_state(
                 TaskState(task=task_state.task, run_id=thread_id, status="failed")
@@ -489,7 +502,7 @@ class AgentRuntime:
             )
             await self._record_run_state(checkpoint_task)
             raise
-        except Exception:
+        except Exception as exc:
             checkpoint_task = TaskState.model_validate(checkpoint.values["task_state"])
             checkpoint_task.status = "failed"
             await self._emit_event(
@@ -497,6 +510,7 @@ class AgentRuntime:
                 run_id,
                 checkpoint_task.steps_taken,
                 "failed",
+                failure=SafeFailureEnvelope.from_exception(exc),
             )
             await self._record_run_state(checkpoint_task)
             raise
@@ -593,6 +607,7 @@ class AgentRuntime:
         status: str,
         *,
         browser_code: BrowserCodeEventMetadata | None = None,
+        failure: SafeFailureEnvelope | None = None,
     ) -> None:
         sink = self._event_sink
         self._event_sequence += 1
@@ -603,7 +618,12 @@ class AgentRuntime:
             step=step,
             event_type=event_type,
             status=status,
+            browser_session_id=_browser_session_id(self.browser),
+            request_id=self.request_id,
+            trace_id=run_id,
+            step_id=f"{run_id}:{step}",
             browser_code=browser_code,
+            failure=failure,
         )
         record_debug("runtime.event", event.to_protocol_payload(), step=step)
         metrics = self._run_metrics.observe_event(event)
@@ -667,3 +687,10 @@ def _interrupt_kind(item: object) -> str | None:
         return None
     kind = cast(dict[str, object], value).get("kind")
     return kind if isinstance(kind, str) else None
+
+
+def _browser_session_id(browser: BrowserSession) -> str | None:
+    value = getattr(browser, "session_id", None)
+    if isinstance(value, str) and value and len(value) <= 128:
+        return value
+    return None

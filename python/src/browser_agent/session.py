@@ -34,6 +34,7 @@ class BrowserSession:
         self._headless = headless
         self._browser_code_enabled = browser_code_enabled
         self._native: Any = None
+        self._session_id: str | None = None
 
     # -- lifecycle ------------------------------------------------------
     @classmethod
@@ -48,9 +49,11 @@ class BrowserSession:
     async def _open(self) -> None:
         from browser_agent import _core
 
-        self._native = await asyncio.to_thread(
+        native = await asyncio.to_thread(
             _core.PyBrowserSession.launch, self._headless, self._browser_code_enabled
         )
+        self._native = native
+        self._session_id = await asyncio.to_thread(native.session_id)
 
     @classmethod
     async def attach_extension(
@@ -69,7 +72,7 @@ class BrowserSession:
         from browser_agent import _core
 
         session = cls(browser_code_enabled=browser_code_enabled)
-        session._native = await asyncio.to_thread(
+        native = await asyncio.to_thread(
             _core.PyBrowserSession.attach_extension,
             socket_path,
             token,
@@ -84,6 +87,8 @@ class BrowserSession:
             ),
             browser_code_enabled,
         )
+        session._native = native
+        session._session_id = await asyncio.to_thread(native.session_id)
         return session
 
     def _require_open(self) -> Any:
@@ -93,9 +98,7 @@ class BrowserSession:
 
     @property
     def session_id(self) -> str | None:
-        if self._native is None:
-            return None
-        return str(self._native.session_id())
+        return self._session_id
 
     # -- browser API ----------------------------------------------------
     async def navigate(self, url: str) -> None:
@@ -104,6 +107,10 @@ class BrowserSession:
     async def observe(self) -> SemanticSnapshot:
         raw: str = await asyncio.to_thread(self._require_open().observe_json)
         return SemanticSnapshot.model_validate(json.loads(raw))
+
+    async def probe_connection(self) -> None:
+        """Verify browser protocol reachability without returning page data."""
+        await asyncio.to_thread(self._require_open().probe_connection)
 
     async def capture_viewport_screenshot(self, tab_id: str) -> bytes:
         """Capture a bounded visible-viewport PNG for on-demand vision."""
@@ -164,6 +171,7 @@ class BrowserSession:
 
     async def close(self) -> None:
         native, self._native = self._native, None
+        self._session_id = None
         if native is not None:
             await asyncio.to_thread(native.close)
 
