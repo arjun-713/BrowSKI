@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BROWSKI multi-field reliability fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Local multi-field task</h1>
+      <form id="local-form">
+        <label>
+          Project code
+          <input name="project_code" />
+        </label>
+        <label>
+          Preferred city
+          <input name="city" />
+        </label>
+        <label>
+          Supporting reference code
+          <input name="reference_code" />
+        </label>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script>
+      const form = document.querySelector("#local-form");
+      const status = document.querySelector("#status");
+
+      form.addEventListener("input", () => {
+        const values = [
+          form.elements.namedItem("project_code").value,
+          form.elements.namedItem("city").value,
+          form.elements.namedItem("reference_code").value,
+        ];
+        if (values.every((value) => value.trim().length > 0)) {
+          status.textContent = "Local form ready for review.";
+        }
+      });
+    </script>
+  </body>
+</html>

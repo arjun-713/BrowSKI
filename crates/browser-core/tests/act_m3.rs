@@ -1435,6 +1435,8 @@ async fn m3_disabled_is_terminal_fast() {
         .expect("nav");
     let tab = session.active_tab().await.expect("active").id;
     let late = rref(&session, &tab, "@not_yet").await;
+    let late_id = late.id;
+    let late_alias = late.alias.clone();
     let start = std::time::Instant::now();
     let outcome = session
         .act(
@@ -1460,9 +1462,20 @@ async fn m3_disabled_is_terminal_fast() {
         "disabled must fail fast, took {:?}",
         start.elapsed()
     );
-    // Once enabled, the same intent succeeds.
+    // Enabling and relabeling the same DOM control must preserve its identity.
+    // The alias need not change to match the new accessible name.
     tokio::time::sleep(Duration::from_millis(900)).await;
-    let late = rref(&session, &tab, "@ready_now").await;
+    let ready_snapshot = session
+        .observe_tab(&tab)
+        .await
+        .expect("observe enabled control");
+    let ready = ready_snapshot
+        .by_ref(&late_alias)
+        .expect("same control must retain its semantic reference");
+    assert_eq!(ready.id, late_id);
+    assert_eq!(ready.accessible_name.as_deref(), Some("Ready now"));
+    assert!(ready.enabled);
+    let late = ElementRef::new(ready.id, &ready.reference, ready.generation);
     let outcome = session
         .act(
             &tab,

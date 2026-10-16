@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BROWSKI extension reliability fixture</title>
+    <style>
+      body { font: 18px/1.5 sans-serif; margin: 3rem auto; max-width: 42rem; padding: 0 1rem; }
+      #overlay { background: rgb(0 0 0 / 72%); color: white; inset: 0; padding: 2rem; position: fixed; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1>BROWSKI extension reliability fixture</h1>
+    <p id="stage" role="status">Ready for the dynamic stage.</p>
+    <p id="fixture-state">Fixture initializing.</p>
+    <div id="controls">
+      <button id="start-dynamic" type="button">Start dynamic stage</button>
+    </div>
+    <div id="overlay" role="dialog" aria-label="Temporary blocking overlay" hidden>
+      <p>The page is temporarily blocked while this notice is open.</p>
+      <button id="dismiss-overlay" type="button">Dismiss blocking overlay</button>
+    </div>
+    <script>
+      const stage = document.querySelector("#stage");
+      const controls = document.querySelector("#controls");
+
+      function button(label, onClick) {
+        const control = document.createElement("button");
+        control.type = "button";
+        control.textContent = label;
+        control.addEventListener("click", onClick, { once: true });
+        return control;
+      }
+
+      document.querySelector("#start-dynamic").addEventListener("click", () => {
+        stage.textContent = "Dynamic stage rendered.";
+        controls.replaceChildren(button("Continue after SPA rerender", () => {
+          stage.textContent = "Dynamic task completed.";
+          controls.replaceChildren();
+        }));
+      });
+
+      function renderJourneyStep(step) {
+        stage.textContent = step === 0 ? "Journey ready." : `Journey stage ${step}.`;
+        controls.replaceChildren(button(`Advance to journey stage ${step + 1}`, () => {
+          if (step === 9) {
+            stage.textContent = "Journey complete after ten verified actions.";
+            controls.replaceChildren();
+            return;
+          }
+          renderJourneyStep(step + 1);
+        }));
+      }
+
+      function renderRecoveryFixture() {
+        stage.textContent = "Recovery task ready.";
+        document.querySelector("#dismiss-overlay").addEventListener("click", () => {
+          document.querySelector("#overlay").hidden = true;
+        }, { once: true });
+        controls.replaceChildren(button("Show recoverable overlay", () => {
+          document.querySelector("#overlay").hidden = false;
+          controls.replaceChildren(button("Complete task after recovery", () => {
+            stage.textContent = "Recovery task completed.";
+            controls.replaceChildren();
+          }));
+        }));
+      }
+
+      window.renderRecoveryFixture = renderRecoveryFixture;
+      window.renderJourneyFixture = () => renderJourneyStep(0);
+
+      // Query-selected initial state keeps this fixture reproducible for both
+      // managed Chromium and the extension-attached browser session.
+      const scenario = new URLSearchParams(location.search).get("scenario");
+      if (scenario === "recovery") renderRecoveryFixture();
+      if (scenario === "journey") window.renderJourneyFixture();
+      document.querySelector("#fixture-state").textContent = "Reliability fixture ready.";
+    </script>
+  </body>
+</html>

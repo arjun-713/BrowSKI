@@ -1,5 +1,6 @@
 """Deep and crowded pages must run through the packaged extension boundary."""
 
+import os
 from collections.abc import Callable
 from time import perf_counter
 from urllib.parse import urljoin
@@ -15,7 +16,13 @@ from extension.scripted_reasoner import ScriptedReasoner
 from extension.test_browser_e2e import AttachedHarness, use_scripted_reasoner
 
 pytest_plugins = ("extension.test_browser_e2e",)
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        os.environ.get("BROWSKI_EXTENSION_E2E") != "1",
+        reason="set BROWSKI_EXTENSION_E2E=1 to launch a real extension browser",
+    ),
+]
 MAX_PROVIDER_CONTEXT_CHARACTERS = 32_000
 
 
