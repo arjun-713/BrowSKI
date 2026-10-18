@@ -500,6 +500,7 @@ async def test_full_multistep_demo_preserves_grounded_memory_and_stops_before_su
 async def test_sidepanel_task_pauses_resumes_and_streams_verified_events(
     attached_harness: AttachedHarness,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     harness = attached_harness
     provider = ScriptedReasoner(
@@ -516,15 +517,22 @@ async def test_sidepanel_task_pauses_resumes_and_streams_verified_events(
         pause_received.set()
 
     monkeypatch.setattr(AgentRuntime, "pause", record_pause)
+    artifact_dir = Path(os.environ.get("BROWSKI_UI_ARTIFACTS", str(tmp_path)))
+    await asyncio.to_thread(artifact_dir.mkdir, parents=True, exist_ok=True)
+    await harness.panel.set_viewport_size({"width": 390, "height": 844})
     await harness.panel.get_by_label("Task instruction").fill("Continue to role details.")
     await harness.panel.get_by_role("button", name="Send task").click()
     await asyncio.wait_for(provider.deciding.wait(), timeout=15)
+    await expect(harness.demo.locator("#browski-page-activity")).to_be_visible()
+    await harness.demo.screenshot(path=str(artifact_dir / "page-running.png"))
+    await harness.panel.screenshot(path=str(artifact_dir / "panel-running.png"))
     await harness.panel.get_by_role("button", name="Pause", exact=True).click()
     await asyncio.wait_for(pause_received.wait(), timeout=10)
     provider.release.set()
     await expect(harness.panel.get_by_role("button", name="Resume", exact=True)).to_be_visible(
         timeout=15_000
     )
+    await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
     await expect(harness.demo.get_by_role("heading", name="1. Contact details")).to_be_visible()
     await harness.panel.get_by_role("button", name="Resume", exact=True).click()
     try:
@@ -538,6 +546,8 @@ async def test_sidepanel_task_pauses_resumes_and_streams_verified_events(
         timeout=20_000
     )
     await expect(harness.panel.get_by_text("Verified browser result", exact=True)).to_be_visible()
+
+    await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
 
 
 async def test_sidepanel_stop_cancels_decision_without_clicking(
@@ -554,6 +564,7 @@ async def test_sidepanel_stop_cancels_decision_without_clicking(
     await harness.panel.get_by_label("Task instruction").fill("Continue to role details.")
     await harness.panel.get_by_role("button", name="Send task").click()
     await asyncio.wait_for(provider.deciding.wait(), timeout=15)
+    await expect(harness.demo.locator("#browski-page-activity")).to_be_visible()
     await harness.panel.get_by_role("button", name="Stop", exact=True).click()
     await asyncio.wait_for(provider.cancelled.wait(), timeout=10)
     await expect(harness.panel.get_by_text("Task stopped", exact=True)).to_be_visible(
@@ -563,6 +574,7 @@ async def test_sidepanel_stop_cancels_decision_without_clicking(
     await expect(
         harness.panel.get_by_role("button", name="Detach tab", exact=True)
     ).not_to_be_visible()
+    await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
     assert not harness.demo.is_closed(), "stopping the task must leave the Chrome tab open"
     await expect(harness.demo.get_by_role("heading", name="1. Contact details")).to_be_visible()
 
@@ -590,6 +602,8 @@ async def test_owned_session_loss_cancels_pending_decision(
     await asyncio.wait_for(provider.cancelled.wait(), timeout=15)
     await asyncio.wait_for(_wait_for_detached(harness.service), timeout=15)
     await expect(harness.panel.get_by_role("button", name="Detach tab")).not_to_be_visible()
+    if disconnect == "host_disconnected":
+        await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
 
 
 @pytest.mark.parametrize("pause_before_confirmation", [False, True])
@@ -700,6 +714,8 @@ async def test_sidepanel_high_risk_denial_prevents_submission(
     ).to_be_visible(timeout=15_000)
     await expect(harness.demo.get_by_role("status")).not_to_contain_text("Submission is disabled")
 
+    await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
+
 
 async def test_sidepanel_explicit_approval_executes_only_the_pending_local_action(
     attached_harness: AttachedHarness,
@@ -726,3 +742,67 @@ async def test_sidepanel_explicit_approval_executes_only_the_pending_local_actio
         timeout=20_000
     )
     await expect(approve).not_to_be_visible()
+
+
+async def test_composer_adds_removable_tab_and_file_references_without_submitting(
+    attached_harness: AttachedHarness,
+    tmp_path: Path,
+) -> None:
+    harness = attached_harness
+    await harness.panel.set_viewport_size({"width": 390, "height": 844})
+    task_input = harness.panel.get_by_label("Task instruction")
+    await task_input.fill("Compare @")
+    title = await harness.demo.title()
+    await harness.panel.get_by_role("option").filter(has_text=title).first.click()
+    references = harness.panel.get_by_role("list", name="Attached references")
+    await expect(references).to_contain_text(title)
+    await expect(task_input).to_have_value("Compare ")
+    reference_file = tmp_path / "reference.txt"
+    reference_file.write_text("Synthetic reference for the local browser fixture.")
+    await harness.panel.get_by_label("Attach reference files").set_input_files(reference_file)
+    await expect(references).to_contain_text("reference.txt")
+    await harness.panel.get_by_role("button", name="Remove reference.txt").click()
+    await expect(references).not_to_contain_text("reference.txt")
+    await harness.panel.get_by_role("button", name=f"Remove {title}").click()
+    await expect(references).to_have_count(0)
+    await harness.panel.get_by_role("button", name="Open shortcuts").click()
+    await expect(harness.panel.get_by_role("listbox", name="Shortcuts")).to_be_visible()
+    await task_input.press("Escape")
+    await expect(harness.panel.get_by_role("listbox")).to_have_count(0)
+    await expect(harness.demo.locator("#browski-page-activity")).to_have_count(0)
+    assert harness.service.runtime_session is not None
+
+    # Native keyboard selection must stay visible even when the tab list scrolls.
+    reference_pages: list[Page] = []
+    for index in range(14):
+        page = await harness.panel.context.new_page()
+        await page.goto(f"{harness.demo.url}guide.html?reference={index}")
+        reference_pages.append(page)
+    await task_input.fill("Read @")
+    options = harness.panel.get_by_role("listbox", name="Tabs and links").get_by_role("option")
+    await expect(options).to_have_count(15)
+    for _ in range(13):
+        await task_input.press("ArrowDown")
+    selected = harness.panel.locator('[role="option"][aria-selected="true"]')
+    await expect(selected).to_have_attribute("id", "composer-option-13")
+    assert await selected.evaluate("""element => {
+        const option = element.getBoundingClientRect();
+        const menu = element.closest('.command-menu').getBoundingClientRect();
+        return option.top >= menu.top && option.bottom <= menu.bottom;
+    }""")
+    for _ in range(13):
+        await task_input.press("ArrowUp")
+    await task_input.press("ArrowUp")
+    await expect(selected).to_have_attribute("id", "composer-option-14")
+    assert await selected.evaluate("""element => {
+        const option = element.getBoundingClientRect();
+        const menu = element.closest('.command-menu').getBoundingClientRect();
+        return option.top >= menu.top && option.bottom <= menu.bottom;
+    }""")
+    artifact_dir = Path(os.environ.get("BROWSKI_UI_ARTIFACTS", str(tmp_path)))
+    await asyncio.to_thread(artifact_dir.mkdir, parents=True, exist_ok=True)
+    await harness.panel.screenshot(path=str(artifact_dir / "keyboard-list-390.png"))
+    await task_input.press("Enter")
+    await expect(references.locator("li")).to_have_attribute("title", reference_pages[-1].url)
+    for page in reference_pages:
+        await page.close()
