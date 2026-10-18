@@ -36,3 +36,10 @@ The [final V8 long-task evaluation](development/long-task-diagnostics-2026-10-15
 records the frozen development rerun, independently authored holdout and blind
 packet review. V8 passed 16/18 development checks and 0/6 holdout checks; the
 development score did not generalize.
+
+For the installed-extension failures, start with the
+[incident record](debugging/extension-step-zero-incident.md) and
+[extension validation ledger](debugging/extension-e2e-validation-report.md).
+They distinguish the repaired transport/context failures, real packaged
+extension and live Luna smoke results, measured latency, and remaining
+attached-browser and test-gate limitations.
