@@ -91,6 +91,11 @@ paid-API permission; no silent fallback, telemetry inference or cloud browser.
 Reject accidental remote local-model endpoints unless explicitly allowed.
 Codex subscription access is never runtime inference credit.
 
+Implemented contract: `engines/fast_contract.py` and `engines/fast_providers.py`;
+`laya_worker.py` owns one warm CPU inference process with bounded shutdown.
+Jev uses the current HTTP contract, with offline fixtures only. Laya and Jev
+receive equivalent state; their raw Score formats are adapted separately.
+
 The shared Fast contract carries version, task context, current observation,
 valid operations/candidates, recent history and typed questions. Results carry
 normalized choices/targets/status, available probabilities, provider, inference

@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -22,9 +22,9 @@ no hosted fallback or Jev request has been made.
 | Phase                   | State                                                         | Evidence / next gate                                                                    |
 | ----------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | 0 Guidance              | Complete — `41fb40d`                                          | Branch, canonical plan, AGENTS and ADR-022 validated                                    |
-| 1 Browser Use baseline  | Complete; commit recorded in next update                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls           |
+| 1 Browser Use baseline  | Complete — `164c036`                                          | Wikipedia URL + visible heading checked independently; 2 authorized API calls           |
 | 2 Extension integration | Next major phase                                              | Actual side-panel submission, ownership, approval, controls/results                     |
-| 3 Fast contract         | Offline gate passed; commit pending                           | Same semantic request through Laya/Jev adapters, malformed-input and policy tests       |
+| 3 Fast contract         | Complete; contract commit follows validated phase 1           | Same semantic request through Laya/Jev adapters, malformed-input and policy tests       |
 | 4 Local Laya            | Navigation slice verified; remaining capability/commit checks | Real one- and two-click tasks, zero generative calls; forms/text unsupported            |
 | 5 Jev/switching         | Partial                                                       | HTTP adapter/offline contracts; CLI/config/settings integration unfinished; no live key |
 | 6 Debug controls        | Pending                                                       | Product engine/provider controls and trace mapping                                      |
@@ -97,7 +97,8 @@ silently invoke text generation. The upstream tokenizer emits a regex warning;
 it has not been suppressed or silently changed from the released checkpoint.
 No general Laya calibration or unseen public-site reliability is established.
 
-Next: finish scoped Fast contract/Laya commits after their checks, register the Fast CLI
+Next: commit the validated Fast contract, then register the Fast CLI with its
+verified Laya navigation implementation.
 only with its tested implementation, then connect task-level engine selection
 to the existing product lifecycle. The extension debugger relay is not a native
 CDP WebSocket; start with an isolated managed-browser product task rather than
