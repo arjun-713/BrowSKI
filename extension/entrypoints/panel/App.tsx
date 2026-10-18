@@ -51,7 +51,7 @@ function App() {
             <p>{snapshot.session.taskLabel}</p>
           </section>
         )}
-        <ActionTimeline events={snapshot.events} />
+        <ActionTimeline events={snapshot.events} status={snapshot.session?.status} />
         {panelError && (
           <p className="inline-error panel-error" role="alert">
             {panelError}
@@ -73,7 +73,10 @@ function App() {
         </footer>
       </div>
       <TaskComposer
-        protocolReady={snapshot.protocolReady}
+        protocolReady={
+          snapshot.protocolReady &&
+          Boolean(snapshot.attachment && snapshot.attachment.state !== "error")
+        }
         session={snapshot.session}
         events={snapshot.events}
         busy={busy}
