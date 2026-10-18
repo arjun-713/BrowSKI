@@ -1,0 +1,389 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-15T19:00:16.734204+00:00",
+  "title": "Design System: BROWSKI sidebar",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15% 0.1523 43.50)",
+          "oklch(26% 0.1523 43.50)",
+          "oklch(38% 0.1523 43.50)",
+          "oklch(49% 0.1523 43.50)",
+          "oklch(61% 0.1523 43.50)",
+          "oklch(72% 0.1523 43.50)",
+          "oklch(84% 0.1523 43.50)",
+          "oklch(95% 0.1523 43.50)"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Accent Dark",
+        "tonalRamp": [
+          "oklch(15% 0.1332 42.27)",
+          "oklch(26% 0.1332 42.27)",
+          "oklch(38% 0.1332 42.27)",
+          "oklch(49% 0.1332 42.27)",
+          "oklch(61% 0.1332 42.27)",
+          "oklch(72% 0.1332 42.27)",
+          "oklch(84% 0.1332 42.27)",
+          "oklch(95% 0.1332 42.27)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Accent Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0219 58.79)",
+          "oklch(26% 0.0219 58.79)",
+          "oklch(38% 0.0219 58.79)",
+          "oklch(49% 0.0219 58.79)",
+          "oklch(61% 0.0219 58.79)",
+          "oklch(72% 0.0219 58.79)",
+          "oklch(84% 0.0219 58.79)",
+          "oklch(95% 0.0219 58.79)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "oklch(15% 0.0029 84.56)",
+          "oklch(26% 0.0029 84.56)",
+          "oklch(38% 0.0029 84.56)",
+          "oklch(49% 0.0029 84.56)",
+          "oklch(61% 0.0029 84.56)",
+          "oklch(72% 0.0029 84.56)",
+          "oklch(84% 0.0029 84.56)",
+          "oklch(95% 0.0029 84.56)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(49% 0.0000 89.88)",
+          "oklch(61% 0.0000 89.88)",
+          "oklch(72% 0.0000 89.88)",
+          "oklch(84% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "soft": {
+        "role": "neutral",
+        "displayName": "Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0046 78.30)",
+          "oklch(26% 0.0046 78.30)",
+          "oklch(38% 0.0046 78.30)",
+          "oklch(49% 0.0046 78.30)",
+          "oklch(61% 0.0046 78.30)",
+          "oklch(72% 0.0046 78.30)",
+          "oklch(84% 0.0046 78.30)",
+          "oklch(95% 0.0046 78.30)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0078 84.59)",
+          "oklch(26% 0.0078 84.59)",
+          "oklch(38% 0.0078 84.59)",
+          "oklch(49% 0.0078 84.59)",
+          "oklch(61% 0.0078 84.59)",
+          "oklch(72% 0.0078 84.59)",
+          "oklch(84% 0.0078 84.59)",
+          "oklch(95% 0.0078 84.59)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15% 0.0139 79.73)",
+          "oklch(26% 0.0139 79.73)",
+          "oklch(38% 0.0139 79.73)",
+          "oklch(49% 0.0139 79.73)",
+          "oklch(61% 0.0139 79.73)",
+          "oklch(72% 0.0139 79.73)",
+          "oklch(84% 0.0139 79.73)",
+          "oklch(95% 0.0139 79.73)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15% 0.0092 78.28)",
+          "oklch(26% 0.0092 78.28)",
+          "oklch(38% 0.0092 78.28)",
+          "oklch(49% 0.0092 78.28)",
+          "oklch(61% 0.0092 78.28)",
+          "oklch(72% 0.0092 78.28)",
+          "oklch(84% 0.0092 78.28)",
+          "oklch(95% 0.0092 78.28)"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Line Strong",
+        "tonalRamp": [
+          "oklch(15% 0.0159 77.05)",
+          "oklch(26% 0.0159 77.05)",
+          "oklch(38% 0.0159 77.05)",
+          "oklch(49% 0.0159 77.05)",
+          "oklch(61% 0.0159 77.05)",
+          "oklch(72% 0.0159 77.05)",
+          "oklch(84% 0.0159 77.05)",
+          "oklch(95% 0.0159 77.05)"
+        ]
+      },
+      "success": {
+        "role": "status",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.0794 158.59)",
+          "oklch(26% 0.0794 158.59)",
+          "oklch(38% 0.0794 158.59)",
+          "oklch(49% 0.0794 158.59)",
+          "oklch(61% 0.0794 158.59)",
+          "oklch(72% 0.0794 158.59)",
+          "oklch(84% 0.0794 158.59)",
+          "oklch(95% 0.0794 158.59)"
+        ]
+      },
+      "success-soft": {
+        "role": "status",
+        "displayName": "Success Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0125 149.25)",
+          "oklch(26% 0.0125 149.25)",
+          "oklch(38% 0.0125 149.25)",
+          "oklch(49% 0.0125 149.25)",
+          "oklch(61% 0.0125 149.25)",
+          "oklch(72% 0.0125 149.25)",
+          "oklch(84% 0.0125 149.25)",
+          "oklch(95% 0.0125 149.25)"
+        ]
+      },
+      "danger": {
+        "role": "status",
+        "displayName": "Danger",
+        "tonalRamp": [
+          "oklch(15% 0.1441 29.35)",
+          "oklch(26% 0.1441 29.35)",
+          "oklch(38% 0.1441 29.35)",
+          "oklch(49% 0.1441 29.35)",
+          "oklch(61% 0.1441 29.35)",
+          "oklch(72% 0.1441 29.35)",
+          "oklch(84% 0.1441 29.35)",
+          "oklch(95% 0.1441 29.35)"
+        ]
+      },
+      "danger-soft": {
+        "role": "status",
+        "displayName": "Danger Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0165 26.65)",
+          "oklch(26% 0.0165 26.65)",
+          "oklch(38% 0.0165 26.65)",
+          "oklch(49% 0.0165 26.65)",
+          "oklch(61% 0.0165 26.65)",
+          "oklch(72% 0.0165 26.65)",
+          "oklch(84% 0.0165 26.65)",
+          "oklch(95% 0.0165 26.65)"
+        ]
+      },
+      "page-activity": {
+        "role": "primary",
+        "displayName": "Page Activity",
+        "tonalRamp": [
+          "oklch(15% 0.1689 47.29)",
+          "oklch(26% 0.1689 47.29)",
+          "oklch(38% 0.1689 47.29)",
+          "oklch(49% 0.1689 47.29)",
+          "oklch(61% 0.1689 47.29)",
+          "oklch(72% 0.1689 47.29)",
+          "oklch(84% 0.1689 47.29)",
+          "oklch(95% 0.1689 47.29)"
+        ]
+      },
+      "page-badge": {
+        "role": "neutral",
+        "displayName": "Page Badge",
+        "tonalRamp": [
+          "oklch(15% 0.0317 47.59)",
+          "oklch(26% 0.0317 47.59)",
+          "oklch(38% 0.0317 47.59)",
+          "oklch(49% 0.0317 47.59)",
+          "oklch(61% 0.0317 47.59)",
+          "oklch(72% 0.0317 47.59)",
+          "oklch(84% 0.0317 47.59)",
+          "oklch(95% 0.0317 47.59)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Empty-state invitation",
+        "purpose": "The quiet entry point before task activity."
+      },
+      "data": {
+        "displayName": "Data and keyboard hints",
+        "purpose": "Technical values and key labels only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "command-menu",
+        "value": "0 8px 32px rgb(41 39 35 / 16%)",
+        "purpose": "Lift the command menu above the bottom composer."
+      },
+      {
+        "name": "page-badge",
+        "value": "0 4px 12px rgb(0 0 0 / 12%)",
+        "purpose": "Keep the activity badge readable over websites."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-feedback",
+        "value": "160ms ease",
+        "purpose": "Background, color, border, pressed translation, and disclosure feedback; removed under reduced motion."
+      },
+      {
+        "name": "page-activity",
+        "value": "1.8s ease-in-out infinite alternate; opacity 0.72 to 1",
+        "purpose": "Running page frame; steady under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow-panel",
+        "value": "(max-width: 340px)"
+      },
+      {
+        "name": "short-panel",
+        "value": "(max-height: 600px)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Approve button",
+      "kind": "button",
+      "description": "Compact runtime action.",
+      "html": "<button class=\"ds-button-primary\">Approve</button>",
+      "css": ".ds-button-primary{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--accent,#b94e16);border-radius:6px;color:white;background:var(--accent,#b94e16);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-primary:hover:not(:disabled){background:var(--accent-dark,#963b0e);}.ds-button-primary:active:not(:disabled){transform:translateY(1px);}.ds-button-primary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-primary:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-primary{transition:none;}}"
+    },
+    {
+      "name": "Attach tab button",
+      "kind": "button",
+      "description": "Compact runtime action.",
+      "html": "<button class=\"ds-button-secondary\">Attach tab</button>",
+      "css": ".ds-button-secondary{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--line-strong,#c8c1b7);border-radius:6px;color:var(--ink,#292723);background:var(--surface,#ffffff);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-secondary:hover:not(:disabled){background:var(--soft,#f1efec);}.ds-button-secondary:active:not(:disabled){transform:translateY(1px);}.ds-button-secondary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-secondary:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-secondary{transition:none;}}",
+      "refersTo": "button-secondary"
+    },
+    {
+      "name": "Stop button",
+      "kind": "button",
+      "description": "Compact runtime action.",
+      "html": "<button class=\"ds-button-danger\">Stop</button>",
+      "css": ".ds-button-danger{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--line,#e4e0da);border-radius:6px;color:var(--danger,#9d3227);background:var(--surface,#ffffff);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-danger:hover:not(:disabled){background:var(--danger-soft,#fff0ee);}.ds-button-danger:active:not(:disabled){transform:translateY(1px);}.ds-button-danger:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-danger:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-danger{transition:none;}}",
+      "refersTo": "button-danger"
+    },
+    {
+      "name": "Send",
+      "kind": "button",
+      "description": "The primary composer action.",
+      "html": "<button class=\"ds-send\" aria-label=\"Send task\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M12 19V5m-6 6 6-6 6 6\"/></svg></button>",
+      "css": ".ds-send{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:var(--accent,#b94e16);color:white;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-send:hover:not(:disabled){background:var(--accent-dark,#963b0e);}.ds-send:active:not(:disabled){transform:translateY(1px);}.ds-send:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-send:disabled{color:var(--muted,#6c675f);background:var(--soft,#f1efec);cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-send{transition:none;}}",
+      "refersTo": "send-button"
+    },
+    {
+      "name": "Icon tool",
+      "kind": "button",
+      "description": "Neutral composer tool.",
+      "html": "<button class=\"ds-tool\" aria-label=\"Add context\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg></button>",
+      "css": ".ds-tool{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted,#6c675f);cursor:pointer;transition:color 160ms ease,background 160ms ease;}.ds-tool:hover:not(:disabled){color:var(--ink,#292723);background:var(--soft,#f1efec);}.ds-tool:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-tool:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-tool{transition:none;}}"
+    },
+    {
+      "name": "Task composer",
+      "kind": "input",
+      "description": "Multiline drafting surface; the border carries focus.",
+      "html": "<div class=\"ds-composer\"><label class=\"ds-composer-label\" for=\"ds-task\">Task</label><textarea id=\"ds-task\" class=\"ds-task\" placeholder=\"What would you like to do?\"></textarea></div>",
+      "css": ".ds-composer{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;padding:12px;border:1px solid var(--line-strong,#c8c1b7);border-radius:12px;background:var(--surface,#ffffff);transition:border-color 160ms ease;}.ds-composer:focus-within{border-color:var(--accent,#b94e16);}.ds-composer-label{display:block;margin-bottom:8px;color:var(--ink,#292723);font-size:12px;font-weight:550;}.ds-task{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:block;width:100%;min-height:72px;max-height:180px;padding:0;border:0;border-radius:0;outline:none;resize:vertical;color:var(--ink,#292723);background:transparent;font-size:14px;line-height:1.6;caret-color:var(--accent,#b94e16);}.ds-task::placeholder{color:var(--muted,#6c675f);}.ds-task:focus-visible{outline:none;}@media(prefers-reduced-motion:reduce){.ds-composer{transition:none;}}",
+      "refersTo": "composer"
+    },
+    {
+      "name": "Reference chip",
+      "kind": "chip",
+      "description": "Removable context reference; this does not attach a tab.",
+      "html": "<span class=\"ds-chip\"><span class=\"ds-chip-label\">Project notes.md</span><button aria-label=\"Remove Project notes.md\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"m6 6 12 12M6 18 18 6\"/></svg></button></span>",
+      "css": ".ds-chip{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;max-width:100%;min-height:28px;padding:3px 4px 3px 8px;gap:6px;border-radius:8px;color:var(--ink,#292723);background:var(--soft,#f1efec);font-size:11px;}.ds-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-chip button{display:grid;flex:none;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;}.ds-chip button:hover{background:var(--line,#e4e0da);}.ds-chip button:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}",
+      "refersTo": "reference-chip"
+    },
+    {
+      "name": "Command menu",
+      "kind": "custom",
+      "description": "A raised, scrollable listbox above the composer.",
+      "html": "<div class=\"ds-menu\"><div class=\"ds-menu-heading\">Shortcuts</div><div role=\"listbox\" aria-label=\"Shortcuts\"><button class=\"ds-option\" role=\"option\" aria-selected=\"true\"><span><strong>Summarize</strong><span>Summarize this page</span></span></button><button class=\"ds-option\" role=\"option\" aria-selected=\"false\"><span><strong>Find</strong><span>Find information on this page</span></span></button></div></div>",
+      "css": ".ds-menu{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;max-height:min(360px,45dvh);padding:6px;overflow-y:auto;border-radius:12px;background:var(--surface,#ffffff);box-shadow:0 8px 32px rgb(41 39 35 / 16%);}.ds-menu-heading{padding:6px 8px 10px;color:var(--muted,#6c675f);font-size:11px;font-weight:550;}.ds-option{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:flex;align-items:center;width:100%;min-height:52px;padding:8px;border:0;border-radius:6px;color:var(--ink,#292723);background:transparent;text-align:left;cursor:pointer;}.ds-option[aria-selected=\"true\"]{background:var(--soft,#f1efec);}.ds-option>span{display:grid;min-width:0;gap:2px;}.ds-option strong{font-size:12px;font-weight:550;}.ds-option span span{color:var(--muted,#6c675f);font-size:11px;}.ds-option:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}",
+      "refersTo": "command-option-selected"
+    },
+    {
+      "name": "Public decision summary",
+      "kind": "card",
+      "description": "A disclosure for a safe public summary, separate from actions and verification.",
+      "html": "<details class=\"ds-decision\"><summary>Decision summary<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6\"/></svg></summary><p>Review the available information before continuing.</p></details>",
+      "css": ".ds-decision{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;padding:10px 12px;border-radius:8px;background:var(--soft,#f1efec);color:var(--ink,#292723);}.ds-decision summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:14px;list-style:none;}.ds-decision summary::-webkit-details-marker{display:none;}.ds-decision summary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-decision summary svg{transition:transform 160ms ease;}.ds-decision[open] summary svg{transform:rotate(90deg);}.ds-decision p{margin:6px 0 0;color:var(--muted,#6c675f);font-size:13px;line-height:1.6;}@media(prefers-reduced-motion:reduce){.ds-decision summary svg{transition:none;}}",
+      "refersTo": "decision-summary"
+    },
+    {
+      "name": "Page activity badge",
+      "kind": "custom",
+      "description": "Presentation-only feedback on an owned, actively running page.",
+      "html": "<div class=\"ds-page-preview\"><span class=\"ds-page-badge\">BROWSKI is working</span></div>",
+      "css": ".ds-page-preview{position:relative;height:88px;border:3px solid #f47b35;border-radius:5px;pointer-events:none;animation:ds-working 1.8s ease-in-out infinite alternate;}.ds-page-badge{position:absolute;top:12px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:#38261d;color:#fff0e5;font:500 12px/1.4 system-ui,sans-serif;box-shadow:0 4px 12px rgb(0 0 0 / 12%);white-space:nowrap;}@keyframes ds-working{from{opacity:.72;}to{opacity:1;}}@media(prefers-reduced-motion:reduce){.ds-page-preview{animation:none;}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A quiet browser workspace",
+    "overview": "A quiet browser workspace following the user's Comet reference. White and warm offwhite surfaces keep the page primary; compact controls frame an open activity feed and a bottom-anchored composer. System type, fine separators, and small corners make the interface feel familiar and precise.\n\nOrange identifies sending and agent activity, with restrained supporting use for focus, attachment cues, and approval emphasis. Green and red retain their existing connection, verification, and failure meanings. Public decision summaries, actions, and verification stay visibly distinct.",
+    "keyCharacteristics": [
+      "Warm neutral surfaces with ink text and muted supporting copy.",
+      "Open chronological activity rather than a stack of decorative cards.",
+      "A persistent multiline composer with removable reference chips.",
+      "Small, purposeful motion with a steady reduced-motion alternative."
+    ],
+    "rules": [
+      {
+        "name": "The Activity Accent Rule",
+        "body": "Reserve strong orange emphasis for sending, running activity, and approval attention; use neutral surfaces for ordinary controls and references.",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat Workspace Rule",
+        "body": "Use surface tone and fine separators for structure. Lift only the command menu and page activity badge.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep public decisions, actions, and verification distinguishable in the activity feed.",
+      "Do keep the composer at the bottom while the activity region scrolls independently.",
+      "Do preserve visible keyboard focus, selected-option visibility, readable wrapping, and reduced-motion behavior.",
+      "Do keep reference selection visually distinct from explicit tab attachment and control."
+    ],
+    "donts": [
+      "Don't turn ordinary controls or reference chips into orange calls to action.",
+      "Don't add decorative cards, gradients, display fonts, or entrance choreography to this quiet workspace.",
+      "Don't present a public decision summary as hidden reasoning or the page indicator as browser observation or control."
+    ]
+  }
+}
