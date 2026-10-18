@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from browser_agent.engines.browser_use_runtime import page_evidence
+from browser_agent.engines.browser_use_runtime import is_http_url, page_evidence
 from browser_agent.engines.contracts import (
     CompletionCriteria,
     EngineEvent,
@@ -51,8 +51,10 @@ async def run_fast(
 
     config = config or FastConfig()
 
+    if not is_http_url(start_url):
+        raise ValueError("Fast requires an HTTP(S) starting URL without credentials.")
     host = urlsplit(start_url).hostname
-    if not host or urlsplit(start_url).scheme not in {"http", "https"}:
+    if not host:
         raise ValueError("Fast requires an explicit HTTP(S) starting URL.")
     started = time.perf_counter()
     steps = actions = recoveries = provider_errors = 0

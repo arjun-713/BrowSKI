@@ -30,8 +30,8 @@ export function EngineControls({
               })
             }
           >
-            <option value="fast">Fast</option>
-            <option value="general">General</option>
+            <option value="fast">Fast · links</option>
+            <option value="general">General · read</option>
             {engine === "legacy" && <option value="legacy">Legacy</option>}
           </select>
         </label>

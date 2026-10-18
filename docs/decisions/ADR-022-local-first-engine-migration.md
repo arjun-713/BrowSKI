@@ -51,3 +51,11 @@ extension integration and owner isolation. DONE/final text require independent
 outcome proof. Record migration phase gates, commands, blockers and commits in
 `docs/architecture/migration-status.md`. No general reliability claims without
 fresh end-to-end measurements, including unseen tasks and false success.
+
+## User clarification — 2026-10-18
+
+Only Laya may run locally on this development machine. Text generation is
+therefore disabled by default; no local generative model is a prerequisite.
+The user permits small bounded OpenAI debugging after offline validation and
+explicitly confirmed reuse of the existing key. This supersedes the original
+local-text default above. Routine paid inference and all paid fallback stay off.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -417,3 +417,22 @@ def test_saved_comparison_uses_identical_validated_input_and_executes_no_browser
     assert len(inputs) == 2 and inputs[0] is inputs[1]
     assert output["browser_actions"] == 0 and output["same_choice"] is True
     assert output["laya"]["provider"] == "laya" and output["jev"]["provider"] == "jev"
+
+
+def test_legacy_saved_fast_request_upgrades_without_mutating_the_input() -> None:
+    original = request_fixture().model_dump(mode="json")
+    original["version"] = "browski.fast.v1"
+    loaded = FastRequest.model_validate(original)
+    assert loaded.version == "browski.fast.v2"
+    assert original["version"] == "browski.fast.v1"
+    assert all(candidate.href == "" for candidate in loaded.observation.candidates)
+
+
+def test_link_destinations_reach_both_state_and_target_questions() -> None:
+    observation = request_fixture().observation
+    link = observation.candidates[0].model_copy(update={"href": "https://example.org/botany"})
+    observation = observation.model_copy(update={"candidates": (link, observation.candidates[1])})
+    request = build_request("Open Botany", observation)
+    state = cast(dict[str, Any], request.body("either")["state"])
+    assert state["elements"][0]["href"] == link.href
+    assert link.href in request.questions["click_target"].criteria[link.id]

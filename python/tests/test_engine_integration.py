@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -406,6 +407,155 @@ async def test_detailed_fast_capture_round_trips_a_bounded_public_navigation_inp
         record["payload"] for record in records if record["event"] == "fast.decision_input"
     )
     request = FastRequest.model_validate(saved)
-    assert request.version == "browski.fast.v1"
+    assert request.version == "browski.fast.v2"
     assert all(candidate.value == "[REDACTED]" for candidate in request.observation.candidates)
     assert any(record["event"] == "fast.decision_result" for record in records)
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome mutable-link grounding"
+)
+async def test_href_change_invalidates_a_decision_before_click_without_changing_text(
+    article_site: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from browser_agent.engines import fast
+    from browser_agent.engines.fast_browser import FastBrowser
+    from browser_agent.engines.fast_contract import (
+        FastDecision,
+        FastObservation,
+        FastRequest,
+        Operation,
+    )
+
+    browser = FastBrowser()
+    original_observe = browser.observe_links
+    initialized = False
+
+    async def stable_first_observation(hosts: set[str]) -> FastObservation:
+        nonlocal initialized
+        current = await original_observe(hosts)
+        if not initialized:
+            for _ in range(4):
+                refreshed = await original_observe(hosts)
+                if refreshed.id == current.id:
+                    initialized = True
+                    return refreshed
+                current = refreshed
+            raise AssertionError("Fixture must stabilize before the href-only mutation")
+        return current
+
+    monkeypatch.setattr(browser, "observe_links", stable_first_observation)
+
+    def owned(*, chrome_path: str, headless: bool) -> FastBrowser:
+        return browser
+
+    monkeypatch.setattr(fast, "FastBrowser", owned)
+
+    class MutatingFixture:
+        name = "fixture"
+        model = "mutating-link-regression"
+        calls = 0
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            self.calls += 1
+            if self.calls == 1:
+                target = next(c.id for c in request.observation.candidates if c.label == "Botany")
+                assert browser.browser is not None
+                page = await browser.browser.get_current_page()
+                assert page is not None
+                await cast(Any, page).evaluate(
+                    "() => {document.querySelector('a[href=\"botany.html\"]')"
+                    ".href='astronomy.html'}"
+                )
+                return FastDecision(
+                    observation_id=request.observation.id,
+                    provider=self.name,
+                    model=self.model,
+                    operation=Operation.CLICK,
+                    candidate_id=target,
+                    latency_ms=0,
+                )
+            return FastDecision(
+                observation_id=request.observation.id,
+                provider=self.name,
+                model=self.model,
+                operation=Operation.BLOCKED,
+                latency_ms=0,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    result = await fast.run_fast(
+        "Open Botany",
+        f"{article_site}/index.html",
+        MutatingFixture(),
+        criteria=CompletionCriteria(url=f"{article_site}/botany.html", heading="Botany"),
+    )
+    assert result.action_count == 0, result.model_dump()
+    assert result.recovery_count == 1
+    assert not result.verified
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="optional Browser Use tool-policy boundary"
+)
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file://localhost/tmp/example.html",
+        "javascript:alert(1)",
+        "data:text/html,test",
+        "https://user:pass@example.org/",
+    ],
+)
+async def test_general_rejects_non_web_or_credential_navigation_before_upstream_execution(
+    url: str,
+) -> None:
+    from browser_agent.engines.browser_use_runtime import configure_browser_use
+    from browser_agent.engines.general import (
+        _navigation_tools,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    configure_browser_use()
+
+    class Proposal:
+        def model_dump(self, **kwargs: object) -> dict[str, object]:
+            return {"navigate": {"url": url, "new_tab": False}}
+
+    tools = _navigation_tools()
+    result = await cast(Any, tools).act(Proposal(), None)
+    assert result.error == "Only HTTP(S) navigation without credentials is permitted."
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome destination metadata"
+)
+async def test_link_observation_ignores_malformed_urls_and_removes_destination_queries(
+    article_site: str,
+    tmp_path: Path,
+) -> None:
+    from browser_agent.engines.fast_browser import FastBrowser
+
+    with (tmp_path / "index.html").open("a") as fixture:
+        fixture.write(
+            '<a href="https://[broken">Broken destination</a>'
+            '<a href="http://user:pass@127.0.0.1/">Credential destination</a>'
+            '<a href="botany.html?filter=plants#overview">Botany overview</a>'
+        )
+    async with FastBrowser() as owned:
+        assert owned.browser is not None
+        await owned.browser.start()
+        page = await owned.browser.get_current_page()
+        assert page is not None
+        await page.goto(f"{article_site}/index.html")
+        observation = await owned.observe_links({"127.0.0.1"})
+        labels = {candidate.label for candidate in observation.candidates}
+        assert "Broken destination" not in labels and "Credential destination" not in labels
+        overview = next(
+            candidate
+            for candidate in observation.candidates
+            if candidate.label == "Botany overview"
+        )
+        assert overview.href == f"{article_site}/botany.html"

@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -19,17 +19,17 @@ no hosted fallback or Jev request has been made.
 
 ## Phase status
 
-| Phase                   | State                                     | Evidence / next gate                                                                         |
-| ----------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 0 Guidance              | Complete — `41fb40d`                      | Branch, canonical plan, AGENTS and ADR-022 validated                                         |
-| 1 Browser Use baseline  | Complete — `164c036`                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
-| 2 Extension integration | Navigation gate committed — `3d62ab2`     | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
-| 3 Fast contract         | Complete — `6b66bfa`                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
-| 4 Local Laya            | Complete for navigation slice — `848cd06` | Real one- and two-click tasks, zero generative calls; forms/text unsupported                 |
-| 5 Jev/switching         | Complete for offline/selection gate       | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
-| 6 Debug controls        | Complete for navigation diagnostics       | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
-| 7 Reliability           | Partial experiment only                   | Premature DONE rejected; two small cases do not prove general reliability                    |
-| 8 Cleanup               | Pending                                   | No legacy deletion until replacement regression gates                                        |
+| Phase                   | State                                            | Evidence / next gate                                                                         |
+| ----------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| 0 Guidance              | Complete — `41fb40d`                             | Branch, canonical plan, AGENTS and ADR-022 validated                                         |
+| 1 Browser Use baseline  | Complete — `164c036`                             | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
+| 2 Extension integration | Navigation gate committed — `3d62ab2`            | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
+| 3 Fast contract         | Complete — `6b66bfa`                             | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
+| 4 Local Laya            | Complete for navigation slice — `848cd06`        | Real one- and two-click tasks, zero generative calls; forms/text unsupported                 |
+| 5 Jev/switching         | Complete for offline/selection gate              | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
+| 6 Debug controls        | Complete for navigation diagnostics              | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
+| 7 Reliability           | Navigation slice validated; broader actions open | Frozen first-look 4/4; href defect reproduced/fixed; broader forms/tabs still open           |
+| 8 Cleanup               | Pending                                          | No legacy deletion until replacement regression gates                                        |
 
 ## Latest evidence
 
@@ -167,7 +167,7 @@ Settings changes require no runtime restart and affect the next task.
 Remaining: phase 7 needs fresh failure-category benchmarks and broader actions, phase 8 cannot delete useful Legacy capabilities
 before replacements pass. No live Jev execution is claimed.
 
-Phase-6 acceptance (not yet committed): General HTTP/network errors are counted
+Phase-6 acceptance — `0ebefdb`: General HTTP/network errors are counted
 separately from browser action errors; earlier `history.errors()` incorrectly
 mixed them. Events include model identity, inference timing, action/verification
 and recovery information. Final sidebar summaries include steps/actions,
@@ -187,3 +187,45 @@ Laya both passed after trace changes (2/2, 61.02 s including harness). The new
 result text was rendered and inspected at 380 px with no horizontal overflow.
 No more paid OpenAI requests were used. Final `make lint` passed after a
 new fixture annotation was corrected (Rust fmt/clippy, Ruff and strict Pyright). The aggregate Rust stall remains open.
+
+Phase-7 navigation slice (validated, awaiting scoped commit):
+
+- Frozen first-look manifest `benchmarks/synthetic/v2-navigation-first-look.json`
+  ran through the real extension on runtime `0ebefdb`: 4/4 completed, 0/4 false
+  successes, 13 local decisions, 9 clicks, 0 generative calls/provider errors.
+  Details and SHA are in `docs/benchmarks/evaluation-plan.md`; raw verified public
+  fixture metrics are ignored in `benchmarks/reports/v2-navigation-first-look.json`.
+  These cases are now spent; further runs are regressions, not unseen evidence.
+- An initially inconclusive href mutation test was stabilized to isolate the
+  change. Old code then clicked Astronomy after Botany's href changed without
+  changing its backend ID or label. Final task verification refused success.
+  The new complete-destination fingerprint refuses that click (real Chrome
+  regression: 1 wrong click before → 0 wrong clicks after).
+- ADR-024 introduces Fast contract v2 with optional bounded destination context
+  for both providers; v1 saved requests migrate on read. Model-facing href omits
+  query/fragment. Full private href participates only in hashing. Malformed,
+  credential and non-HTTP navigation is rejected; General validates model URLs
+  before the official tool executes. Rust/Native Messaging schemas unchanged.
+- Managed E2E tests moved to `python/tests/extension/test_managed_e2e.py`, reusing
+  the existing Native Messaging fixture. Make's packaged gate includes both
+  files. A fresh default-Fast/Laya task passed with **no Legacy browser
+  attachment**, no hosted credential lookup and a natural task-link starting URL.
+- V2 rerun: the same four cases completed 4/4 with zero generative calls. This
+  establishes regression coverage, not fresh evaluation or a speed improvement.
+  An overlapping extension rebuild removed its manifest before three fixtures
+  could start; only those fixture errors were rerun after the build completed.
+  All affected cases passed. Keep builds and packaged test execution sequential.
+- Latest validation: **706 Python tests passed, 51 opt-in skips, 136.99 s**;
+  **73 focused engine/contract/CLI tests passed, 2 live-Laya skips**; all seven
+  managed packaged cases passed across completed first-run cases and the
+  affected-fixture rerun.
+  Full normal packaged gate: **15 passed, 6 opt-in skips, 164.14 s**. The skipped
+  CPU/first-look paths were separately exercised live. `npm run check` and
+  `make lint` passed. Extension source, lock and manifest match **0.2.1**.
+  No additional paid OpenAI or live Jev requests were used.
+
+Next exact action: review this navigation slice and create its scoped commit,
+then continue phase 7 with broader actions/approval and verification coverage.
+Do not claim forms/dates/dropdowns/tabs/auth/resumability have migrated. The
+aggregate Rust stress-suite stall remains open; no Rust source changed and its
+isolated 100-cycle case passed. Retain Legacy and keep the migration goal active.

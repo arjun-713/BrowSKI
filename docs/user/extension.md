@@ -4,6 +4,27 @@ BROWSKI's Manifest V3 extension is a side panel and browser-session attachment
 layer. It is not a separate browser agent: planning, semantic observation,
 action execution, verification, and recovery remain runtime responsibilities.
 
+## General and Fast (BROWSKI 2.0 migration)
+
+Connect the local service, select General or Fast, and submit a task with a web
+link or starting page. Fast defaults to CPU Laya with no paid inference; General
+requires separately enabled OpenAI text inference and paid permission. Jev is an
+optional Fast selection when credentials are available. Settings changes apply
+to the next task and are refused during a run.
+
+These engines open a separate task-owned browser profile; source tabs are
+reference context and do not transfer cookies/login state or debugger control.
+Current tools support navigation/reading. The expected URL/heading fields give
+an independent navigation check; without one, DONE remains unverified. Progress,
+pause/stop and final result counters use the existing Native Messaging bridge.
+See [configuration](configuration.md), [debugging](debugging.md), and the
+[migration checkpoint](../architecture/migration-status.md) for tested scope.
+
+The attachment, explicit form values, owned supporting tabs, vision and checkpoint
+features documented below apply to **Legacy** unless explicitly stated otherwise.
+They have not all migrated to General/Fast. The new engines' navigation toolset
+cannot bypass consequential-action approval by submitting forms.
+
 ## Build and load
 
 ```sh
@@ -34,7 +55,7 @@ methods, script evaluation, network access, cookie access, and browser-wide
 targets are rejected. It does not request page host permissions or expose API
 keys to page content.
 
-## Runtime connection status
+## Legacy attached-runtime connection status
 
 The Python Native Messaging relay, Linux per-user manifest installer, Rust
 attached-browser transport, and authenticated local service are implemented.
@@ -51,7 +72,7 @@ Connect the side panel, select and attach a tab,
 then submit a task. See the known limitations in the
 [roadmap](../development/roadmap.md) before using this as a production agent.
 
-## Explicit form values
+## Legacy explicit form values
 
 The current finite-action path can type a value only when the user task names
 both the field and the value explicitly, using one of these forms:
@@ -69,7 +90,7 @@ page text alone cannot authorize a field value. This remains a bounded grammar,
 not universal natural-language field interpretation. The task still passes
 through the configured provider privacy mode; see [privacy modes](privacy.md).
 
-## Owned supporting tabs
+## Legacy owned supporting tabs
 
 To authorize a new destination explicitly, use:
 
@@ -84,7 +105,7 @@ detaches debugger connections and leaves browser tabs open. Cross-origin
 navigation invalidates the affected attachment; reattach explicitly. Popups
 and arbitrary existing tabs are not automatically adopted.
 
-## Explicit cross-tab text transfer
+## Legacy explicit cross-tab text transfer
 
 For a narrow cross-tab transfer, the task can name one source label and one
 destination field:

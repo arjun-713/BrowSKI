@@ -89,7 +89,8 @@ APIs/events, never by linking agent internals.** Full rationale:
   adapters, shared result/evidence contracts, local CPU Laya process and optional
   Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
   `engines/product.py` dispatches configured CLI/extension tasks; `lifecycle.py`
-  owns safe pause/cancel boundaries. Implemented scope is navigation/read only;
+  owns safe pause/cancel boundaries. Fast contracts are v2 with saved-v1 input
+  migration (ADR-024). Implemented scope is navigation/read only;
   see checkpoint for current gates.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.

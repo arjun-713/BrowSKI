@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from browser_agent.engines.browser_use_runtime import ManagedBrowser, page_evidence
+from browser_agent.engines.browser_use_runtime import ManagedBrowser, is_http_url, page_evidence
 from browser_agent.engines.contracts import (
     CompletionCriteria,
     EngineEvent,
@@ -22,8 +22,35 @@ from browser_agent.engines.contracts import (
 )
 
 if TYPE_CHECKING:
+    from browser_use import Tools
     from browser_use.agent.service import Agent
     from browser_use.agent.views import AgentHistoryList
+
+
+def _navigation_tools() -> Tools[Any]:
+    """Keep upstream mechanics and validate model-proposed navigation at its tool boundary."""
+    from browser_use import Tools
+    from browser_use.agent.views import ActionResult
+
+    class NavigationTools(Tools[Any]):
+        async def act(self, action: Any, browser_session: Any, *args: Any, **kwargs: Any) -> Any:
+            # Variadic arguments are contained at this upstream SDK injection boundary.
+            payload = action.model_dump(exclude_unset=True)
+            navigate = payload.get("navigate")
+            if isinstance(navigate, dict) and not is_http_url(
+                cast(dict[str, object], navigate).get("url")
+            ):
+                return ActionResult(
+                    error="Only HTTP(S) navigation without credentials is permitted."
+                )
+            return await cast(Any, super()).act(action, browser_session, *args, **kwargs)
+
+    tools = NavigationTools()
+    allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "done"}
+    for name in list(tools.registry.registry.actions):
+        if name not in allowed:
+            tools.registry.exclude_action(name)
+    return tools
 
 
 class _InferenceTransport(httpx.AsyncBaseTransport):
@@ -72,7 +99,7 @@ async def run_general(
     model_transport: httpx.AsyncBaseTransport | None = None,
     before_decision: Callable[[], Awaitable[None]] | None = None,
 ) -> EngineResult:
-    """Navigation/read-only slice. Product approval/extension gates are still pending."""
+    """Navigation/read-only Agent with explicit inference budgets and independent outcome checks."""
     if not config.allow_paid_api:
         raise ValueError(
             "General needs a generative model; OpenAI requires explicit paid API opt-in."
@@ -163,7 +190,7 @@ async def run_general(
     run: asyncio.Task[object] | None = None
     watch: asyncio.Task[bool] | None = None
     async with ManagedBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
-        from browser_use import Agent, ChatOpenAI, Tools
+        from browser_use import Agent, ChatOpenAI
 
         assert owned.browser is not None
         async with httpx.AsyncClient(
@@ -188,13 +215,7 @@ async def run_general(
                 reasoning_models=["gpt-6"],
                 reasoning_effort="none",
             )
-            tools: Tools[Any] = Tools()
-            # The first gate needs navigation and extraction only. No form submits,
-            # arbitrary page evaluation, filesystem access or consequential clicks.
-            allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "done"}
-            for name in list(tools.registry.registry.actions):
-                if name not in allowed:
-                    tools.registry.exclude_action(name)
+            tools = _navigation_tools()
             agent: Agent[Any, Any] = Agent(
                 task=goal,
                 llm=llm,

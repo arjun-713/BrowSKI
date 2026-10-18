@@ -116,20 +116,25 @@ async def _wait_for_detached(service: ExtensionBridgeService) -> None:
 
 
 @dataclass(frozen=True)
-class AttachedHarness:
+class ProductHarness:
     service: ExtensionBridgeService
-    browser: BrowserSession
     demo: Page
     panel: Page
     credentials: FixtureCredentialStore
     config_path: Path
 
 
+@dataclass(frozen=True)
+class AttachedHarness(ProductHarness):
+    browser: BrowserSession
+
+
 @pytest.fixture
 async def attached_harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[AttachedHarness]:
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[ProductHarness]:
     root = Path(__file__).parents[3]
     extension_path = root / "extension" / ".output" / "chrome-mv3"
     host_executable = root / "python" / ".venv" / "bin" / "browski-native-host"
@@ -138,12 +143,21 @@ async def attached_harness(
     fixture_root = root / "examples" / "demo_site"
     default_config = root / "python" / "src" / "browser_agent" / "cli" / "default.toml"
     config_path = tmp_path / "browski.toml"
-    config_path.write_text(
-        default_config.read_text()
-        .replace('mode = "shadow"', 'mode = "disabled"')
-        .replace('engine = "fast"', 'engine = "legacy"')
-        .replace("allow_paid_api = false", "allow_paid_api = true")
-    )
+    starting_engine = getattr(request, "param", "legacy")
+    configuration = default_config.read_text().replace('mode = "shadow"', 'mode = "disabled"')
+    if starting_engine == "legacy":
+        configuration = configuration.replace('engine = "fast"', 'engine = "legacy"').replace(
+            "allow_paid_api = false", "allow_paid_api = true"
+        )
+    else:
+        import json
+
+        checkpoint = str(root / ".browser-data/laya-browser-v19s")
+        configuration = configuration.replace(
+            'laya_checkpoint = ".browser-data/laya-browser-v19s"',
+            f"laya_checkpoint = {json.dumps(checkpoint)}",
+        )
+    config_path.write_text(configuration)
 
     assert (extension_path / "manifest.json").is_file(), "build the extension first"
     assert host_executable.is_file(), "install the Python development extra first"
@@ -218,6 +232,13 @@ async def attached_harness(
                 timeout=10_000
             )
 
+            if starting_engine == "fast":
+                try:
+                    yield ProductHarness(service, demo_page, panel_page, credentials, config_path)
+                finally:
+                    await context.close()
+                return
+
             demo_tab_id = await worker.evaluate(
                 """async (url) => {
                   const targets = await chrome.debugger.getTargets();
@@ -257,7 +278,7 @@ async def attached_harness(
 
             try:
                 yield AttachedHarness(
-                    service, attached_browser, demo_page, panel_page, credentials, config_path
+                    service, demo_page, panel_page, credentials, config_path, attached_browser
                 )
             finally:
                 await context.close()
@@ -810,147 +831,3 @@ async def test_composer_adds_removable_tab_and_file_references_without_submittin
     await expect(references.locator("li")).to_have_attribute("title", reference_pages[-1].url)
     for page in reference_pages:
         await page.close()
-
-
-async def test_managed_general_task_runs_from_packaged_panel_and_verifies_page(
-    attached_harness: AttachedHarness,
-    article_site: str,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Real UI/native bridge/Agent/Chrome; default inference is an offline HTTP fixture."""
-    import json
-    from typing import Any
-
-    import httpx
-
-    from browser_agent.engines import general, product
-    from browser_agent.engines.general import GeneralConfig
-
-    harness = attached_harness
-    panel = harness.panel
-    url = f"{article_site}/botany.html"
-    live = os.environ.get("BROWSKI_GENERAL_LIVE_DEBUG") == "1"
-    calls = 0
-
-    def offline_model(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        action = (
-            {"navigate": {"url": url, "new_tab": False}}
-            if calls == 1
-            else {"done": {"text": "The visible heading is Botany.", "success": True}}
-        )
-        return httpx.Response(
-            200,
-            json={
-                "id": "offline-extension-fixture",
-                "object": "chat.completion",
-                "created": 1,
-                "model": "offline-fixture",
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {
-                            "role": "assistant",
-                            "content": json.dumps({"action": [action]}),
-                        },
-                    }
-                ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-            },
-        )
-
-    official_run = general.run_general
-
-    async def bounded_run(goal: str, config: GeneralConfig, **kwargs: Any) -> Any:
-        config = config.model_copy(update={"headless": True, "max_calls": 2, "max_steps": 3})
-        if not live:
-            kwargs["model_transport"] = httpx.MockTransport(offline_model)
-        return await official_run(goal, config, **kwargs)
-
-    monkeypatch.setattr(general, "run_general", bounded_run)
-    if not live:
-        monkeypatch.setattr(product, "configured_openai_api_key", lambda: "offline-fixture-only")
-    await panel.get_by_label("Engine", exact=True).select_option("general")
-    await expect(panel.get_by_text("Opens a separate task browser.", exact=False)).to_be_visible()
-    await panel.locator(".settings-section > summary").click()
-    await panel.get_by_label("Generative text", exact=True).select_option("openai")
-    await panel.get_by_label("Permit paid API calls for tasks").check()
-    await panel.get_by_role("button", name="Save runtime settings", exact=True).click()
-    await expect(
-        panel.get_by_role("button", name="Save runtime settings", exact=True)
-    ).to_be_disabled()
-    await panel.locator(".settings-section > summary").click()
-    await panel.set_viewport_size({"width": 380, "height": 860})
-    await panel.locator(".task-outcome-fields > summary").click()
-    await panel.get_by_label("Starting page", exact=True).fill(url)
-    await panel.get_by_label("Expected final page URL").fill(url)
-    await panel.get_by_label("Expected page heading").fill("Botany")
-    await panel.get_by_label("Task instruction").fill(
-        f"Open {url} and report its visible main heading."
-    )
-    await panel.get_by_role("button", name="Send task", exact=True).click()
-    await expect(panel.get_by_role("heading", name="Task completed", exact=True)).to_be_visible(
-        timeout=90_000
-    )
-    assert harness.service.runtime_session is not None
-    assert harness.service.runtime_session["status"] == "completed"
-    assert harness.service.runtime_session["engine"] == "general"
-    # Managed execution must not decorate or navigate the source tab.
-    assert await harness.demo.title() == "BROWSKI local application demo"
-    assert not await harness.demo.locator("#browski-activity-indicator").count()
-    await panel.screenshot(path=str(tmp_path / "managed-result.png"), full_page=True)
-    assert await panel.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    print(
-        json.dumps(
-            {
-                "engine": "general",
-                "live_model": live,
-                "offline_calls": calls,
-                "screenshot": str(tmp_path / "managed-result.png"),
-            }
-        )
-    )
-    if not live:
-        assert calls == 2
-
-
-@pytest.mark.skipif(os.environ.get("BROWSKI_LAYA_E2E") != "1", reason="prepared CPU Laya required")
-async def test_managed_laya_multistep_task_from_panel_uses_no_hosted_inference(
-    attached_harness: AttachedHarness,
-    article_site: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from browser_agent.engines import product
-
-    def deny_hosted_credentials() -> None:
-        raise AssertionError("Local task must not access OpenAI credentials")
-
-    monkeypatch.setattr(product, "configured_openai_api_key", deny_hosted_credentials)
-    panel = attached_harness.panel
-    await panel.get_by_label("Engine", exact=True).select_option("fast")
-    await panel.locator(".settings-section > summary").click()
-    checkpoint = Path(__file__).parents[3] / ".browser-data/laya-browser-v19s"
-    await panel.get_by_label("Local Laya checkpoint").fill(str(checkpoint))
-    await panel.get_by_label("Permit paid API calls for tasks").uncheck()
-    await panel.get_by_role("button", name="Save runtime settings", exact=True).click()
-    await expect(
-        panel.get_by_role("button", name="Save runtime settings", exact=True)
-    ).to_be_disabled()
-    await panel.locator(".settings-section > summary").click()
-    await panel.locator(".task-outcome-fields > summary").click()
-    await panel.get_by_label("Starting page", exact=True).fill(f"{article_site}/index.html")
-    await panel.get_by_label("Expected final page URL").fill(f"{article_site}/leaf.html")
-    await panel.get_by_label("Expected page heading").fill("Leaf structure")
-    await panel.get_by_label("Task instruction").fill(
-        "Open Botany, then open its Leaf structure article."
-    )
-    await panel.get_by_role("button", name="Send task", exact=True).click()
-    await expect(panel.get_by_role("heading", name="Task completed", exact=True)).to_be_visible(
-        timeout=120_000
-    )
-    assert attached_harness.service.runtime_session is not None
-    assert attached_harness.service.runtime_session["provider"] == "laya"
-    await expect(panel.get_by_text("No paid inference.", exact=False)).to_be_visible()

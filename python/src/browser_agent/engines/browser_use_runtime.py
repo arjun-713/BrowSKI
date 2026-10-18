@@ -12,6 +12,27 @@ if TYPE_CHECKING:
     from browser_use.browser.session import BrowserSession
 
 
+def is_http_url(value: object) -> bool:
+    """Bound web navigation; local files, credentials and control characters are excluded."""
+    from urllib.parse import urlsplit
+
+    if not isinstance(value, str) or not 1 <= len(value) <= 2048:
+        return False
+    if any(ord(character) <= 0x20 or ord(character) == 0x7F for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+        return bool(
+            parsed.scheme in {"http", "https"}
+            and parsed.hostname
+            and not parsed.username
+            and not parsed.password
+        )
+    except ValueError:
+        return False
+
+
 def configure_browser_use() -> None:
     """Disable optional outbound services before importing upstream modules."""
     for name in ("ANONYMIZED_TELEMETRY", "BROWSER_USE_CLOUD_SYNC", "BROWSER_USE_CLOUD_HINTS"):

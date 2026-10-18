@@ -117,7 +117,7 @@ browski compare-fast /tmp/browski-decision.json \
 ```
 
 `compare-fast` needs `TYPESAFE_API_KEY` and explicit paid permission before
-reading the input or loading Laya. It validates the contract, sends the same
+reading the input or loading Laya. It accepts current v2 or migrates saved v1 inputs, validates the contract, sends the same
 request to both adapters, reports normalized choices/timings, and executes zero
 browser actions. Malformed or excessively large inputs are refused. Live Jev
 comparison is unverified until real credentials exist; offline tests cover wiring.

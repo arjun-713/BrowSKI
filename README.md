@@ -1,179 +1,105 @@
-# BROWSKI — Open-Source Autonomous Browser Agent Runtime
+# BROWSKI — Browser Agent Runtime
 
-BROWSKI operates a browser from natural-language tasks. Rust owns browser
-observation, stable element identity, typed actions, and deterministic
-verification. Python owns LangGraph orchestration, bounded memory and
-recovery, and GPT-6 Luna reasoning. The Manifest V3 side-panel extension is
-implemented as a UI and browser-session attachment layer; it is not a
-second agent. The local product targets Linux x86_64 and Chrome/Chromium.
+BROWSKI turns natural-language tasks into browser actions and checks the resulting
+browser state. **BROWSKI 2.0 is in migration**, with a working navigation slice;
+it is not yet a general production-ready replacement for the Legacy runtime.
 
-```python
-from browser_agent import BrowserSession
+- **Fast** defaults to the released browser-tuned **Laya** checkpoint on CPU.
+  It selects bounded operations/targets; it is not a text generator. Current
+  execution supports web links and independently checked final pages.
+- **General** wraps the official **Browser Use Agent**, using a separately
+  configured OpenAI text model. Current tools support navigation/reading.
+- **Jev** is an optional hosted Fast provider behind the same versioned decision
+  contract. Offline contracts and switching pass; live Jev is unverified because
+  no credentials are available. No retraining is needed to change adapters.
+- The WXT/React extension remains the product UI. General/Fast open an isolated
+  task-owned Chrome profile; selected source tabs do not transfer authentication.
+- Rust/CDP, Luna and LangGraph remain available under an explicit **Legacy**
+  configuration for rollback. Their broader forms/tabs/checkpoint capabilities
+  have not all migrated and must not be attributed to the new engines.
 
-async with BrowserSession.launch() as browser:
-    await browser.navigate("https://example.com")
-    snapshot = await browser.observe()
-    print(snapshot.title)  # Example Domain
-```
+Paid inference is **off by default**. An API key alone cannot authorize it.
+Only Laya runs locally on the current development machine; local generative
+models are disabled. General/OpenAI or Jev requires explicit provider selection,
+credentials, compatible privacy mode and paid permission. There is no paid fallback.
 
-> **Status:** The managed Chromium runtime, semantic observation, executor,
-> LangGraph workflow, persistence, progress, and recovery are implemented.
-> GPT-6 Luna is the only provider allowed to produce executable decisions.
-> Laya is shadow-only and Jev is disabled. The extension now has an
-> authenticated Native Messaging bridge, attached-tab Rust transport, task
-> dispatch, trace events, confirmation handling, settings and task controls.
-> Real packaged-Chromium tests exercise those software boundaries with
-> deterministic provider fixtures. Live Luna also completes the controlled
-> click, select, scroll, form, and multi-tab tasks in the
-> [repair smoke report](docs/development/live-agent-repair-2026-10-12.md).
-> The final [V8 long-task evaluation](docs/development/long-task-diagnostics-2026-10-15.md)
-> passed 16/18 development checks, then 0/6 on a fresh independent holdout.
-> It does not establish long-task reliability. Public-site reliability remains unverified.
-> Opt-in vision and isolated semantic-data
-> transforms are implemented; screenshot redaction and complete PII detection
-> are unavailable. See the [roadmap](docs/development/roadmap.md).
+The actual first-look local navigation run completed **4/4** frozen tasks through
+the extension using CPU Laya, including a three-click workflow, with **0 false
+successes** against the fixture criteria and **0 generative calls**. This is a
+small controlled sample, not a public-web reliability claim. See the
+[evaluation plan and results](docs/benchmarks/evaluation-plan.md),
+[canonical architecture](ARCHITECTURE_PLAN.md), and
+[migration checkpoint](docs/architecture/migration-status.md) for exact scope.
 
-## Install and start
+## Install and start the migration runtime
 
-Build a checkout-local runtime and unpacked extension:
+The existing source installer builds the base runtime/bindings and extension.
+The new engines and CPU model are optional extras, prepared explicitly afterward.
+From the repository root:
 
 ```sh
 ./scripts/install.sh --preflight
 ./scripts/install.sh
-```
-
-Load `extension/.output/chrome-mv3` from `chrome://extensions`, copy the
-extension ID and register the Native Messaging host using the instructions in
-[installation](docs/user/install.md). Start the local service:
-
-```sh
+UV_CACHE_DIR="$PWD/.cache/uv" uv sync --project python --extra dev --extra engines --extra laya-cpu
+python/.venv/bin/browski prepare-laya --directory "$PWD/.browser-data/laya-browser-v19s"
+python/.venv/bin/browski doctor
 python/.venv/bin/browski serve
 ```
 
-Open the BROWSKI side panel, connect the runtime host, review a tab's origin
-and confirm attachment. Configure your OpenAI key under **Settings**, then
-submit a task. Use **Pause**, **Resume** and **Stop** to control the run.
-Consequential actions wait for explicit approval. Keys are held by the local
-OS keyring rather than extension storage; an environment override is available
-when keyring storage cannot be used.
+The checkpoint is about 644 MB plus its tokenizer and CPU inference dependencies.
+No GPU, model training, Jev key or paid inference is required for Fast/Laya.
+This checkout is verified on Linux x86_64 with Google Chrome. Keep the prepared
+checkpoint path absolute in Settings when starting the service from another
+working directory. Doctor never runs inference or contacts a hosted provider.
 
-For local development setup and extension loading, see
-[installation](docs/user/install.md) and [extension setup](docs/user/extension.md).
-Provider policy, secret handling, and privacy modes are described in
-[configuration](docs/user/configuration.md) and [privacy](docs/user/privacy.md).
-Try the [local application demo](docs/user/demo.md) and review the
-[validation record](docs/development/productization-validation.md) for tested
-flows and remaining acceptance limits.
+Load `extension/.output/chrome-mv3` in `chrome://extensions` and register its
+Native Messaging host as described in [installation](docs/user/install.md).
+Open the side panel and connect. Fast/Laya can start from a link in the task or
+an explicit starting page. It does **not** require attaching a Legacy source tab.
+Use the optional expected URL/heading checks for independently verified navigation;
+without a supported outcome check, a model's DONE is reported as unverified.
+Pause/resume/stop and progress/results use the existing local bridge.
 
-Run a managed-browser task with Luna:
+General needs generative inference: select OpenAI and permit paid API calls in
+Settings before choosing it. Keys belong in the OS keyring or runtime environment,
+never task text, TOML or logs. The existing key UI remains available; storing a
+key does not enable paid access. New read/navigation tools cannot submit forms;
+Legacy's consequential-action approval path remains intact.
 
-```sh
-cd python
-uv sync --extra dev
-uv run browski run "Inspect the jobs page" \
-  --start-url http://127.0.0.1:8080/jobs
+The [configuration guide](docs/user/configuration.md) contains current engine
+settings and explicitly labelled Legacy options. [Debugging](docs/user/debugging.md)
+explains safe capture, provider/model timing, result counters and saved-input
+comparison. Use `browski run/task` for configured engines, `browski general/fast`
+for bounded explicit commands, and `browski --help` for options.
+
+## Current architecture
+
+```text
+Extension / CLI
+      |
+Authenticated local lifecycle + engine policy + events
+      |                           |
+General: Browser Use Agent     Fast: bounded observation/action loop
+      |                           |
+OpenAI (explicit opt-in)       Laya CPU / optional hosted Jev
+      |                           |
+      +---- task-owned Browser Use browser mechanics ----+
+                              |
+                    isolated Chrome + fresh verification
 ```
 
-Configure a key through Settings or the documented environment override before
-running a Luna task. Luna calls may incur API charges. The task command
-writes encrypted LangGraph checkpoints to `browski-checkpoints.sqlite` by default. Use
-`browski doctor` to inspect local prerequisites and `browski config` to review
-effective non-secret settings; neither command calls OpenAI. Use
-`browski runs list` to inspect safe run metadata and `browski runs clean` to
-preview old checkpoint cleanup. Cleanup deletes nothing until `--apply` is
-passed. Running records are protected unless you explicitly use
-`--include-running` after verifying the runtime has stopped. Use
-`browski --help` for the supported command options.
+General/Fast do not run inside the Legacy LangGraph or Rust executor. Python owns
+new orchestration/adapters, Browser Use supplies browser mechanics, TypeScript
+owns the UI/transport, and Rust retains Legacy mechanics. One controller owns a
+managed task profile. [ADR-022](docs/decisions/ADR-022-local-first-engine-migration.md) and
+[ADR-023](docs/decisions/ADR-023-product-engine-selection.md) explain the migration;
+[ADR-024](docs/decisions/ADR-024-fast-candidate-destinations.md) versions destination
+grounding. No additional orchestration framework or cloud browser is required.
 
-`browski serve` runs the authenticated local extension runtime. Attach a tab in
-the side panel before submitting a task. The attached-browser task path uses
-the shared Rust browser core and Python LangGraph runtime. Attached tasks
-operate only on the explicitly consented tab and bounded supporting tabs
-created through the runtime; switching the active Chrome tab does not transfer
-agent ownership.
-
-## Capabilities and limits
-
-- Semantic DOM/accessibility/layout grounding and stable element references.
-- Typed browser actions with deterministic verification and bounded recovery.
-- Managed Chromium or an attached Chrome tab through one Rust browser engine.
-- LangGraph task control, bounded memory, encrypted checkpoints and local traces.
-- Luna decisions with code-controlled reasoning effort; optional Laya shadow
-  comparison cannot choose or execute actions. Jev is not required.
-- A fixed-prefix [prompt cache](docs/architecture/prompt-caching.md) and
-  provider-reported cache usage. Current page context is still sent on every
-  decision; cached prompts never replace observation or authorize actions.
-- Explicit form-value grammar and bounded owned-tab workflows. These are not
-  universal natural-language form interpretation; see [extension usage](docs/user/extension.md).
-- On-demand viewport vision, disabled by default and blocked in privacy-first
-  and offline modes until screenshot sanitation exists.
-- Opt-in isolated JavaScript transforms over semantic data; no live page code,
-  shell, network or filesystem capability.
-
-Standard mode may send bounded task and page context to OpenAI. Privacy-first
-uses heuristic local tokenization and redaction. Offline mode blocks external
-reasoning and therefore cannot run the current Luna-driven agent. There is no
-external analytics by default. See [privacy](docs/user/privacy.md) and the
-[threat model](docs/security/threat-model.md) for the boundaries and residual risks.
-
-## Why this project exists
-
-The design keeps browser state, element identity, execution, and deterministic
-verification in Rust. Python owns LangGraph orchestration and GPT-6 Luna
-decisions, with Laya available only as a non-executing shadow provider.
-Architecture claims are gated on reproducible benchmarks.
-
-## High-level architecture
-
-```
-USER TASK
-   |
-   v
-SIDE PANEL → NATIVE MESSAGING → AUTHENTICATED LOCAL SERVICE
-   |
-   v
-LANGGRAPH (Python state, bounded memory, progress, recovery)
-   |
-   +--> GPT-6 Luna through the ComplexityGate (active decision path)
-   +--> Laya shadow comparison (optional; cannot choose executable actions)
-   |
-   v
-RUST BROWSER CORE (CDP, semantic observation, stable refs, executor,
-                   deterministic verification)
-   |
-   v
-CHROMIUM
-```
-
-Optional on-demand vision can supplement semantic observation for explicit
-visual tasks when DOM, accessibility, and layout do not expose the needed
-information. An isolated semantic-data transform is an opt-in capability. Semantic
-observation remains primary.
-
-Full picture: [system overview](docs/architecture/system-overview.md) ·
-[agent loop](docs/architecture/agent-loop.md) ·
-[observation model](docs/architecture/observation-model.md) ·
-[verification & recovery](docs/architecture/verification-and-recovery.md).
-
-The [architecture plan](ARCHITECTURE_PLAN.md) governs design and milestones;
-[CODE_QUALITY.md](CODE_QUALITY.md) governs implementation quality.
-
-## Why multiple languages
-
-Each subsystem uses the best tool with a measurable reason
-([ADR-001](docs/decisions/ADR-001-polyglot-architecture.md)):
-
-| Subsystem | Language | Reason |
-|---|---|---|
-| Browser runtime, CDP, DOM/state, actions, verification | **Rust** | Performance, reliability, precise resource control |
-| Planning, LLM orchestration, memory, providers, eval | **Python** | LangGraph, typed schemas, provider adapters, eval tooling, experimentation speed |
-| Extension, trace viewer, browser-facing UI | **TypeScript** | It runs in the browser; nothing else does |
-| Dev scripts, UI tooling | **Bun** | Only where it measurably beats Node |
-| High-throughput services | **Go** | Only later, only with benchmarks justifying it |
-
-Rule: **no language is added without a clear benefit**, and subsystem
-interfaces stay language-independent. Details:
-[language boundaries](docs/architecture/language-boundaries.md).
+The active plan is [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md).
+[CODE_QUALITY.md](CODE_QUALITY.md) and [AGENTS.md](AGENTS.md) govern development.
+Legacy architecture docs and older evaluations remain historical references;
+the earlier 16/18 development and 0/6 holdout study does not measure this runtime.
 
 ## Repository structure
 
@@ -194,23 +120,22 @@ BROWSKI/
 
 ## Development setup
 
-Prerequisites: Rust stable (see `rust-toolchain.toml`), `uv`, Python ≥ 3.12,
-a Chrome/Chromium binary, Node 22+ (extension tooling and Pyright).
+Prerequisites: Rust stable (Legacy bindings), uv, Python 3.12+, Chrome, and
+Node 22+ for the extension/Pyright. After preparing the engine extras above:
 
 ```sh
-make setup     # install toolchains, create venv, build bindings
-make build     # cargo build + maturin develop
-make test      # cargo test + pytest
-make lint      # clippy, fmt --check, ruff, pyright
-make example   # run examples/basic_agent.py
+UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 make test
+UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 make lint
+npm run check --prefix extension
+PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 make test-extension-e2e
 ```
 
-Manual equivalent:
-
-```sh
-cargo build --workspace
-cd python && uv sync --extra test && uv run pytest
-```
+Packaged tests need the matching Playwright Chromium installed in the configured
+browser cache. Keep `UV_NO_SYNC=1` for these checks so base dev sync does not remove
+optional engine/model extras. The latest full Python gate passes; the aggregate
+Rust 100-cycle tab stress run currently stalls while its isolated case passes.
+The checkpoint records that unresolved gate. Do not silently skip it or remove
+Legacy because of it.
 
 ## Benchmark-first philosophy
 
@@ -222,14 +147,11 @@ measuring it.
 
 ## Roadmap
 
-M0 scaffold, M1 persistent browser runtime, M2 observation + element identity,
-M3 executor + verification, M4 LangGraph runtime, M5 decision providers, M6
-adaptive Luna reasoning, M7 bounded memory/recovery and M8–M11 product
-capabilities are implemented to the scopes documented above. Limited live Luna
-fixture tests pass; broad agent reliability remains unverified. The final V8
-task-mix evaluation scored 16/18 on development and 0/6 on the independent
-holdout. Broader M12 benchmark hardening remains outstanding. See the
-[roadmap](docs/development/roadmap.md) for gates and later optional milestones.
+The migration checkpoint distinguishes implemented, partial and pending phases.
+Broader forms, dates, dropdowns, tabs, authenticated sessions, long workflows and
+resumability still need replacement evidence. Keep Legacy until those gates pass.
+Task success is the primary metric; do not trade away verification for speed or
+claim production readiness from a few fixture tasks.
 
 ## Contributing / security
 

@@ -128,7 +128,7 @@ def fast(
 
 def compare_fast(
     input_path: str = typer.Argument(
-        ..., help="Saved browski.fast.v1 request JSON; no browser actions."
+        ..., help="Saved Fast request JSON (v2 or legacy v1); no browser actions."
     ),
     checkpoint: str = typer.Option(
         ".browser-data/laya-browser-v19s", help="Prepared CPU Laya checkpoint."
@@ -171,7 +171,7 @@ def compare_fast(
         validate_checkpoint(path)
     except (OSError, ValueError):
         raise typer.BadParameter(
-            "Use a valid bounded browski.fast.v1 input and a prepared checkpoint. "
+            "Use a valid bounded browski.fast.v2 input and a prepared checkpoint. "
             "No inference started."
         ) from None
     laya = LayaFastProvider(path)

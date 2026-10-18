@@ -85,3 +85,18 @@ control an isolated profile, not the source tab or its authentication. Results a
 `partially_completed`, `blocked`, and `cancelled` alongside the legacy outcomes.
 Only a completed independently checked engine result maps to `verified_success`.
 Terminal timeline events are retained in the bounded service snapshot for replay.
+
+## Fast decision contract v2
+
+[ADR-024](../decisions/ADR-024-fast-candidate-destinations.md) versions the
+candidate-destination addition as `browski.fast.v2`. Old strict Candidate readers
+would reject the additional field, so writers explicitly emit v2 requests and
+normalized decisions. Current readers upgrade known v1 saved requests, filling
+missing destinations with empty strings; unknown versions are rejected. No
+model training, Native Messaging or Rust/PyO3 schema migration is required.
+
+`Candidate.href` is bounded destination context for both providers, with query
+and fragment removed. Freshness hashing additionally covers the complete resolved
+href privately, so an href-only change invalidates the old decision. Credentials
+and malformed/non-HTTP URLs never become navigation candidates. Saved v1 inputs
+remain useful for provider comparison but cannot reconstruct absent destinations.

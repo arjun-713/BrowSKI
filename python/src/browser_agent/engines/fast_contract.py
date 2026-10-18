@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CONTRACT_VERSION = "browski.fast.v1"
+CONTRACT_VERSION = "browski.fast.v2"
 
 
 class Operation(StrEnum):
@@ -33,6 +33,7 @@ class Candidate(BaseModel):
     operation: Operation
     label: str = Field(max_length=500)
     role: str = ""
+    href: str = Field(default="", max_length=500)
     value: str = ""
     checked: bool | None = None
 
@@ -72,11 +73,22 @@ class TypedQuestion(BaseModel):
 
 class FastRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    version: Literal["browski.fast.v1"] = CONTRACT_VERSION
+    version: Literal["browski.fast.v2"] = CONTRACT_VERSION
     goal: str = Field(min_length=1, max_length=8000)
     observation: FastObservation
     recent_actions: tuple[dict[str, str | bool | None], ...] = Field(default=(), max_length=10)
     questions: dict[str, TypedQuestion]
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_legacy_request(cls, value: object) -> object:
+        """Known v1 saved inputs upgrade to v2; missing destinations stay empty."""
+        if isinstance(value, dict):
+            fields = cast(dict[str, object], value)
+            if fields.get("version") == "browski.fast.v1":
+                return {**fields, "version": CONTRACT_VERSION}
+            return fields
+        return value
 
     def body(self, model: str) -> dict[str, object]:
         """Both adapters receive this exact semantic state and question set."""
@@ -95,6 +107,7 @@ class FastRequest(BaseModel):
                         "role": c.role,
                         "value": c.value,
                         "operations": [c.operation.value],
+                        **({"href": c.href} if c.href else {}),
                         **({"checked": c.checked} if c.checked is not None else {}),
                     }
                     for c in self.observation.candidates
@@ -107,7 +120,7 @@ class FastRequest(BaseModel):
 
 class FastDecision(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    version: Literal["browski.fast.v1"] = CONTRACT_VERSION
+    version: Literal["browski.fast.v2"] = CONTRACT_VERSION
     observation_id: str
     provider: str
     model: str
@@ -152,6 +165,7 @@ def build_request(
         operations[candidate.operation.value] = candidate.operation.value.replace("_", " ")
         groups.setdefault(candidate.operation, {})[candidate.id] = (
             f"{candidate.label[:120]} ({candidate.role}) = {candidate.value[:60]!r}"
+            + (f" → {candidate.href[:120]}" if candidate.href else "")
         )
     operations["BLOCKED"] = "No operation can progress."
     if allow_done:

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any, cast
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from browser_agent.engines.browser_use_runtime import ManagedBrowser
+from browser_agent.engines.browser_use_runtime import ManagedBrowser, is_http_url
 from browser_agent.engines.fast_contract import Candidate, FastObservation, Operation
 
 
@@ -22,12 +22,18 @@ class FastBrowser(ManagedBrowser):
         assert self.browser is not None
         state = await self.browser.get_browser_state_summary(include_screenshot=False, cached=False)
         candidates: list[Candidate] = []
+        destinations: list[str] = []
         self._targets.clear()
         for node in state.dom_state.selector_map.values():
             if node.tag_name != "a" or node.attributes.get("aria-disabled") == "true":
                 continue
-            href = urljoin(state.url, node.attributes.get("href", ""))
-            destination = urlsplit(href)
+            try:
+                href = urljoin(state.url, node.attributes.get("href", ""))
+                if not is_http_url(href):
+                    continue
+                destination = urlsplit(href)
+            except ValueError:
+                continue
             if (
                 destination.scheme not in {"http", "https"}
                 or destination.hostname not in allowed_hosts
@@ -42,8 +48,12 @@ class FastBrowser(ManagedBrowser):
                 operation=Operation.CLICK,
                 label=label.strip()[:500],
                 role="link",
+                href=urlunsplit((destination.scheme, destination.netloc, destination.path, "", ""))[
+                    :500
+                ],
             )
             candidates.append(candidate)
+            destinations.append(f"{candidate.id}:{href}")
             self._targets[candidate.id] = node
         if len(candidates) > 120:
             raise ValueError(
@@ -57,7 +67,13 @@ class FastBrowser(ManagedBrowser):
         # separately, and keep backend-node identity in the candidate table.
         text = await cast(Any, page).evaluate("() => document.body.innerText.slice(0,6000)")
         payload = "\n".join(
-            [state.url, state.title, text, *[c.model_dump_json() for c in candidates]]
+            [
+                state.url,
+                state.title,
+                text,
+                *[c.model_dump_json() for c in candidates],
+                *destinations,
+            ]
         )
         return FastObservation(
             id=hashlib.sha256(payload.encode()).hexdigest(),

@@ -19,6 +19,24 @@ Set `CHROME_PATH` if the browser binary is not on `PATH`:
 export CHROME_PATH=/absolute/path/to/chrome
 ```
 
+## BROWSKI 2.0 engine extras
+
+The installer below builds the base/Legacy runtime and extension. Prepare the
+new optional engines and CPU Laya explicitly from the repository root:
+
+```sh
+UV_CACHE_DIR="$PWD/.cache/uv" uv sync --project python --extra dev --extra engines --extra laya-cpu
+python/.venv/bin/browski prepare-laya --directory "$PWD/.browser-data/laya-browser-v19s"
+```
+
+No GPU or API key is required for Fast/Laya. Text generation and paid access
+stay off by default. The new engines are verified with Google Chrome on this
+Linux host; configure the absolute checkpoint path in Settings when launching
+from another working directory. See [configuration](configuration.md).
+Use the checkout executable or `uv run --no-sync` after preparation, so base
+sync does not remove optional extras. Model weights and browser profiles stay
+ignored; no model download or inference occurs in Doctor.
+
 ## Check prerequisites
 
 From the repository root, run the read-only preflight:
@@ -43,10 +61,10 @@ release builds for the installed runtime. Developer commands such as
 `make bindings` still build the development profile. WXT creates both
 extension outputs:
 
-| Build | Output directory | Use |
-|---|---|---|
+| Build       | Output directory                   | Use                                            |
+| ----------- | ---------------------------------- | ---------------------------------------------- |
 | Development | `extension/.output/chrome-mv3-dev` | Load as an unpacked extension while developing |
-| Production | `extension/.output/chrome-mv3` | Load as the regular optimized build |
+| Production  | `extension/.output/chrome-mv3`     | Load as the regular optimized build            |
 
 Load one output from `chrome://extensions` with Developer mode enabled. Copy
 the exact extension ID shown on that page; development and production builds
@@ -58,8 +76,8 @@ This does not establish broad public-site task reliability.
 Use the checkout-local commands so the runtime does not need a global install:
 
 ```sh
-uv run --project python browski --help
-uv run --project python browski doctor
+uv run --project python --no-sync browski --help
+uv run --project python --no-sync browski doctor
 ```
 
 `browski doctor` inspects local prerequisites and loopback service health. It
@@ -76,7 +94,7 @@ and set `BROWSKI_CHROME_PROFILE` to the browser's user-data directory:
 
 ```sh
 export BROWSKI_CHROME_PROFILE=/absolute/path/to/browser-user-data
-uv run --project python browski-install-native-host \
+uv run --project python --no-sync browski-install-native-host \
   --browser chrome \
   --extension-id <exact-extension-id> \
   --host-executable "$PWD/python/.venv/bin/browski-native-host" \
@@ -100,10 +118,10 @@ and run the command again. Close and reopen the browser after registration,
 then start the local bridge in another terminal:
 
 ```sh
-uv run --project python browski serve
+uv run --project python --no-sync browski serve
 ```
 
-To start the installed local CPU Laya server and the extension backend together:
+Legacy helper only: to start the old shadow Laya HTTP server and backend together:
 
 ```sh
 ./scripts/start-local.sh
@@ -124,7 +142,9 @@ be owner-only (`chmod 600 .env`); it is read as data, never sourced as shell
 commands. The key is passed only to the backend, not the Laya server. Never
 commit this file.
 
-Attach a tab in the extension side panel before submitting a task. The
+Fast/Laya opens an isolated task browser and does not need a source-tab attachment.
+Attach a tab only when explicitly using Legacy. The old HTTP Laya service is
+not needed by the new CPU worker. The
 attached-browser route and complete local demo have fixture-backed browser
 acceptance tests. They do not establish autonomous model reliability.
 

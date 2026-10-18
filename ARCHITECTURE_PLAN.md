@@ -108,7 +108,10 @@ paid-API permission; no silent fallback, telemetry inference or cloud browser.
 Reject accidental remote local-model endpoints unless explicitly allowed.
 Codex subscription access is never runtime inference credit.
 
-Implemented contract: `engines/fast_contract.py` and `engines/fast_providers.py`;
+Implemented contract: `browski.fast.v2` (ADR-024), with migration for saved v1
+requests. Destination context is shared across providers; complete private hrefs
+also participate in freshness hashing. Contracts and adapters live in
+`engines/fast_contract.py` and `engines/fast_providers.py`;
 `laya_worker.py` owns one warm CPU inference process with bounded shutdown.
 Jev uses the current HTTP contract, with offline fixtures only. Laya and Jev
 receive equivalent state; their raw Score formats are adapted separately.
