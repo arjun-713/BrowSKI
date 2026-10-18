@@ -83,7 +83,11 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/browser-code/` — isolated, bounded semantic-data transforms; no live
   browser, network, filesystem, or shell capability.
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
-- `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
+- `python/src/browser_agent/agent|planning|memory|progress|recovery/` — legacy runtime.
+- `python/src/browser_agent/engines/` — new Browser Use General and bounded Fast
+  adapters, shared result/evidence contracts, local CPU Laya process and optional
+  Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
+  Implemented scope is navigation/read only; see checkpoint for current gates.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.

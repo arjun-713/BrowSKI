@@ -20,6 +20,7 @@ from browser_agent.cli.config import (
 )
 from browser_agent.cli.doctor import doctor
 from browser_agent.cli.engines import general
+from browser_agent.cli.fast import fast, prepare_laya
 from browser_agent.persistence import RunMetadataError, SQLiteRunMetadataStore
 from browser_agent.reasoning import ReasoningProvider
 from browser_agent.vision.contracts import VisionProvider
@@ -27,6 +28,8 @@ from browser_agent.vision.contracts import VisionProvider
 app = typer.Typer(name="agent", help="BROWSKI browser runtime.")
 app.command()(doctor)
 app.command()(general)
+app.command()(fast)
+app.command()(prepare_laya)
 runs_app = typer.Typer(name="runs", help="Inspect and clean local run metadata.")
 app.add_typer(runs_app, name="runs")
 ConfigPathOption = Annotated[

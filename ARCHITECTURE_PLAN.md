@@ -37,6 +37,11 @@ New General implementation: `engines/general.py` wraps the official Agent;
 evidence; `cli/engines.py` exposes an explicit paid-opt-in migration command.
 A small live Wikipedia extraction passed with two authorized OpenAI calls.
 This proves that vertical slice, not extension integration or broad reliability.
+Fast navigation is implemented in `engines/fast.py` and `fast_browser.py`, using
+the same Browser Use session ownership with local Laya decisions. It supports
+same-site links and caller-owned URL/H1 checks; forms/text are not yet offered.
+`cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
+The existing product task route remains legacy until phase 2.
 
 These are legacy capabilities and a narrow new engine slice, not proof that
 the whole target is implemented.

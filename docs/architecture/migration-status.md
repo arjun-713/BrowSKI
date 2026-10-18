@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -19,17 +19,17 @@ no hosted fallback or Jev request has been made.
 
 ## Phase status
 
-| Phase                   | State                                                         | Evidence / next gate                                                                    |
-| ----------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 0 Guidance              | Complete — `41fb40d`                                          | Branch, canonical plan, AGENTS and ADR-022 validated                                    |
-| 1 Browser Use baseline  | Complete — `164c036`                                          | Wikipedia URL + visible heading checked independently; 2 authorized API calls           |
-| 2 Extension integration | Next major phase                                              | Actual side-panel submission, ownership, approval, controls/results                     |
-| 3 Fast contract         | Complete; contract commit follows validated phase 1           | Same semantic request through Laya/Jev adapters, malformed-input and policy tests       |
-| 4 Local Laya            | Navigation slice verified; remaining capability/commit checks | Real one- and two-click tasks, zero generative calls; forms/text unsupported            |
-| 5 Jev/switching         | Partial                                                       | HTTP adapter/offline contracts; CLI/config/settings integration unfinished; no live key |
-| 6 Debug controls        | Pending                                                       | Product engine/provider controls and trace mapping                                      |
-| 7 Reliability           | Partial experiment only                                       | Premature DONE rejected; two small cases do not prove general reliability               |
-| 8 Cleanup               | Pending                                                       | No legacy deletion until replacement regression gates                                   |
+| Phase                   | State                                                   | Evidence / next gate                                                                    |
+| ----------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 0 Guidance              | Complete — `41fb40d`                                    | Branch, canonical plan, AGENTS and ADR-022 validated                                    |
+| 1 Browser Use baseline  | Complete — `164c036`                                    | Wikipedia URL + visible heading checked independently; 2 authorized API calls           |
+| 2 Extension integration | Next major phase                                        | Actual side-panel submission, ownership, approval, controls/results                     |
+| 3 Fast contract         | Complete — `6b66bfa`                                    | Same semantic request through Laya/Jev adapters, malformed-input and policy tests       |
+| 4 Local Laya            | Complete for navigation slice; next commit records hash | Real one- and two-click tasks, zero generative calls; forms/text unsupported            |
+| 5 Jev/switching         | Partial                                                 | HTTP adapter/offline contracts; CLI/config/settings integration unfinished; no live key |
+| 6 Debug controls        | Pending                                                 | Product engine/provider controls and trace mapping                                      |
+| 7 Reliability           | Partial experiment only                                 | Premature DONE rejected; two small cases do not prove general reliability               |
+| 8 Cleanup               | Pending                                                 | No legacy deletion until replacement regression gates                                   |
 
 ## Latest evidence
 
@@ -54,6 +54,11 @@ no hosted fallback or Jev request has been made.
   1 ignored; Python 676 passed, 35 opt-in skips. Later targeted engine suite:
   21 passed, 2 live-Laya skips, including real Browser Use navigation, offline
   Agent responses, false-DONE refusal and in-flight cancellation.
+- Latest combined engine/CLI validation: **50 passed** (including both live Laya
+  tasks, official Agent with offline responses, cancellation and existing CLI
+  regressions). Repeated two-click Laya run: 24,966.70 ms task, 8,544.12 ms
+  model/tokenizer loading, 2,187.95 MiB peak inference-process RSS; per-decision
+  1,288/1,177/1,438 ms while validations ran. Warm and cold scopes differ.
 - `make lint` passed: Rust fmt/clippy, Python Ruff lint/format and strict
   Pyright (0 errors/warnings). Latest General-only browser suite: 5 passed,
   including false-completion and cancellation.
@@ -97,9 +102,25 @@ silently invoke text generation. The upstream tokenizer emits a regex warning;
 it has not been suppressed or silently changed from the released checkpoint.
 No general Laya calibration or unseen public-site reliability is established.
 
-Next: commit the validated Fast contract, then register the Fast CLI with its
-verified Laya navigation implementation.
+Next: commit the validated Laya navigation slice, then connect engine selection
+to the product lifecycle and extension.
 only with its tested implementation, then connect task-level engine selection
 to the existing product lifecycle. The extension debugger relay is not a native
 CDP WebSocket; start with an isolated managed-browser product task rather than
 assuming attachment compatibility. Preserve approvals and legacy rollback.
+
+Local Fast commands (from repository root):
+
+```sh
+python/.venv/bin/browski prepare-laya
+python/.venv/bin/browski fast 'Open the requested article.' \
+  --start-url http://127.0.0.1:PORT/index.html \
+  --verify-url http://127.0.0.1:PORT/article.html --verify-heading 'Article'
+```
+
+The Fast provider defaults to Laya. `--provider jev --allow-paid-api` selects
+Jev only when `TYPESAFE_API_KEY` is supplied; without a key it fails clearly and
+suggests local Laya. No live Jev result is claimed. Provider config/settings UI
+and mid-task switching are not implemented yet. `browski run/task` and the
+extension still use the legacy runtime until phase 2; do not describe the new
+Fast CLI as the default product task route.

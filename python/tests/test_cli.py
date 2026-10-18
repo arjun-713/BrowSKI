@@ -468,3 +468,28 @@ def test_reasoning_provider_is_wrapped_with_configured_privacy_mode(
 
     assert isinstance(provider, BoundarySpy)
     assert provider.mode is ProviderPrivacyMode.OFFLINE
+
+
+def test_fast_cli_jev_requires_paid_opt_in_before_starting_a_browser() -> None:
+    result = CliRunner().invoke(
+        app, ["fast", "Open a topic", "--start-url", "http://127.0.0.1/", "--provider", "jev"]
+    )
+    assert result.exit_code != 0
+    assert "paid API" in result.output
+    assert "Laya" in result.output
+
+
+def test_fast_cli_missing_checkpoint_reports_setup_problem(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "fast",
+            "Open a topic",
+            "--start-url",
+            "http://127.0.0.1/",
+            "--checkpoint",
+            str(tmp_path / "unprepared-model"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Prepare the pinned Laya" in result.output

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import httpx
 import pytest
@@ -136,3 +137,42 @@ async def test_cancellation_interrupts_an_inflight_model_request_without_paid_ca
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_LAYA_E2E") != "1",
+    reason="opt-in live CPU Laya task; requires prepared pinned checkpoint and engines extras",
+)
+@pytest.mark.parametrize(
+    "goal,path,heading,min_actions",
+    [
+        ("Open the Botany article.", "botany.html", "Botany", 1),
+        ("Open Botany, then open its Leaf structure article.", "leaf.html", "Leaf structure", 2),
+    ],
+)
+async def test_live_laya_finishes_real_navigation_tasks(
+    article_site: str, goal: str, path: str, heading: str, min_actions: int
+) -> None:
+    from browser_agent.engines.fast import run_fast
+    from browser_agent.engines.fast_providers import LayaFastProvider
+
+    root = Path(__file__).parents[2]
+    provider = LayaFastProvider(root / ".browser-data/laya-browser-v19s")
+    result = await run_fast(
+        goal,
+        f"{article_site}/index.html",
+        provider,
+        criteria=CompletionCriteria(url=f"{article_site}/{path}", heading=heading),
+    )
+    print(
+        json.dumps(
+            {
+                "result": result.model_dump(mode="json"),
+                "model_load_ms": provider.load_ms,
+                "peak_rss_mib": provider.peak_rss_mib,
+            }
+        )
+    )
+    assert result.verified, result.model_dump()
+    assert result.action_count >= min_actions
+    assert result.generative_calls == 0
