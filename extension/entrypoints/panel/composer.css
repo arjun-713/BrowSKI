@@ -5,6 +5,42 @@
     padding: 12px 12px max(12px, env(safe-area-inset-bottom));
     background: var(--paper);
 }
+.engine-controls {
+    flex: none;
+    padding: 8px 12px 0;
+    border-top: 1px solid var(--line);
+}
+.engine-selectors {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.engine-selectors label {
+    min-width: 0;
+    margin: 0;
+}
+.engine-selectors label > span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+.engine-controls .footnote {
+    margin: 6px 0 0;
+    font-size: 11px;
+}
+.task-outcome-fields {
+    max-height: 30dvh;
+    margin-bottom: 8px;
+    padding-bottom: 2px;
+    overflow-y: auto;
+}
+.task-outcome-fields > summary {
+    padding: 5px 0;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+}
 .composer-form {
     position: relative;
 }

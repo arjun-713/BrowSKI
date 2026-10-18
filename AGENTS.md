@@ -12,8 +12,9 @@ require an ADR (see “When to write an ADR”).
 
 Build BROWSKI, an open-source browser agent that completes real tasks with
 independently verified outcomes. **BROWSKI 2.0 is TARGET / IN MIGRATION**;
-see the canonical architecture plan and ADR-022. Existing executable code is
-still the legacy Luna/LangGraph/Rust runtime until replacement gates pass.
+see the canonical architecture plan and ADR-022. General and Fast navigation slices now run through the product bridge.
+The legacy Luna/LangGraph/Rust runtime remains an explicit rollback option;
+forms, long sessions and broad reliability are not migrated yet.
 
 Target: official Browser Use for the General engine; a small Jev-ultrafast-style
 Fast loop with interchangeable typed Laya (default, local) / Jev (optional,
@@ -57,13 +58,13 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 
 ## 3. Language ownership
 
-| Language                          | Owns                                                                                                                                              | Must never own                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Rust (`crates/`)                  | Legacy CDP/browser core; retained for rollback until replacement gates pass                                                                       | LLM calls, prompts, provider logic                 |
-| Python (`python/`)                | Product lifecycle, engine/library adapters, Laya/Jev decisions, local text generation, verification, evals; legacy orchestration during migration | Competing controllers for the same browser session |
-| TypeScript (`extension/`, `web/`) | Extension, trace viewer, browser-facing UI/SDK                                                                                                    | Agent internals, browser automation core           |
-| Bun                               | Dev scripts/tooling where measurably faster                                                                                                       | The browser core                                   |
-| Go                                | Nothing yet; allowed later for isolated high-throughput services with benchmarks                                                                  | Anything without a benchmark-backed justification  |
+| Language                          | Owns                                                                                                                                                   | Must never own                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Rust (`crates/`)                  | Legacy CDP/browser core; retained for rollback until replacement gates pass                                                                            | LLM calls, prompts, provider logic                 |
+| Python (`python/`)                | Product lifecycle, engine/library adapters, Laya/Jev decisions, configured text generation, verification, evals; legacy orchestration during migration | Competing controllers for the same browser session |
+| TypeScript (`extension/`, `web/`) | Extension, trace viewer, browser-facing UI/SDK                                                                                                         | Agent internals, browser automation core           |
+| Bun                               | Dev scripts/tooling where measurably faster                                                                                                            | The browser core                                   |
+| Go                                | Nothing yet; allowed later for isolated high-throughput services with benchmarks                                                                       | Anything without a benchmark-backed justification  |
 
 Dependency direction: **Python may depend on Rust bindings. Rust must not
 depend on Python domain logic. Frontend communicates through public
@@ -87,7 +88,9 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `python/src/browser_agent/engines/` — new Browser Use General and bounded Fast
   adapters, shared result/evidence contracts, local CPU Laya process and optional
   Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
-  Implemented scope is navigation/read only; see checkpoint for current gates.
+  `engines/product.py` dispatches configured CLI/extension tasks; `lifecycle.py`
+  owns safe pause/cancel boundaries. Implemented scope is navigation/read only;
+  see checkpoint for current gates.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.

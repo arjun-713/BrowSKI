@@ -38,6 +38,12 @@ const running: ExtensionSnapshot = {
 describe("page activity ownership and lifecycle", () => {
   it("shows activity only for a connected running session's owned tabs", () => {
     expect(pageActivity(running, owned).active).toBe(true);
+    expect(
+      pageActivity(
+        { ...running, session: { ...running.session!, browserMode: "managed" } },
+        owned,
+      ).active,
+    ).toBe(false);
     expect(pageActivity(running, undefined).active).toBe(false);
     expect(pageActivity(running, { ...owned, ownerSessionId: "other" }).active).toBe(false);
     expect(pageActivity(running, { ...owned, attachmentId: "other" }).active).toBe(false);

@@ -163,8 +163,9 @@ async def test_idle_diagnostic_separates_cdp_from_observation_without_models(
     checks = {item.name: item for item in response.checks}
     assert checks["CDP round-trip"].status == "PASS"
     assert checks["DOM observation"].status == "PASS"
-    assert checks["Agent graph"].status == "PASS"
-    assert checks["Runtime OpenAI configuration"].status == "WARN"
+    assert checks["Agent configuration"].status == "PASS"
+    assert "Agent graph" not in checks
+    assert checks["Runtime OpenAI configuration"].status == "INFO"
     assert not (tmp_path / "checkpoints.sqlite").exists()
 
 

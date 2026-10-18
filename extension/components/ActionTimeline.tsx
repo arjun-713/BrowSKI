@@ -20,7 +20,7 @@ export function ActionTimeline({
         <h2 id="welcome-heading">
           What can I do
           <br />
-          on this page?
+          with your browser?
         </h2>
         <p>Give BROWSKI a task. Follow each action as it works in your browser.</p>
         <ul className="welcome-hints">

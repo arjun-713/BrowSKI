@@ -1,5 +1,11 @@
 import { isTrustedPanelSender } from "./panel-sender";
-import { isPlainRecord, type ExtensionSnapshot } from "./protocol";
+import {
+  isPlainRecord,
+  isRuntimeSettingsUpdate,
+  isTaskPageUrl,
+  isTaskVerification,
+  type ExtensionSnapshot,
+} from "./protocol";
 
 type PanelRouterDependencies = {
   extensionId: string;
@@ -59,10 +65,27 @@ export function createPanelMessageHandler(dependencies: PanelRouterDependencies)
           if (message.task.length > 4000) {
             throw new Error("Tasks must be 4,000 characters or fewer.");
           }
+          if (message.startUrl !== undefined && !isTaskPageUrl(message.startUrl)) {
+            throw new Error(
+              "Choose a valid HTTP(S) starting page without embedded credentials.",
+            );
+          }
+          if (
+            message.verification !== undefined &&
+            !isTaskVerification(message.verification)
+          ) {
+            throw new Error("Choose an expected HTTP(S) page URL and a non-empty heading.");
+          }
           if (
             !dependencies.sendNative("runtime.task.submit", {
               sessionId: snapshot.session.sessionId,
               task: message.task.trim(),
+              ...(typeof message.startUrl === "string" && message.startUrl.trim()
+                ? { startUrl: message.startUrl.trim() }
+                : {}),
+              ...(message.verification !== undefined
+                ? { verification: message.verification }
+                : {}),
             })
           ) {
             throw new Error("The native host is disconnected.");
@@ -81,13 +104,14 @@ export function createPanelMessageHandler(dependencies: PanelRouterDependencies)
             .find(
               (event) => event.runId && event.sessionId === snapshot.session?.sessionId,
             );
-          if (!latestRun?.runId) {
+          const runId = snapshot.session.runId ?? latestRun?.runId;
+          if (!runId) {
             throw new Error("There is no active task run to control.");
           }
           if (
             !dependencies.sendNative("runtime.task.control", {
               sessionId: snapshot.session.sessionId,
-              runId: latestRun.runId,
+              runId,
               control,
             })
           ) {
@@ -132,20 +156,25 @@ export function createPanelMessageHandler(dependencies: PanelRouterDependencies)
           if (!snapshot.protocolReady) {
             throw new Error("Connect the local runtime before changing runtime settings.");
           }
-          const settings = {
-            effort: message.effort,
-            privacyMode: message.privacyMode,
-            layaMode: message.layaMode,
-            traceLevel: message.traceLevel,
-          };
-          if (
-            !["none", "low"].includes(String(settings.effort)) ||
-            !["standard", "privacy_first", "offline"].includes(
-              String(settings.privacyMode),
-            ) ||
-            !["disabled", "shadow"].includes(String(settings.layaMode)) ||
-            !["standard", "detailed"].includes(String(settings.traceLevel))
-          ) {
+          const keys = [
+            "effort",
+            "privacyMode",
+            "layaMode",
+            "traceLevel",
+            "engine",
+            "fastProvider",
+            "textProvider",
+            "allowPaidApi",
+            "textModel",
+            "layaCheckpoint",
+            "jevEndpoint",
+          ];
+          const settings = Object.fromEntries(
+            keys
+              .filter((key) => message[key] !== undefined)
+              .map((key) => [key, message[key]]),
+          );
+          if (!isRuntimeSettingsUpdate(settings)) {
             throw new Error("Choose valid runtime settings before saving.");
           }
           if (!dependencies.sendNative("runtime.settings.update", settings)) {

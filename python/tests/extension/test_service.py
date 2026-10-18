@@ -171,11 +171,14 @@ async def test_service_authenticates_native_host_and_negotiates_supported_cdp_ca
         host_payload = cast(dict[str, object], host_hello["payload"])
         assert host_payload["debuggerMethods"] == ["DOM.getDocument"]
         assert host_payload["debuggerEvents"] == ["Page.loadEventFired"]
-        assert runtime_snapshot["payload"] == {
-            "session": None,
-            "events": [],
-            "pendingApproval": None,
-        }
+        snapshot_payload = cast(dict[str, object], runtime_snapshot["payload"])
+        session = cast(dict[str, object], snapshot_payload["session"])
+        assert session["engine"] == "fast"
+        assert session["provider"] == "laya"
+        assert session["browserMode"] == "managed"
+        assert session["status"] == "idle"
+        assert snapshot_payload["events"] == []
+        assert snapshot_payload["pendingApproval"] is None
         assert credential_status["type"] == "runtime.credentials.status"
 
         writer.write(
@@ -340,11 +343,14 @@ async def test_native_host_connects_to_service_and_relays_protocol_frames(
         credential_status = await asyncio.wait_for(_read_message(process.stdout), timeout=5)
         assert host_hello["type"] == "host.hello"
         assert runtime_snapshot["type"] == "runtime.snapshot"
-        assert runtime_snapshot["payload"] == {
-            "session": None,
-            "events": [],
-            "pendingApproval": None,
-        }
+        snapshot_payload = cast(dict[str, object], runtime_snapshot["payload"])
+        session = cast(dict[str, object], snapshot_payload["session"])
+        assert session["engine"] == "fast"
+        assert session["provider"] == "laya"
+        assert session["browserMode"] == "managed"
+        assert session["status"] == "idle"
+        assert snapshot_payload["events"] == []
+        assert snapshot_payload["pendingApproval"] is None
         assert credential_status["type"] == "runtime.credentials.status"
     finally:
         process.terminate()
@@ -532,6 +538,11 @@ async def test_runtime_settings_get_and_update_use_typed_config_without_model_ca
         "_write_frame",
         capture_frame,
     )
+    from importlib import import_module
+
+    monkeypatch.setattr(
+        import_module("browser_agent.extension.service"), "_write_native_frame", capture_frame
+    )
     writer = cast(asyncio.StreamWriter, WriterStub())
     await service._handle_message(  # pyright: ignore[reportPrivateUsage]
         writer,
@@ -556,8 +567,10 @@ async def test_runtime_settings_get_and_update_use_typed_config_without_model_ca
             },
         },
     )
-    updated = cast(dict[str, object], frames[-1]["payload"])
-    assert frames[-1]["type"] == "runtime.settings.status"
+    status_frame = next(
+        frame for frame in reversed(frames) if frame["type"] == "runtime.settings.status"
+    )
+    updated = cast(dict[str, object], status_frame["payload"])
     assert updated["effort"] == "none"
     assert updated["privacyMode"] == "offline"
     assert updated["layaMode"] == "disabled"
@@ -701,3 +714,60 @@ async def test_native_messaging_attach_initializes_and_detaches_rust_session(
         writer.close()
         await writer.wait_closed()
         await service.close()
+
+
+@pytest.mark.parametrize(
+    "status,outcome",
+    [
+        ("completed", "verified_success"),
+        ("partially_completed", "partially_completed"),
+        ("blocked", "blocked"),
+        ("failed", "failed"),
+        ("cancelled", "cancelled"),
+    ],
+)
+async def test_managed_terminal_result_is_retained_for_snapshot_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    outcome: str,
+) -> None:
+    from importlib import import_module
+
+    service = ExtensionBridgeService(tmp_path / "bridge.sock")
+    service._runtime_session = {  # pyright: ignore[reportPrivateUsage]
+        "sessionId": "managed",
+        "status": "running",
+        "browserMode": "managed",
+        "engine": "fast",
+        "provider": "laya",
+        "updatedAt": "2026-10-18T00:00:00Z",
+    }
+    service._run_id = "managed-run"  # pyright: ignore[reportPrivateUsage]
+    frames: list[dict[str, object]] = []
+
+    class Writer:
+        def is_closing(self) -> bool:
+            return False
+
+    async def capture(writer: asyncio.StreamWriter, message: dict[str, object]) -> None:
+        frames.append(message)
+
+    monkeypatch.setattr(
+        import_module("browser_agent.extension.service"), "_write_native_frame", capture
+    )
+    writer = cast(asyncio.StreamWriter, Writer())
+    await service._finish_task(  # pyright: ignore[reportPrivateUsage]
+        writer, success=status == "completed", summary="Visible outcome", task_status=status
+    )
+    await service._send_runtime_snapshot(writer)  # pyright: ignore[reportPrivateUsage]
+    result = next(frame for frame in frames if frame["type"] == "runtime.task.result")
+    assert cast(dict[str, object], result["payload"])["outcome"] == outcome
+    snapshot = cast(dict[str, object], frames[-1]["payload"])
+    session = cast(dict[str, object], snapshot["session"])
+    assert session["status"] == status
+    events = cast(list[dict[str, object]], snapshot["events"])
+    assert len(events) == 1
+    assert events[0]["runId"] == "managed-run"
+    assert events[0]["detail"] == "Visible outcome"
+    assert (events[0]["status"] == "completed") == (status == "completed")

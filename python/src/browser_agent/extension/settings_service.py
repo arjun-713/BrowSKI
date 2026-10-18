@@ -161,6 +161,13 @@ class ExtensionSettingsService:
                     "traceLevel": settings.trace_level.value,
                     "confirmHighRiskActions": settings.confirm_high_risk_actions,
                     "extensionTransport": settings.extension_transport.value,
+                    "engine": settings.engine.value,
+                    "fastProvider": settings.fast_provider.value,
+                    "textProvider": settings.text_provider.value,
+                    "allowPaidApi": settings.allow_paid_api,
+                    "textModel": settings.text_model,
+                    "layaCheckpoint": settings.laya_checkpoint,
+                    "jevEndpoint": settings.jev_endpoint,
                 }
             )
         if error is not None:

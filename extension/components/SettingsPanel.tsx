@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   PROTOCOL_VERSION,
+  editableRuntimeSettings,
   type ExtensionSnapshot,
   type RuntimeSettingsUpdate,
 } from "../src/protocol";
+import { EngineSettingsFields } from "./EngineSettingsFields";
 
 export function SettingsPanel({
   snapshot,
@@ -27,12 +29,7 @@ export function SettingsPanel({
 
   useEffect(() => {
     if (runtimeSettings) {
-      setRuntimeDraft({
-        effort: runtimeSettings.effort,
-        privacyMode: runtimeSettings.privacyMode,
-        layaMode: runtimeSettings.layaMode,
-        traceLevel: runtimeSettings.traceLevel,
-      });
+      setRuntimeDraft(editableRuntimeSettings(runtimeSettings));
     }
   }, [runtimeSettings]);
 
@@ -69,10 +66,8 @@ export function SettingsPanel({
   const runtimeSettingsChanged = Boolean(
     runtimeSettings &&
     runtimeDraft &&
-    (runtimeSettings.effort !== runtimeDraft.effort ||
-      runtimeSettings.privacyMode !== runtimeDraft.privacyMode ||
-      runtimeSettings.layaMode !== runtimeDraft.layaMode ||
-      runtimeSettings.traceLevel !== runtimeDraft.traceLevel),
+    JSON.stringify(editableRuntimeSettings(runtimeSettings)) !==
+      JSON.stringify(runtimeDraft),
   );
   const runtimeSettingsDisabled =
     !snapshot.protocolReady ||
@@ -100,22 +95,36 @@ export function SettingsPanel({
             </p>
           ) : (
             <>
-              <label htmlFor="runtime-effort">Default reasoning effort</label>
-              <select
-                id="runtime-effort"
-                value={runtimeDraft?.effort ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "effort",
-                    event.target.value as RuntimeSettingsUpdate["effort"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="none">None</option>
-                <option value="low">Low</option>
-              </select>
-
+              {runtimeDraft && (
+                <EngineSettingsFields
+                  settings={runtimeDraft}
+                  disabled={runtimeSettingsDisabled}
+                  onChange={(patch) =>
+                    setRuntimeDraft((current) =>
+                      current ? { ...current, ...patch } : current,
+                    )
+                  }
+                />
+              )}
+              {(runtimeDraft?.engine ?? "legacy") === "legacy" && (
+                <>
+                  <label htmlFor="runtime-effort">Default reasoning effort</label>
+                  <select
+                    id="runtime-effort"
+                    value={runtimeDraft?.effort ?? ""}
+                    onChange={(event) =>
+                      updateRuntimeSetting(
+                        "effort",
+                        event.target.value as RuntimeSettingsUpdate["effort"],
+                      )
+                    }
+                    disabled={runtimeSettingsDisabled}
+                  >
+                    <option value="none">None</option>
+                    <option value="low">Low</option>
+                  </select>
+                </>
+              )}
               <label htmlFor="runtime-privacy">Privacy mode</label>
               <select
                 id="runtime-privacy"
@@ -133,22 +142,28 @@ export function SettingsPanel({
                 <option value="offline">Offline</option>
               </select>
 
-              <label htmlFor="runtime-laya">Laya comparison</label>
-              <select
-                id="runtime-laya"
-                value={runtimeDraft?.layaMode ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "layaMode",
-                    event.target.value as RuntimeSettingsUpdate["layaMode"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="shadow">Shadow only</option>
-              </select>
-              <p className="footnote">Laya never selects or executes browser actions.</p>
+              {(runtimeDraft?.engine ?? "legacy") === "legacy" && (
+                <>
+                  <label htmlFor="runtime-laya">Laya comparison</label>
+                  <select
+                    id="runtime-laya"
+                    value={runtimeDraft?.layaMode ?? ""}
+                    onChange={(event) =>
+                      updateRuntimeSetting(
+                        "layaMode",
+                        event.target.value as RuntimeSettingsUpdate["layaMode"],
+                      )
+                    }
+                    disabled={runtimeSettingsDisabled}
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="shadow">Shadow only</option>
+                  </select>
+                  <p className="footnote">
+                    Legacy Laya comparison does not authorize actions.
+                  </p>
+                </>
+              )}
 
               <label htmlFor="runtime-trace-level">Trace detail</label>
               <select
@@ -182,9 +197,11 @@ export function SettingsPanel({
               <div className="setting-heading runtime-readonly-setting">
                 <span>Browser transport</span>
                 <span className="text-state">
-                  {runtimeSettings.extensionTransport === "native_host"
-                    ? "Attached browser through Chrome Native Messaging"
-                    : "Disabled in CLI configuration"}
+                  {runtimeSettings.engine && runtimeSettings.engine !== "legacy"
+                    ? "Isolated local task browser"
+                    : runtimeSettings.extensionTransport === "native_host"
+                      ? "Attached browser through Chrome Native Messaging"
+                      : "Disabled in CLI configuration"}
                 </span>
               </div>
               <p className="footnote">
@@ -207,8 +224,8 @@ export function SettingsPanel({
                 )}
               </div>
               <p className="footnote">
-                Changes apply to the next task. Complexity checks may temporarily raise
-                effort when needed.
+                Changes apply to the next task. An active task keeps its engine and
+                provider.
               </p>
             </>
           )}
@@ -312,8 +329,8 @@ export function SettingsPanel({
           </div>
         </dl>
         <p className="footnote">
-          Browser control stays in the shared Rust runtime. Chrome shows a debugger
-          permission warning when you attach a tab.
+          General and Fast run in separate task browsers. The Legacy engine uses the
+          attached Rust runtime and Chrome’s debugger permission warning.
         </p>
       </div>
     </details>

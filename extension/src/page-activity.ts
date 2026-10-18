@@ -18,6 +18,7 @@ export function pageActivity(
       snapshot.host === "connected" &&
       snapshot.protocolReady &&
       snapshot.session?.status === "running" &&
+      snapshot.session.browserMode !== "managed" &&
       snapshot.attachment &&
       snapshot.attachment.state !== "error" &&
       owned?.attachmentId === snapshot.attachment.attachmentId &&

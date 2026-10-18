@@ -3,6 +3,7 @@ import { ConfirmationCard } from "../../components/ConfirmationCard";
 import { ConnectionStatus } from "../../components/ConnectionStatus";
 import { SettingsPanel } from "../../components/SettingsPanel";
 import { TabAttachment } from "../../components/TabAttachment";
+import { EngineControls } from "../../components/EngineControls";
 import { TaskComposer } from "../../components/TaskComposer";
 import {
   PROTOCOL_VERSION,
@@ -35,7 +36,9 @@ function App() {
     <main className="panel-shell">
       <header className="panel-header">
         <ConnectionStatus snapshot={snapshot} busy={busy} onDispatch={dispatch} />
-        <TabAttachment snapshot={snapshot} busy={busy} onDispatch={dispatch} />
+        {(snapshot.runtimeSettings?.engine ?? "legacy") === "legacy" && (
+          <TabAttachment snapshot={snapshot} busy={busy} onDispatch={dispatch} />
+        )}
       </header>
       <div className="panel-scroll-area">
         {snapshot.pendingApproval && (
@@ -72,11 +75,25 @@ function App() {
           </span>
         </footer>
       </div>
+      <EngineControls
+        settings={snapshot.runtimeSettings}
+        disabled={
+          !snapshot.protocolReady ||
+          busy ||
+          ["running", "paused", "awaiting_approval"].includes(
+            snapshot.session?.status ?? "",
+          )
+        }
+        onSave={saveRuntimeSettings}
+      />
       <TaskComposer
         protocolReady={
           snapshot.protocolReady &&
-          Boolean(snapshot.attachment && snapshot.attachment.state !== "error")
+          (snapshot.runtimeSettings?.engine && snapshot.runtimeSettings.engine !== "legacy"
+            ? true
+            : Boolean(snapshot.attachment && snapshot.attachment.state !== "error"))
         }
+        engine={snapshot.runtimeSettings?.engine ?? "legacy"}
         session={snapshot.session}
         events={snapshot.events}
         busy={busy}

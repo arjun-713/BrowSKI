@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, cast
 
@@ -45,6 +46,7 @@ async def run_general(
     event_sink: EventSink | None = None,
     cancel: asyncio.Event | None = None,
     model_transport: httpx.AsyncBaseTransport | None = None,
+    before_decision: Callable[[], Awaitable[None]] | None = None,
 ) -> EngineResult:
     """Navigation/read-only slice. Product approval/extension gates are still pending."""
     if not config.allow_paid_api:
@@ -101,6 +103,10 @@ async def run_general(
                     actions += int(operation != "done")
                     await emit("action_finished", operation=operation)
         await emit("observation")
+
+    async def before_step(agent: Agent[Any, Any]) -> None:
+        if before_decision is not None:
+            await before_decision()
 
     run: asyncio.Task[object] | None = None
     watch: asyncio.Task[bool] | None = None
@@ -161,7 +167,11 @@ async def run_general(
                     status = EngineStatus.CANCELLED
                 else:
                     run = asyncio.create_task(
-                        cast(Any, agent).run(max_steps=config.max_steps, on_step_end=after_step)
+                        cast(Any, agent).run(
+                            max_steps=config.max_steps,
+                            on_step_start=before_step,
+                            on_step_end=after_step,
+                        )
                     )
                     if cancel is not None:
                         watch = asyncio.create_task(cancel.wait())

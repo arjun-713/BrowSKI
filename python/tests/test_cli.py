@@ -61,7 +61,7 @@ def test_serve_starts_authenticated_bridge_and_reports_task_support(
     result = CliRunner().invoke(app, ["serve", "--socket-path", str(socket_path)])
 
     assert result.exit_code == 0, result.output
-    assert "Attach a tab" in result.stdout
+    assert "Send a task from the side panel" in result.stdout
     assert not socket_path.exists()
 
 
@@ -203,6 +203,9 @@ def test_run_cli_routes_to_autonomous_task_command(monkeypatch: pytest.MonkeyPat
         "headless": False,
         "provider": "jev",
         "checkpoint_db": "runs.sqlite",
+        "config_path": None,
+        "verify_url": None,
+        "verify_heading": None,
     }
 
 
@@ -300,8 +303,8 @@ def test_config_command_reports_policy_without_leaking_provider_key(
     result = CliRunner().invoke(app, ["config"])
 
     assert result.exit_code == 0, result.output
-    assert "Browser modes: managed CLI and attached extension" in result.stdout
-    assert "Reasoning: openai / gpt-6-luna" in result.stdout
+    assert "Browser modes: isolated managed tasks" in result.stdout
+    assert "Legacy reasoning: openai / gpt-6-luna" in result.stdout
     assert "OpenAI key: configured" in result.stdout
     assert "Laya: shadow only" in result.stdout
     assert "Jev: disabled" in result.stdout
@@ -337,11 +340,9 @@ def test_doctor_reports_policy_and_never_displays_openai_key(
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 0, result.output
-    assert "OpenAI key: present; value is not displayed" in result.stdout
-    assert "Laya service: local service unavailable" in result.stdout
-    assert "decision provider laya (shadow); Jev disabled" in result.stdout
-    assert "Luna selects executable actions" in result.stdout
-    assert "Laya is non-executing shadow only" in result.stdout
+    assert "OpenAI key: not needed by configured reasoning" in result.stdout
+    assert "fast / laya; paid APIs disabled; no inference performed" in result.stdout
+    assert "Laya service:" not in result.stdout
     assert "secret-test-value" not in result.stdout
 
 
@@ -366,6 +367,17 @@ def test_doctor_recognizes_browski_openai_key_without_displaying_it(
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("BROWSKI_OPENAI_API_KEY", "secret-browski-key")
+    original_load = load_config
+
+    def hosted_config(path: Path | None = None) -> BrowskiConfig:
+        from browser_agent.cli.config import ExecutionEngine
+
+        config = original_load(path)
+        return replace(
+            config, agent=replace(config.agent, engine=ExecutionEngine.GENERAL, allow_paid_api=True)
+        )
+
+    monkeypatch.setattr(doctor_module, "load_config", hosted_config)
 
     result = CliRunner().invoke(app, ["doctor"])
 
@@ -448,7 +460,8 @@ def test_reasoning_provider_is_wrapped_with_configured_privacy_mode(
         default_toml.replace('[privacy]\nmode = "standard"', '[privacy]\nmode = "offline"'),
         encoding="utf-8",
     )
-    config = load_config(config_path)
+    loaded = load_config(config_path)
+    config = replace(loaded, agent=replace(loaded.agent, allow_paid_api=True))
 
     class BoundarySpy:
         def __init__(self, provider: object, *, mode: ProviderPrivacyMode) -> None:

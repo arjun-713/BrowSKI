@@ -176,3 +176,65 @@ async def test_live_laya_finishes_real_navigation_tasks(
     assert result.verified, result.model_dump()
     assert result.action_count >= min_actions
     assert result.generative_calls == 0
+
+
+async def test_local_defaults_and_hosted_permission_are_independent_of_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from browser_agent.cli.config import ExecutionEngine, TextProviderName, load_config
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.lifecycle import TaskControl
+    from browser_agent.engines.product import EngineConfigurationError, execute_managed_task
+
+    config = load_config()
+    assert config.agent.engine is ExecutionEngine.FAST
+    assert not config.agent.allow_paid_api
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-permission-test")
+    hosted = replace(
+        config,
+        agent=replace(
+            config.agent, engine=ExecutionEngine.GENERAL, text_provider=TextProviderName.OPENAI
+        ),
+    )
+
+    async def events(event: EngineEvent) -> None:
+        raise AssertionError("Permission denial must happen before engine execution")
+
+    with pytest.raises(EngineConfigurationError, match="permit paid"):
+        await execute_managed_task(
+            "Read",
+            hosted,
+            start_url=None,
+            criteria=None,
+            events=events,
+            control=TaskControl("general", "openai", events),
+        )
+
+
+async def test_pause_boundary_resumes_and_stop_unblocks_pause() -> None:
+    import asyncio
+
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.lifecycle import TaskControl
+
+    seen: list[str] = []
+    paused = asyncio.Event()
+
+    async def events(event: EngineEvent) -> None:
+        seen.append(event.kind)
+        paused.set()
+
+    control = TaskControl("fast", "laya", events)
+    control.pause()
+    boundary = asyncio.create_task(control.decision_boundary())
+    await asyncio.wait_for(paused.wait(), 1)
+    assert not boundary.done()
+    control.resume()
+    await asyncio.wait_for(boundary, 1)
+    assert seen == ["task_paused", "task_resumed"]
+    control.pause()
+    control.stop()
+    await asyncio.wait_for(control.decision_boundary(), 1)
+    assert control.cancel.is_set()

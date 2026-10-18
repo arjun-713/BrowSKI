@@ -6,6 +6,8 @@ import {
   isAllowedDebuggerEvent,
   isExtensionToHostMessage,
   isNativeHostMessage,
+  isTaskPageUrl,
+  isTaskVerification,
 } from "./protocol";
 
 function command(method: string, params: Record<string, unknown> = {}) {
@@ -487,4 +489,21 @@ describe("debugger capability allowlist", () => {
       isAllowedDebuggerCommand(command("BROWSKI.tabs.close", { targetId: "17" })),
     ).toBe(false);
   });
+});
+
+it("validates managed page and outcome metadata before sending it to the host", () => {
+  expect(
+    isTaskVerification({ url: "https://example.org/article", heading: "Article" }),
+  ).toBe(true);
+  for (const url of [
+    "javascript:alert(1)",
+    "file:///tmp/private",
+    "https://user:pass@example.org/",
+    [],
+    "https://example.org/ space",
+  ]) {
+    expect(isTaskPageUrl(url)).toBe(false);
+    expect(isTaskVerification({ url, heading: "Article" })).toBe(false);
+  }
+  expect(isTaskVerification({ url: "https://example.org/", heading: " " })).toBe(false);
 });

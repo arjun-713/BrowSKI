@@ -36,12 +36,20 @@ New General implementation: `engines/general.py` wraps the official Agent;
 `engines/browser_use_runtime.py` owns its isolated profile and fresh URL/H1
 evidence; `cli/engines.py` exposes an explicit paid-opt-in migration command.
 A small live Wikipedia extraction passed with two authorized OpenAI calls.
-This proves that vertical slice, not extension integration or broad reliability.
+The packaged extension also completed a controlled article read through the actual
+Native Messaging bridge with the official Agent and bounded live OpenAI inference.
+This establishes integration, not broad task reliability.
 Fast navigation is implemented in `engines/fast.py` and `fast_browser.py`, using
 the same Browser Use session ownership with local Laya decisions. It supports
 same-site links and caller-owned URL/H1 checks; forms/text are not yet offered.
 `cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
-The existing product task route remains legacy until phase 2.
+Product task submission and `browski run/task` now dispatch through
+`engines/product.py`, defaulting to Fast/Laya with paid inference disabled.
+The extension selects General/Fast for the next task and identifies the separate
+managed browser. Legacy attached execution requires explicit configuration.
+`extension/engine_tasks.py` maps engine events into the bounded timeline;
+`engines/lifecycle.py` owns pause boundaries and cancellation. Existing approval
+UI remains available to Legacy; new navigation tools cannot submit forms.
 
 These are legacy capabilities and a narrow new engine slice, not proof that
 the whole target is implemented.
@@ -147,8 +155,9 @@ Browser ownership and approval guarantees must pass before extension rollout.
 ## Phases and acceptance
 
 0. Guidance, ADR, branch and checkpoint validated and committed.
-1. Real Browser Use + local model completes one independently verified task,
-   with events, bounded execution, cancellation and cleanup; reproducible CLI.
+1. Real Browser Use completes one independently verified task with its configured
+   generative provider (authorized bounded OpenAI here), events, cancellation,
+   cleanup and a reproducible CLI. Local generative models are disabled here.
 2. Actual extension task reaches General and returns verified results with
    ownership, progress, controls and human approval preserved; legacy rollback.
 3. One versioned Fast decision API, equivalent requests and parameterized

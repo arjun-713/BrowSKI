@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,6 +39,7 @@ async def run_fast(
     criteria: CompletionCriteria | None = None,
     event_sink: EventSink | None = None,
     cancel: asyncio.Event | None = None,
+    before_decision: Callable[[], Awaitable[None]] | None = None,
 ) -> EngineResult:
     """Initial supported slice: same-site link navigation, no generative calls.
 
@@ -90,6 +92,8 @@ async def run_fast(
             await page.goto(start_url)
             await emit("task_started")
             for _ in range(config.max_steps):
+                if before_decision is not None:
+                    await before_decision()
                 if cancel is not None and cancel.is_set():
                     status = EngineStatus.CANCELLED
                     break
@@ -102,6 +106,7 @@ async def run_fast(
                     goal, observation, tuple(history[-10:]), allow_done=criteria is None
                 )
                 try:
+                    await emit("inference_started")
                     decision = await provider.predict(request)
                 except Exception:
                     provider_errors += 1
