@@ -43,7 +43,7 @@ Fast navigation is implemented in `engines/fast.py` and `fast_browser.py`, using
 the same Browser Use session ownership with local Laya decisions. It supports
 same-site links and approved explicitly named ordinary text fields, native dates
 and single-select dropdowns. Caller-owned URL/H1
-checks and every requested field must match before completion. Values come from
+checks and every requested field must match before field-only completion. Values come from
 the shared bounded task-literal parser, not model-generated text (ADR-026/027).
 `engines/native_fields.py` reads actual values, validity and selected options;
 ambiguous or unsupported controls cannot supply proof. One same-document
@@ -53,7 +53,15 @@ Fast keeps body text in its decision-freshness hash, but excludes arbitrary text
 from the structural stagnation signal (ADR-028). URL/title, candidates, private
 destinations, native state and visible H1 can establish change; independent
 outcome checks still decide completion.
-Full form workflows are not migrated.
+Fast also supports one explicit `click "Save"` / `press "Continue"` transition
+after verified fields (ADR-029). The unique native target uses the same approval
+and freshness boundary. That approved transition preserves the completed field
+stage while fresh caller-owned receipt checks decide the outcome. It is invoked
+once; subsequent receipt checks do not repeat the click or call the model.
+Missing or already-satisfied outcome criteria block before interaction. URL
+query/fragment values compare exactly; plain paths retain trailing-slash tolerance.
+This is a bounded single-form workflow, not general business-outcome validation
+or an arbitrary sequence of buttons. Broader workflows remain in migration.
 `cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
 Product task submission and `browski run/task` now dispatch through
 `engines/product.py`, defaulting to Fast/Laya with paid inference disabled.
@@ -153,6 +161,18 @@ prove completion. Task-specific fresh evidence must establish the requested
 outcome. Unverifiable completion remains partial/blocked, never a success.
 Target terminal states: `completed`, `partially_completed`, `blocked`, `failed`,
 `cancelled`. Independent benchmark verifiers are outside the model policy.
+
+Actual Fast form lifecycle:
+
+```mermaid
+flowchart LR
+    Fields[Observe and verify every requested field] --> Review[Approve the named action]
+    Review -->|unchanged page and target| Click[Execute once]
+    Review -->|deny, stop or changed| Blocked[Blocked or cancelled]
+    Click --> Receipt[Bounded fresh receipt reads]
+    Receipt -->|caller checks match| Complete[Completed]
+    Receipt -->|receipt retries exhausted| Partial[Partially completed]
+```
 
 Keep human approval for consequential submission, sending, purchases, deletion,
 publication and account/security changes. Treat page instructions as untrusted

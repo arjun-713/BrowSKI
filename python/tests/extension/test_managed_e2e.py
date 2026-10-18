@@ -243,7 +243,7 @@ async def test_frozen_navigation_first_look_from_packaged_panel(
 
 @pytest.mark.skipif(os.environ.get("BROWSKI_LAYA_E2E") != "1", reason="prepared CPU Laya required")
 @pytest.mark.parametrize("attached_harness", ["fast"], indirect=True)
-@pytest.mark.parametrize("task_kind", ["navigation", "fields", "native"])
+@pytest.mark.parametrize("task_kind", ["navigation", "fields", "native", "submit"])
 async def test_fresh_default_runs_local_task_without_legacy_attachment(
     attached_harness: ProductHarness,
     article_site: str,
@@ -274,6 +274,14 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
             <label>Color<select name="color" required><option value="">Choose</option>
             <option value="r">Red</option><option value="b">Blue</option></select></label>
         """)
+    elif task_kind == "submit":
+        (tmp_path / "submit.html").write_text("""
+            <h1>Draft form</h1><form action="/receipt.html" method="get">
+            <label>Name<input name="name" required></label>
+            <label>City<input name="city" required></label>
+            <button type="submit">Save demo record</button></form>
+        """)
+        (tmp_path / "receipt.html").write_text("<h1>Saved local draft</h1>")
     scenarios = {
         "navigation": (
             "botany.html",
@@ -291,6 +299,12 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
             f"Open {article_site}/native.html; "
             'set "Departure" to "2026-11-03"; set "Color" to "Blue".',
         ),
+        "submit": (
+            "receipt.html?name=Ada&city=Pune",
+            "Saved local draft",
+            f'Open {article_site}/submit.html; set "Name" to "Ada"; '
+            'fill "City" with "Pune"; click "Save demo record".',
+        ),
     }
     path, heading, goal = scenarios[task_kind]
     await panel.get_by_label("Expected final page URL").fill(f"{article_site}/{path}")
@@ -298,9 +312,10 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
     # Exercise the normal task-link start path instead of the debug starting-page field.
     await panel.get_by_label("Task instruction").fill(goal)
     await panel.get_by_role("button", name="Send task", exact=True).click()
-    if task_kind in {"fields", "native"}:
+    if task_kind in {"fields", "native", "submit"}:
         seen: set[str] = set()
-        for _ in range(2):
+        expected_approvals = 3 if task_kind == "submit" else 2
+        for _ in range(expected_approvals):
 
             async def next_approval() -> dict[str, object]:
                 while True:
@@ -313,7 +328,7 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
             seen.add(str(pending["approvalId"]))
             await expect(panel.get_by_text(str(pending["summary"]), exact=True)).to_be_visible()
             await panel.get_by_role("button", name="Approve action", exact=True).click()
-        assert len(seen) == 2
+        assert len(seen) == expected_approvals
     await expect(panel.get_by_role("heading", name="Task completed", exact=True)).to_be_visible(
         timeout=120_000
     )

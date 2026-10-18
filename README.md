@@ -8,8 +8,8 @@ it is not yet a general production-ready replacement for the Legacy runtime.
 - **Fast** defaults to the released browser-tuned **Laya** checkpoint on CPU.
   It selects bounded operations/targets; it is not a text generator. Current
   execution supports web links and approved quoted-literal text, native date and
-  single-select fields in the
-  sidebar. Final page checks and every requested field must match.
+  single-select fields and one approved named transition in the
+  sidebar. Final page checks and every requested field stage must be verified.
 - **General** wraps the official **Browser Use Agent**, using a separately
   configured OpenAI text model. The sidebar supports navigation/read and a
   bounded approved click/text-entry slice; broader workflows remain in migration.
@@ -82,7 +82,12 @@ set "Color" to "Blue"` supports a native date and a uniquely identified dropdown
 option. Dates require valid YYYY-MM-DD within the control's constraints. Custom
 widgets and multiple selection are unsupported. Missing/ambiguous fields cannot
 be skipped for completion, including a field removed after an earlier action.
-Fast has no submit/file tools in this slice. Task-owned browsers close when
+To submit, append an explicit named action such as `click "Save demo record"`.
+It becomes eligible after all requested fields are verified, requires its own
+approval and executes once. Supply a final URL/heading that does not already
+match; fresh receipt checks decide completion. For a GET receipt, expected query
+values are checked exactly. Arbitrary button sequences, source transfer and
+file tools remain in migration. Task-owned browsers close when
 the task finishes, so this field-filling gate does not preserve a form for later
 manual work or establish durable session support.
 
@@ -117,6 +122,8 @@ managed task profile. [ADR-022](docs/decisions/ADR-022-local-first-engine-migrat
 grounding; [ADR-027](docs/decisions/ADR-027-native-field-verification.md) explains native
 control verification and bounded rereads. No additional orchestration framework
 or cloud browser is required.
+[ADR-029](docs/decisions/ADR-029-fast-form-workflow.md) describes the form-stage
+checkpoint and independent receipt verification.
 
 The active plan is [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md).
 [CODE_QUALITY.md](CODE_QUALITY.md) and [AGENTS.md](AGENTS.md) govern development.

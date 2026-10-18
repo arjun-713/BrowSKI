@@ -16,6 +16,22 @@ def isolated_application_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.fixture
 def article_site(tmp_path: Path) -> Iterator[str]:
+    class FixtureHandler(SimpleHTTPRequestHandler):
+        def do_POST(self) -> None:
+            from urllib.parse import parse_qsl, urlencode
+
+            length = int(self.headers.get("Content-Length", "0"))
+            if self.path != "/submit" or not 0 < length <= 4096:
+                self.send_error(400)
+                return
+            # Echo the actual submitted pairs through a real POST/303/GET flow.
+            # Receipt checks, not this fixture, decide whether values are right.
+            fields = parse_qsl(self.rfile.read(length).decode(), max_num_fields=20)
+            self.send_response(303)
+            self.send_header("Location", "/receipt.html?" + urlencode(fields))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
     pages = {
         "index.html": "<title>Library</title><h1>Library</h1>"
         '<a href="astronomy.html">Astronomy</a> <a href="botany.html">Botany</a> '
@@ -30,7 +46,7 @@ def article_site(tmp_path: Path) -> Iterator[str]:
     for filename, html in pages.items():
         (tmp_path / filename).write_text(html)
     server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), functools.partial(SimpleHTTPRequestHandler, directory=str(tmp_path))
+        ("127.0.0.1", 0), functools.partial(FixtureHandler, directory=str(tmp_path))
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

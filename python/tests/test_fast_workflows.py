@@ -397,12 +397,16 @@ async def test_native_date_and_option_workflow_checks_properties_and_events(
 @pytest.mark.skipif(
     os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome stagnation boundary"
 )
-@pytest.mark.parametrize("unrelated_text_changes", [False, True])
-async def test_noop_clicks_exhaust_recovery_despite_unrelated_text_changes(
+@pytest.mark.parametrize(
+    "unrelated_text_changes,decision_case",
+    [(False, "click"), (True, "click"), (False, "wrong-operation"), (False, "abstained")],
+)
+async def test_fast_bounds_ineffective_clicks_and_rejects_invalid_operation_targets(
     article_site: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     unrelated_text_changes: bool,
+    decision_case: str,
 ) -> None:
     from browser_agent.engines import fast
     from browser_agent.engines.contracts import EngineEvent
@@ -444,7 +448,10 @@ async def test_noop_clicks_exhaust_recovery_despite_unrelated_text_changes(
                 observation_id=request.observation.id,
                 provider=self.name,
                 model=self.model,
-                operation=Operation.CLICK,
+                status="abstained" if decision_case == "abstained" else "selected",
+                operation=Operation.TYPE_TEXT
+                if decision_case == "wrong-operation"
+                else Operation.CLICK,
                 candidate_id=request.observation.candidates[0].id,
                 latency_ms=0,
             )
@@ -462,8 +469,170 @@ async def test_noop_clicks_exhaust_recovery_despite_unrelated_text_changes(
     )
     print("BROWSKI_STAGNATION_METRIC " + json.dumps(result.model_dump(mode="json")))
     assert not result.verified and result.generative_calls == 0
+    if decision_case == "wrong-operation":
+        assert result.action_count == 0 and result.provider_errors == 1, result.model_dump()
+        assert result.failure_phase == "provider" and attempts == []
+        return
+    if decision_case == "abstained":
+        assert result.action_count == 0 and result.provider_errors == 0
+        assert result.error == "Decision provider abstained; no browser action executed."
+        assert attempts == []
+        return
     assert 1 <= result.action_count <= 2, result.model_dump()
     assert result.recovery_count == 2
     assert result.error == "Repeated unverified actions exhausted the recovery budget."
     assert attempts == list(range(1, result.action_count + 1))
     assert progress == [False] * result.action_count
+
+
+@pytest.mark.skipif(os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome form workflow")
+@pytest.mark.parametrize(
+    "case",
+    [
+        "fixture",
+        "laya",
+        "post",
+        "deny",
+        "changed",
+        "changed-action",
+        "noop",
+        "wrong-receipt",
+        "preexisting",
+        "missing-criteria",
+        "duplicate-button",
+        "changed-on-submit",
+    ],
+)
+async def test_fast_fills_approves_and_verifies_form_receipt(
+    article_site: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    from browser_agent.engines import fast
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.fast_browser import FastBrowser
+    from browser_agent.engines.fast_contract import FastDecision, FastDecisionProvider, FastRequest
+    from browser_agent.engines.fast_providers import LayaFastProvider
+    from browser_agent.engines.lifecycle import ActionApproval
+
+    if case == "laya" and os.environ.get("BROWSKI_LAYA_E2E") != "1":
+        pytest.skip("Prepared CPU Laya required")
+    form = """<h1>Local draft</h1><form action="/receipt.html" method="get">
+        <label>Name<input name="name" required></label>
+        <label>City<input name="city" required></label>
+        <button type="submit" onclick="sessionStorage.setItem('clicks',
+          String(Number(sessionStorage.getItem('clicks') || 0) + 1))">Save demo record</button>
+        </form>"""
+    if case == "noop":
+        form = form.replace('type="submit"', 'type="button"')
+    elif case == "post":
+        form = form.replace('action="/receipt.html" method="get"', 'action="/submit" method="post"')
+    elif case == "wrong-receipt":
+        form = form.replace("/receipt.html", "/wrong.html")
+    elif case == "duplicate-button":
+        form = form.replace("</form>", '<button type="button">Save demo record</button></form>')
+    elif case == "changed-on-submit":
+        form = form.replace(
+            'method="get"', 'method="get" onsubmit="this.elements.name.value=\'Eve\'"'
+        )
+    (tmp_path / "submit.html").write_text(form)
+    receipt = '<h1>Saved local draft</h1><output id="saved"></output><script>'
+    receipt += "document.querySelector('output').textContent=location.search;</script>"
+    (tmp_path / "receipt.html").write_text(receipt)
+    (tmp_path / "wrong.html").write_text(receipt)
+    owned = FastBrowser()
+    approvals: list[str] = []
+    receipts: list[str] = []
+    clicks: list[int] = []
+
+    def browser_factory(**kwargs: Any) -> FastBrowser:
+        return owned
+
+    monkeypatch.setattr(fast, "FastBrowser", browser_factory)
+
+    async def approve(request: ActionApproval) -> bool:
+        approvals.append(request.target)
+        if request.action == "click":
+            assert request.target == "Save demo record"
+            assert owned.browser is not None
+            page = cast(Any, await owned.browser.get_current_page())
+            assert json.loads(
+                await page.evaluate("""() => JSON.stringify(
+                Object.fromEntries(new FormData(document.querySelector('form'))))""")
+            ) == {"name": "Ada", "city": "Pune"}
+            if case == "changed":
+                await page.evaluate("() => document.querySelector('input').value='Changed'")
+            if case == "changed-action":
+                await page.evaluate("() => document.querySelector('form').action='/wrong.html'")
+            return case != "deny"
+        return True
+
+    async def events(event: EngineEvent) -> None:
+        if event.kind == "verification":
+            assert owned.browser is not None
+            page = cast(Any, await owned.browser.get_current_page())
+            receipts.append(
+                await page.evaluate("() => document.querySelector('#saved')?.textContent ?? ''")
+            )
+            clicks.append(int(await page.evaluate("() => sessionStorage.getItem('clicks') || '0'")))
+
+    class FormFixture:
+        name = "fixture"
+        model = "form-workflow-fixture"
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            target = request.observation.candidates[0]
+            return FastDecision(
+                observation_id=request.observation.id,
+                provider=self.name,
+                model=self.model,
+                operation=target.operation,
+                candidate_id=target.id,
+                latency_ms=0,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    provider: FastDecisionProvider = (
+        LayaFastProvider(Path(__file__).parents[2] / ".browser-data/laya-browser-v19s")
+        if case == "laya"
+        else FormFixture()
+    )
+    result = await fast.run_fast(
+        'Set "Name" to "Ada"; fill "City" with "Pune"; click "Save demo record".',
+        f"{article_site}/submit.html",
+        provider,
+        criteria=(
+            None
+            if case == "missing-criteria"
+            else CompletionCriteria(
+                url=f"{article_site}/submit.html"
+                if case == "preexisting"
+                else f"{article_site}/receipt.html?name=Ada&city=Pune",
+                heading="Local draft" if case == "preexisting" else "Saved local draft",
+            )
+        ),
+        approve_action=approve,
+        event_sink=events,
+    )
+    print("BROWSKI_SUBMIT_METRIC " + json.dumps(result.model_dump(mode="json")))
+    assert result.generative_calls == 0
+    if case in {"preexisting", "missing-criteria"}:
+        assert not result.verified and result.action_count == 0
+        assert result.failure_phase == "task" and approvals == []
+        return
+    if case == "duplicate-button":
+        assert not result.verified and result.action_count == 2
+        assert approvals == ["Name", "City"] and clicks[-1] == 0
+        return
+    assert sorted(approvals[:2]) == ["City", "Name"] and approvals[2:] == ["Save demo record"]
+    if case in {"deny", "changed", "changed-action"}:
+        assert not result.verified and result.action_count == 2
+        assert result.failure_phase == "approval" and not any(receipts)
+        assert clicks[-1] == 0
+    elif case in {"noop", "wrong-receipt", "changed-on-submit"}:
+        assert not result.verified and result.action_count == 3
+        assert result.status.value == "partially_completed"
+        assert clicks[-1] == 1
+    else:
+        assert result.verified and result.action_count == 3, result.model_dump()
+        assert receipts[-1] == "?name=Ada&city=Pune" and clicks[-1] == 1

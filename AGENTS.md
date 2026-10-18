@@ -100,6 +100,10 @@ APIs/events, never by linking agent internals.** Full rationale:
   `native_fields.py` owns bounded live control reads, option resolution and one
   safe post-write reread after replacement. Never repeat a write to verify it;
   recompute all requested field proof from each fresh observation.
+  One explicit quoted click may follow verified fields (ADR-029). It requires
+  approval and unmet caller outcome checks, executes once, then only reads for
+  the receipt. Retain a field-stage checkpoint only across that approved action;
+  arbitrary field disappearance must still invalidate proof.
   Fast uses full observations for freshness and separate structural state for
   stagnation (ADR-028); arbitrary body-text changes alone are not progress.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.

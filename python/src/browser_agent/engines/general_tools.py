@@ -34,7 +34,7 @@ _APPROVAL_STATE = """() => {
         url: doc.location.href, documentEpoch: doc.defaultView.performance.timeOrigin, html,
         values: Array.from(doc.querySelectorAll('input,textarea,select')).map(e =>
             [e.type === 'password' ? null : e.value, e.checked, e.selectedIndex]),
-        target: [this.isConnected, this.disabled, this.readOnly, this.tagName,
+        target: [this.isConnected, this.matches(':disabled'), this.readOnly, this.tagName,
                  this.type, rect.x, rect.y, rect.width, rect.height]
     });
     return state.length <= 1000000 ? state : null;

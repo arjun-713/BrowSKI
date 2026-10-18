@@ -43,6 +43,9 @@ General/Fast use separate task-owned browser profiles, not the attached source
 session. Sidebar Fast supports links and approved quoted-literal ordinary text,
 native date and single-select fields. It validates actual values and native
 constraints; ambiguous options and unsupported custom controls stay unverified.
+One quoted named click may follow verified fields, with a separate approval and
+fresh final URL/heading checks. Without discriminating outcome criteria it blocks;
+after the click it only reads for the receipt, without repeating submission.
 Sidebar General also offers approved click and
 quoted-literal text entry; CLI without an approval sink remains read-only.
 The product General budget is four hosted requests, five steps and 90 seconds

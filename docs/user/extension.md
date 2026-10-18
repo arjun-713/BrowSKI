@@ -38,10 +38,18 @@ the task unverified. For example, `set "Departure" to "2026-11-03"; set "Color"
 to "Blue"` uses the same grammar. Dates must be valid YYYY-MM-DD and satisfy
 min/max/step. Dropdowns resolve one visible label, or one value when no label
 matches; ambiguous or disabled options cannot execute. Custom widgets, multiple
-selection, files and form submission remain unsupported. After a control is
+selection and files remain unsupported. After a control is
 replaced during a write, one same-document semantic reread may verify it without
 repeating the write. Field proof is recomputed every observation; disappeared
 fields cannot leave stale completion proof behind.
+Append `click "Save demo record"` (or `press "Continue"`) for one explicit
+transition after the fields. Its unique native button or link requires a new
+approval. Expected final URL/heading checks must be present and unmet before the
+action; receipt values in query strings are exact. The action is invoked once,
+then only bounded fresh reads may verify its outcome. Denial or a changed page
+executes no click. A no-op or wrong receipt remains partially completed. The
+verified field stage survives only this approved transition; ordinary field
+disappearance still invalidates proof. Multiple named clicks are not yet supported.
 CLI without an approval sink blocks unmet field requirements before inference.
 Task browsers close at task end; long sessions/manual continuation are not added.
 

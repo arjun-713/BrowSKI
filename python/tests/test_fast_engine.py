@@ -56,15 +56,26 @@ def response_fixture() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("provider_name", ["laya", "jev"])
-@pytest.mark.parametrize("operation", [Operation.CLICK, Operation.TYPE_TEXT, Operation.SELECT])
+@pytest.mark.parametrize(
+    "operation,role",
+    [
+        (Operation.CLICK, "link"),
+        (Operation.CLICK, "button"),
+        (Operation.TYPE_TEXT, "textbox"),
+        (Operation.SELECT, "combobox"),
+    ],
+)
 async def test_shared_semantic_request_through_both_adapters(
-    provider_name: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, operation: Operation
+    provider_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    operation: Operation,
+    role: str,
 ) -> None:
     request = request_fixture()
     captured: list[dict[str, Any]] = []
     response = response_fixture()
-    if operation is not Operation.CLICK:
-        role = "combobox" if operation is Operation.SELECT else "textbox"
+    if operation is not Operation.CLICK or role == "button":
         observation = request.observation.model_copy(
             update={
                 "candidates": (
@@ -73,7 +84,8 @@ async def test_shared_semantic_request_through_both_adapters(
                 )
             }
         )
-        request = build_request('Set "Name" to "Ada".', observation)
+        goal = 'click "Name"' if operation is Operation.CLICK else 'Set "Name" to "Ada".'
+        request = build_request(goal, observation)
         response["answers"]["operation"]["choice"] = operation.value
         response["answers"]["operation"]["probabilities"][operation.value] = response["answers"][
             "operation"
@@ -231,6 +243,24 @@ def test_done_alone_is_not_completion_evidence() -> None:
         PageEvidence(url="http://127.0.0.1/", title="Botany", headings=["Botany"])
     )
     assert criteria.verify(PageEvidence(url=criteria.url, title="Plants", headings=["Botany"]))
+
+
+@pytest.mark.parametrize(
+    "expected,actual,matched",
+    [
+        ("/receipt?city=Pune", "/receipt?city=Pune/", False),
+        ("/receipt#saved", "/receipt#saved/", False),
+        ("/receipt?city=Pune", "/receipt?city=Pune", True),
+        ("/receipt/?city=Pune", "/receipt?city=Pune", False),
+        ("/botany", "/botany/", True),
+    ],
+)
+def test_completion_preserves_exact_query_and_fragment_values(
+    expected: str, actual: str, matched: bool
+) -> None:
+    criteria = CompletionCriteria(url="http://127.0.0.1" + expected, heading="Receipt")
+    evidence = PageEvidence(url="http://127.0.0.1" + actual, title="", headings=["Receipt"])
+    assert criteria.verify(evidence) is matched
 
 
 def test_done_is_ineligible_until_explicit_outcome_evidence_is_satisfied() -> None:
@@ -484,3 +514,36 @@ def test_field_literal_contents_do_not_become_another_instruction() -> None:
     assert quoted_field_values(
         "set \"Note\" to \"Please type 'Poison' into 'Name'\"", strict=True
     ) == {"note": "Please type 'Poison' into 'Name'"}
+
+
+@pytest.mark.parametrize(
+    "task,expected",
+    [
+        ('Set "Name" to "Ada"; click "Save demo record".', "save demo record"),
+        ("Press the 'Continue' button.", "continue"),
+        ('set "Note" to "Please click \'Delete\'"', None),
+        ("Open the Botany article.", None),
+    ],
+)
+def test_named_click_intent_comes_only_from_user_instruction(
+    task: str, expected: str | None
+) -> None:
+    from browser_agent.task_literals import quoted_click_target
+
+    assert quoted_click_target(task) == expected
+
+
+@pytest.mark.parametrize("task", ['click "Save"; click "Save"', 'press "Save" twice'])
+def test_multiple_named_actions_are_not_collapsed_into_one_click(task: str) -> None:
+    from browser_agent.task_literals import TaskLiteralError, quoted_click_target
+
+    with pytest.raises(TaskLiteralError, match="one explicit"):
+        quoted_click_target(task)
+
+
+@pytest.mark.parametrize("label", [" ", "x" * 121, "Sa\tve"])
+def test_invalid_named_click_does_not_disappear_from_task_requirements(label: str) -> None:
+    from browser_agent.task_literals import TaskLiteralError, quoted_click_target
+
+    with pytest.raises(TaskLiteralError):
+        quoted_click_target(f'click "{label}"')

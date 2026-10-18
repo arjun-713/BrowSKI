@@ -33,10 +33,13 @@ class CompletionCriteria(BaseModel):
     def verify(self, evidence: PageEvidence | None) -> bool:
         if evidence is None:
             return False
-        # A model's DONE response cannot satisfy this fresh page check.
-        return (
-            evidence.url.rstrip("/") == self.url.rstrip("/") and self.heading in evidence.headings
+        # Preserve query/fragment values exactly. Stripping the whole URL can
+        # turn a different receipt value such as city=Pune/ into city=Pune.
+        plain_paths = all("?" not in url and "#" not in url for url in (evidence.url, self.url))
+        same_url = evidence.url == self.url or (
+            plain_paths and evidence.url.rstrip("/") == self.url.rstrip("/")
         )
+        return same_url and self.heading in evidence.headings
 
 
 class EngineEvent(BaseModel):

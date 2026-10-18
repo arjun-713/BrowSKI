@@ -13,10 +13,38 @@ from browser_agent.task_literals import TaskLiteralError, normalize_field_label
 
 
 @dataclass(frozen=True)
-class FieldExecution:
+class ActionExecution:
     invoked: bool
-    verified: bool
+    # An approved click awaits independent outcome evidence in the task loop.
+    verified: bool | None
     reacquired: bool = False
+
+
+async def native_action_state(browser: Any, node: Any) -> str | None:
+    """Bind a named click to its live native action and form destination."""
+    page = await browser.get_current_page()
+    if page is None:
+        return None
+    await browser.cdp_client.send.DOM.getDocument(session_id=await page.session_id)
+    element = await page.get_element(node.backend_node_id)
+    raw = await element.evaluate("""() => {
+        if (!this.isConnected || this.ownerDocument.defaultView !==
+            this.ownerDocument.defaultView.top || this.matches(':disabled') ||
+            this.getAttribute('aria-disabled') === 'true') return null;
+        const rect = this.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const form = this.form;
+        let formAction = form ? form.action : null;
+        if (form && this.hasAttribute('formaction')) formAction = this.formAction;
+        const state = JSON.stringify({
+            tag: this.tagName, type: this.type, href: this.href ?? null,
+            formAction,
+            formMethod: form ? (this.getAttribute('formmethod') || form.method) : null,
+            formTarget: form ? (this.getAttribute('formtarget') || form.target) : null
+        });
+        return state.length <= 8192 ? state : null;
+    }""")
+    return None if not raw or raw == "null" else raw
 
 
 class NativeOption(BaseModel):

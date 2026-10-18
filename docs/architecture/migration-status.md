@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`, managed approval as `a5685be`, Fast literal fields as `99c702a`, native controls as `d62b15a`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`, managed approval as `a5685be`, Fast literal fields as `99c702a`, native controls as `d62b15a`, stagnation as `1085895`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -19,17 +19,17 @@ no hosted fallback or Jev request has been made.
 
 ## Phase status
 
-| Phase                   | State                                                             | Evidence / next gate                                                                         |
-| ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 0 Guidance              | Complete — `41fb40d`                                              | Branch, canonical plan, AGENTS and ADR-022 validated                                         |
-| 1 Browser Use baseline  | Complete — `164c036`                                              | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
-| 2 Extension integration | Navigation gate committed — `3d62ab2`                             | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
-| 3 Fast contract         | Complete — `6b66bfa`                                              | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
-| 4 Local Laya            | Complete for navigation slice — `848cd06`                         | Real one- and two-click tasks, zero generative calls; phase 7 adds approved text fields      |
-| 5 Jev/switching         | Complete for offline/selection gate                               | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
-| 6 Debug controls        | Complete for navigation diagnostics                               | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
-| 7 Reliability           | Navigation/approval/text committed; native-control gate validated | Dates/selects/replacement/disappearing-field checks; broader workflows/tabs still open       |
-| 8 Cleanup               | Pending                                                           | No legacy deletion until replacement regression gates                                        |
+| Phase                   | State                                                     | Evidence / next gate                                                                         |
+| ----------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 0 Guidance              | Complete — `41fb40d`                                      | Branch, canonical plan, AGENTS and ADR-022 validated                                         |
+| 1 Browser Use baseline  | Complete — `164c036`                                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
+| 2 Extension integration | Navigation gate committed — `3d62ab2`                     | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
+| 3 Fast contract         | Complete — `6b66bfa`                                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
+| 4 Local Laya            | Complete for navigation slice — `848cd06`                 | Real one- and two-click tasks, zero generative calls; phase 7 adds approved text fields      |
+| 5 Jev/switching         | Complete for offline/selection gate                       | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
+| 6 Debug controls        | Complete for navigation diagnostics                       | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
+| 7 Reliability           | Native controls/stagnation committed; form gate validated | Approved form/receipt workflow implemented; source transfer/tabs still open                  |
+| 8 Cleanup               | Pending                                                   | No legacy deletion until replacement regression gates                                        |
 
 ## Baseline evidence (earlier phases)
 
@@ -100,10 +100,13 @@ other tasks return an unverified/partial outcome. Cancellation and budgets are
 covered with offline inference and real Chrome.
 
 Fast offers same-site links and approved quoted-literal ordinary text, native
-date and single-select fields (ADR-026/027). Every requested field must match
-fresh values and native validity as well as the final URL/H1. Removed fields
-invalidate prior proof. CLI without approval support blocks unmet requirements.
-Custom controls, submit buttons, source transfer and persistent sessions remain
+date and single-select fields (ADR-026/027). One explicit quoted click may follow
+verified fields and a separate approval (ADR-029). Field-only tasks require all
+fresh values/validity and final URL/H1; removed fields invalidate prior proof.
+An approved named transition preserves only its completed field stage while
+fresh receipt checks decide completion. It executes once, then reads only.
+CLI without approval support blocks unmet requirements.
+Custom controls, arbitrary button sequences, source transfer and persistent sessions remain
 open. It refuses candidate overflow,
 requires fresh semantic identity before clicking, bounds recovery and does not
 silently invoke text generation. The upstream tokenizer emits a regex warning;
@@ -347,7 +350,7 @@ Phase-7 Fast native controls and fresh proof — `d62b15a`:
   Four compact migration test boundaries remain; field cases moved into the
   functional workflow suite, reusing the existing HTTP fixture.
 
-Phase-7 Fast stagnation — validated in this commit:
+Phase-7 Fast stagnation — `1085895`:
 
 - ADR-028 reproduces an ineffective receipt click changing an unrelated counter:
   four clicks exhausted the outer five-iteration budget despite one retry being
@@ -366,9 +369,54 @@ Phase-7 Fast stagnation — validated in this commit:
   CPU Laya enabled. Package/lock/built manifest remain 0.2.3; no rebuild needed.
   No additional hosted requests, dependencies, schema or extension changes.
 
-Next exact action: reproduce unrelated dynamic-page freshness/approval blocks
-before changing conservative fingerprints. Submit buttons,
-source transfer, tabs/auth, generic outcome coverage and persistent managed
+Phase-7 Fast form workflow — validated in this commit:
+
+- ADR-029 adds one explicit quoted click/press after all field requirements are
+  freshly verified. Native target uniqueness, action/form destination freshness
+  and a separate approval remain mandatory. Missing or already-satisfied final
+  criteria block before input. No new provider head/schema or executor.
+- An approved invocation preserves the verified field stage and waits for a
+  fresh receipt; no model call or second click may follow it. A no-op/wrong
+  receipt is partial; denied or changed approval performs no click. Ordinary
+  disappearing fields still invalidate proof outside this explicit transition.
+- Before: controlled form task stopped partial after two inputs. First real CPU
+  Laya completed three actions/decisions in 14.42 s (656/709/774 ms), zero provider
+  errors/recoveries/generative calls. Actual packaged default-Fast submission
+  passed with three approvals, no Legacy attachment or hosted key lookup.
+- The existing HTTP fixture now supports bounded POST/303/GET as well as GET;
+  receipt queries echo actual submitted values. Cases cover deny, changed field/
+  action, duplicate controls, no-op/wrong receipts, missing/preexisting checks
+  and values changed by the submit handler. Actual click counts remain one.
+  Final review also reproduced an inconsistent fixture decision causing one
+  click for TYPE_TEXT. The dispatcher now independently checks observation,
+  target and operation, and never executes an abstaining decision; adapter
+  normalization is not the only enforcement boundary.
+  Both adapters have equivalent button-candidate contract cases; Legacy parser
+  behavior remains covered. No new test files/frameworks were added. The one
+  functional workflow file exceeds 500 lines because these parameterized real
+  task boundaries share the existing HTTP fixture instead of duplicating it.
+- Query/fragment verification defect reproduced in unit checks (2 false accepts
+  before); full-URL stripping is replaced by exact comparison for URLs with
+  those parts. Plain query-free/fragment-free path tolerance remains unchanged.
+- Final full Python: **741 passed, 103 opt-in skips, 89.57 s**;
+  `make lint` passes, strict Pyright 0 errors. Earlier focused gate: **130 passed,
+  261.93 s**. Full packaged gate: **24 passed, 4 spent-navigation skips, 466.61 s**.
+  The later focused run recorded **104 passed, 1 failed**: native Laya timed out
+  before any decision/action while other model-heavy checks overlapped. Host
+  memory pressure and nearly full swap were observed afterward; cause unproven.
+  Normal production deadlines are unchanged. Isolated focused gates then passed
+  **136/136 in 157.85 s**, and **137/137 in 171.58 s** after the independent
+  operation/target guard. The final four browser-boundary cases, including
+  abstention, passed again (**4 passed, 10.90 s**). The current-backend packaged
+  submission passed once more (**1 passed, 18.93 s**), with three approvals and
+  the stricter exact receipt check. No successful aggregate Rust rerun is claimed.
+  No additional hosted calls, dependencies, Rust or extension assets changed;
+  version stays 0.2.3. Frozen navigation data remains untouched.
+
+Next exact action: investigate a source-to-field
+workflow using the existing SDK tab APIs and provenance, rather than introducing
+a second browser controller. Dynamic-page approval conservatism, tabs/auth,
+generic outcome coverage and persistent managed
 sessions remain open. Keep Legacy and the overall migration goal active. The
 aggregate Rust stress-suite stall remains an outstanding gate; no Rust source
 changed in these slices. Do not call the migration or product production-ready.

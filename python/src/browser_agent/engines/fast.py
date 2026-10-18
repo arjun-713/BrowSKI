@@ -47,7 +47,7 @@ async def run_fast(
     before_decision: Callable[[], Awaitable[None]] | None = None,
     approve_action: ApprovalHandler | None = None,
 ) -> EngineResult:
-    """Bounded same-site links and approved literal-bound fields, no generative calls.
+    """Bounded links, literal fields and one approved named transition, no generative calls.
 
     Unsupported form operations are not guessed or silently routed to a paid
     provider. Engine contracts and ownership stay the same for Laya and Jev.
@@ -92,6 +92,7 @@ async def run_fast(
     async def execute() -> None:
         nonlocal evidence, status, steps, actions, recoveries, retries
         nonlocal provider_errors, error, failure_phase
+        receipt_target: str | None = None
         async with FastBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
             assert owned.browser is not None
             owned.enable_fields(goal, approve_action)
@@ -112,11 +113,29 @@ async def run_fast(
                 evidence = current_evidence
                 headings = tuple(current_evidence.headings) if current_evidence else ()
                 progress_before = (owned.progress_id, headings)
-                if criteria is not None and criteria.verify(evidence) and owned.fields_verified:
+                if owned.pending_click and (criteria is None or criteria.verify(evidence)):
+                    failure_phase = "task"
+                    error = "The named action needs outcome checks that do not already match."
+                    break
+                if criteria is not None and criteria.verify(evidence) and owned.completion_ready:
+                    if owned.awaiting_outcome:
+                        await emit("verification", Operation.CLICK, receipt_target, True)
                     status = EngineStatus.COMPLETED
                     break
-                if owned.input_unavailable and not owned.fields_verified:
-                    error = "Fast text entry requires an approval-capable client; use the sidebar."
+                if owned.input_unavailable and not owned.completion_ready:
+                    error = "Fast interactions require an approval-capable client; use the sidebar."
+                    break
+                if owned.awaiting_outcome:
+                    await emit("verification", Operation.CLICK, receipt_target, False)
+                    if retries < config.max_recoveries:
+                        retries += 1
+                        recoveries += 1
+                        await emit("recovery", verified=False)
+                        await asyncio.sleep(CONTROL_SETTLE_SECONDS)
+                        continue
+                    status = EngineStatus.PARTIALLY_COMPLETED
+                    failure_phase = "verification"
+                    error = "The approved action ran once; its requested outcome was not verified."
                     break
                 if not observation.candidates:
                     if retries < config.max_recoveries:
@@ -161,6 +180,9 @@ async def run_fast(
                     await emit("provider_failed")
                     error = "Decision provider failed; no browser action executed."
                     break
+                if decision.status == "abstained":
+                    error = "Decision provider abstained; no browser action executed."
+                    break
                 if decision.operation in (Operation.DONE, Operation.BLOCKED):
                     status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
                     error = "Model stopped without independent evidence for the requested outcome."
@@ -173,6 +195,19 @@ async def run_fast(
                 ):
                     error = "The selected operation is unsupported by this Fast action vocabulary."
                     break
+                selected = next(
+                    (c for c in observation.candidates if c.id == decision.candidate_id), None
+                )
+                if (
+                    decision.observation_id != observation.id
+                    or selected is None
+                    or selected.operation is not decision.operation
+                ):
+                    provider_errors += 1
+                    failure_phase = "provider"
+                    error = "The decision does not match its observed operation and target."
+                    await emit("provider_failed", decision.operation, decision.candidate_id, False)
+                    break
                 fresh = await owned.observe_links({host})
                 if fresh.id != decision.observation_id:
                     recoveries += 1
@@ -183,24 +218,35 @@ async def run_fast(
                         break
                     continue
                 failure_phase = "browser"
-                if decision.operation in {Operation.TYPE_TEXT, Operation.SELECT}:
-                    outcome = await owned.set_observed(decision.candidate_id, decision.operation)
+                if owned.requires_approval(decision.candidate_id):
+                    outcome = await owned.execute_observed(
+                        decision.candidate_id, decision.operation
+                    )
                     if outcome.reacquired:
                         recoveries += 1
                         await emit(
                             "recovery", decision.operation, decision.candidate_id, outcome.verified
                         )
-                    if not outcome.verified:
+                    if outcome.verified is False:
                         actions += int(outcome.invoked)
-                        failure_phase = "verification" if outcome.invoked else "approval"
-                        error = owned.input_blocked_reason or "Text entry was not verified."
+                        failure_phase = owned.action_failure_phase
+                        error = (
+                            owned.input_blocked_reason or "The approved browser operation failed."
+                        )
+                        event_kind = "browser_failed"
+                        if failure_phase == "approval":
+                            event_kind = "approval_blocked"
+                        elif failure_phase == "verification":
+                            event_kind = "verification"
                         await emit(
-                            "verification" if outcome.invoked else "approval_blocked",
+                            event_kind,
                             decision.operation,
                             decision.candidate_id,
                             False,
                         )
                         break
+                    if decision.operation is Operation.CLICK:
+                        receipt_target = decision.candidate_id
                 else:
                     await owned.click_observed(decision.candidate_id)
                 actions += 1
@@ -213,7 +259,12 @@ async def run_fast(
                 headings = tuple(current_evidence.headings) if current_evidence else ()
                 progressed = (owned.progress_id, headings) != progress_before
                 failure_phase = None
-                await emit("verification", decision.operation, decision.candidate_id, progressed)
+                action_verified = progressed
+                if owned.awaiting_outcome:
+                    action_verified = criteria is not None and criteria.verify(evidence)
+                await emit(
+                    "verification", decision.operation, decision.candidate_id, action_verified
+                )
                 history.append(
                     {
                         "action": next(
@@ -225,7 +276,7 @@ async def run_fast(
                     }
                 )
                 history[:] = history[-10:]
-                if criteria is not None and criteria.verify(evidence) and owned.fields_verified:
+                if criteria is not None and criteria.verify(evidence) and owned.completion_ready:
                     status = EngineStatus.COMPLETED
                     break
                 if not progressed:

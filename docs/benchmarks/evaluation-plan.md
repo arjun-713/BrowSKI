@@ -193,3 +193,32 @@ may complete. Use this to detect regressions in wasted actions, separately from
 the existing positive navigation/field tasks and frozen navigation outcomes.
 No provider inference is required for this mechanical gate; no autonomous
 success-rate or latency improvement is inferred from it.
+
+## Fast complete form-workflow gate
+
+ADR-029 extends the existing Name/City task through an approved named Save and
+an independently checked receipt. Before this change the fixture task stopped
+partially completed after two inputs; no submission candidate existed. The first
+real CPU-Laya run completed three actions/decisions in 14.42 s, with decision
+times 656/709/774 ms and zero hosted/generative calls or provider errors. The
+actual packaged sidebar passed with three distinct approvals and no Legacy
+attachment or hosted credential lookup. These are development runs, not unseen
+task-success or latency estimates.
+
+Existing parameterized workflow cases cover fixture and live Laya, native GET
+and actual POST/303/GET receipts, deny, changed values/action during approval,
+duplicate buttons, no-op submission, wrong receipts, missing/already-matching
+criteria and values changed by the submit handler. A page-owned click counter
+must remain one after submission; no outcome read may repeat it. Receipt URL
+criteria include both actual submitted values. Negative cases cannot complete.
+Separate URL regressions reproduce the former false acceptance of a different
+query/fragment value ending in a slash; those values now compare exactly.
+
+Run CPU-model gates serially on the development machine. A later concurrent
+run recorded one native-control provider timeout before any decision/action;
+other workflow and packaged cases passed. Recent memory pressure and nearly
+full swap were observed afterward, but do not prove its cause. Keep this result
+in the checkpoint, retain normal timeouts and use the isolated focused run to
+check reproducibility; do not hide it with automatic retries or relaxed gates.
+Generic server business-state verification, multiple named transitions,
+source transfer, authentication and persistent sessions remain outside this gate.
