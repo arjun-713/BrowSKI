@@ -108,9 +108,21 @@ class JevFastProvider:
             )
         if not api_key:
             raise ValueError("Jev credentials are missing; select local Laya instead.")
-        parsed = urlsplit(endpoint)
-        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.fragment:
-            raise ValueError("Jev requires an HTTPS endpoint without embedded credentials.")
+        try:
+            parsed = urlsplit(endpoint)
+        except ValueError as error:
+            raise ValueError("Jev endpoint is not a valid HTTPS URL.") from error
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "Jev requires an HTTPS endpoint without credentials, query or fragment."
+            )
         if timeout_seconds <= 0:
             raise ValueError("Jev timeout must be positive.")
         self.model = model

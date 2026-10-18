@@ -219,3 +219,146 @@ def test_done_is_ineligible_until_explicit_outcome_evidence_is_satisfied() -> No
     constrained = build_request(request.goal, request.observation, allow_done=False)
     assert "DONE" not in constrained.questions["operation"].criteria
     assert "BLOCKED" in constrained.questions["operation"].criteria
+
+
+@pytest.mark.parametrize("name", ["laya", "jev"])
+async def test_product_provider_selection_keeps_the_same_fast_execution_contract(
+    name: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from browser_agent.cli.config import FastProviderName, load_config
+    from browser_agent.engines import fast, fast_providers, laya_worker, product
+    from browser_agent.engines.contracts import EngineEvent, EngineResult, EngineStatus
+    from browser_agent.engines.fast_contract import FastDecisionProvider
+    from browser_agent.engines.lifecycle import TaskControl
+
+    config = load_config()
+    selected = replace(
+        config,
+        agent=replace(
+            config.agent,
+            fast_provider=FastProviderName(name),
+            laya_checkpoint=str(tmp_path),
+            allow_paid_api=name == "jev",
+        ),
+    )
+    monkeypatch.setenv("TYPESAFE_API_KEY", "offline-factory-fixture-only")
+
+    def validate_fixture(path: Path) -> None:
+        assert path == tmp_path
+
+    monkeypatch.setattr(laya_worker, "validate_checkpoint", validate_fixture)
+    seen: list[str] = []
+
+    async def boundary(
+        goal: str,
+        start_url: str,
+        provider: FastDecisionProvider,
+        options: fast.FastConfig,
+        **kwargs: Any,
+    ) -> EngineResult:
+        assert goal == "Read article" and start_url == "https://example.org/"
+        assert options.headless
+        assert kwargs["criteria"] is None
+        assert isinstance(
+            provider,
+            fast_providers.LayaFastProvider if name == "laya" else fast_providers.JevFastProvider,
+        )
+        seen.append(provider.name)
+        await provider.aclose()
+        # This fixture verifies dispatch, not a successful browser task.
+        return EngineResult(
+            status=EngineStatus.BLOCKED,
+            provider=provider.name,
+            model=provider.model,
+            error="Dispatch fixture only",
+        )
+
+    async def events(event: EngineEvent) -> None:
+        raise AssertionError("No inference or browser execution in this dispatch fixture")
+
+    monkeypatch.setattr(fast, "run_fast", boundary)
+    result = await product.execute_managed_task(
+        "Read article",
+        selected,
+        start_url="https://example.org/",
+        criteria=None,
+        events=events,
+        control=TaskControl("fast", name, events),
+        headless=True,
+    )
+    assert seen == [name]
+    assert result.provider == name and not result.verified
+
+
+async def test_selected_jev_without_credentials_is_blocked_without_local_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from browser_agent.cli.config import FastProviderName, load_config
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.lifecycle import TaskControl
+    from browser_agent.engines.product import EngineConfigurationError, execute_managed_task
+
+    config = load_config()
+    config = replace(
+        config, agent=replace(config.agent, fast_provider=FastProviderName.JEV, allow_paid_api=True)
+    )
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+    async def events(event: EngineEvent) -> None:
+        raise AssertionError("Configuration failure must not enter an engine")
+
+    with pytest.raises(EngineConfigurationError, match="credentials.*Laya"):
+        await execute_managed_task(
+            "Read article",
+            config,
+            start_url="https://example.org/",
+            criteria=None,
+            events=events,
+            control=TaskControl("fast", "jev", events),
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://example.org/",
+        "https:/missing-host",
+        "https://example.org/?key=x",
+        "https://example.org/#fragment",
+        "https://[broken",
+    ],
+)
+def test_jev_rejects_invalid_endpoint_before_opening_a_client(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="HTTPS"):
+        JevFastProvider(api_key="offline-fixture-only", allow_paid_api=True, endpoint=endpoint)
+
+
+async def test_jev_inflight_timeout_authorizes_no_action() -> None:
+    import asyncio
+
+    entered = False
+
+    async def waiting(request: httpx.Request) -> httpx.Response:
+        nonlocal entered
+        entered = True
+        await asyncio.Event().wait()
+        raise AssertionError("Cancelled mock request unexpectedly resumed")
+
+    provider = JevFastProvider(
+        api_key="offline-fixture-only",
+        allow_paid_api=True,
+        timeout_seconds=0.02,
+        transport=httpx.MockTransport(waiting),
+    )
+    try:
+        with pytest.raises(TimeoutError):
+            await provider.predict(request_fixture())
+    finally:
+        await provider.aclose()
+    assert entered

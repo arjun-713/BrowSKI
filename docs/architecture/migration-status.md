@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -19,17 +19,17 @@ no hosted fallback or Jev request has been made.
 
 ## Phase status
 
-| Phase                   | State                                     | Evidence / next gate                                                                    |
-| ----------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------- |
-| 0 Guidance              | Complete — `41fb40d`                      | Branch, canonical plan, AGENTS and ADR-022 validated                                    |
-| 1 Browser Use baseline  | Complete — `164c036`                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls           |
-| 2 Extension integration | Gate passed; regression checks running    | Packaged General (offline + bounded live), local two-click Laya, results and ownership  |
-| 3 Fast contract         | Complete — `6b66bfa`                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests       |
-| 4 Local Laya            | Complete for navigation slice — `848cd06` | Real one- and two-click tasks, zero generative calls; forms/text unsupported            |
-| 5 Jev/switching         | Partial                                   | HTTP adapter/offline contracts; CLI/config/settings integration unfinished; no live key |
-| 6 Debug controls        | Pending                                   | Product engine/provider controls and trace mapping                                      |
-| 7 Reliability           | Partial experiment only                   | Premature DONE rejected; two small cases do not prove general reliability               |
-| 8 Cleanup               | Pending                                   | No legacy deletion until replacement regression gates                                   |
+| Phase                   | State                                     | Evidence / next gate                                                                      |
+| ----------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 0 Guidance              | Complete — `41fb40d`                      | Branch, canonical plan, AGENTS and ADR-022 validated                                      |
+| 1 Browser Use baseline  | Complete — `164c036`                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls             |
+| 2 Extension integration | Navigation gate committed — `3d62ab2`     | Packaged General (offline + bounded live), local two-click Laya, results and ownership    |
+| 3 Fast contract         | Complete — `6b66bfa`                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests         |
+| 4 Local Laya            | Complete for navigation slice — `848cd06` | Real one- and two-click tasks, zero generative calls; forms/text unsupported              |
+| 5 Jev/switching         | Complete for offline/selection gate       | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key |
+| 6 Debug controls        | Pending                                   | Product engine/provider controls and trace mapping                                        |
+| 7 Reliability           | Partial experiment only                   | Premature DONE rejected; two small cases do not prove general reliability                 |
+| 8 Cleanup               | Pending                                   | No legacy deletion until replacement regression gates                                     |
 
 ## Latest evidence
 
@@ -102,7 +102,8 @@ silently invoke text generation. The upstream tokenizer emits a regex warning;
 it has not been suppressed or silently changed from the released checkpoint.
 No general Laya calibration or unseen public-site reliability is established.
 
-Next: finish phase-2 regression gates and commit product engine selection. General
+Next: phase-6 inference/action failure traces and result counters. Phase-2 navigation
+integration is committed; its aggregate Rust regression issue remains open. General
 and Fast use separate managed Chrome profiles, not the extension debugger relay.
 The sidebar states this; personal tab authentication is not transferred. Existing
 Legacy approvals/rollback remain; new tools are navigation/read only.
@@ -150,11 +151,18 @@ Phase-2 evidence (2026-10-18):
   without creating a provider, and local mode does not need an OpenAI key. Its
   six tests pass. The initial full run hit its overall time cap; a clean rerun
   after the fix is pending. Do not claim a complete full-suite pass yet.
-- `make lint` passed before that diagnostic fix; its final rerun is pending.
+- `make lint` passed after the diagnostic fix (Ruff, Rust fmt/clippy, strict Pyright).
   The latest extension `npm run check` passes with 74 software tests. No further
   paid inference is needed for the phase-2 gate.
 
-Remaining: phase 5 needs product-dispatch provider-switch acceptance, phase 6
-needs complete error/counter trace coverage, phase 7 needs fresh failure-category
+Phase-5 acceptance: the same product dispatch calls the same `run_fast` interface
+for configured Laya/Jev. Offline factories do not claim browser task success.
+Missing Jev credentials fail before the loop and never load Laya as a fallback.
+Jev HTTP tests cover equivalent semantic state, ordered score rubrics, malformed
+answers, explicit opt-in, credential-safe redirects, invalid endpoints and an
+in-flight timeout. 25 focused tests pass; no live Jev request has been made.
+Settings changes require no runtime restart and affect the next task.
+
+Remaining: phase 6 needs complete error/counter trace coverage, phase 7 needs fresh failure-category
 benchmarks and broader actions, phase 8 cannot delete useful Legacy capabilities
 before replacements pass. No live Jev execution is claimed.
