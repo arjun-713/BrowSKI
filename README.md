@@ -1,12 +1,14 @@
 # BROWSKI — Browser Agent Runtime
 
 BROWSKI turns natural-language tasks into browser actions and checks the resulting
-browser state. **BROWSKI 2.0 is in migration**, with a working navigation slice;
+browser state. **BROWSKI 2.0 is in migration**, with working navigation and bounded
+field slices;
 it is not yet a general production-ready replacement for the Legacy runtime.
 
 - **Fast** defaults to the released browser-tuned **Laya** checkpoint on CPU.
   It selects bounded operations/targets; it is not a text generator. Current
-  execution supports web links and approved quoted-literal text fields in the
+  execution supports web links and approved quoted-literal text, native date and
+  single-select fields in the
   sidebar. Final page checks and every requested field must match.
 - **General** wraps the official **Browser Use Agent**, using a separately
   configured OpenAI text model. The sidebar supports navigation/read and a
@@ -75,11 +77,14 @@ form-accuracy evidence. Legacy's approval path remains intact.
 Fast reuses the existing bounded field grammar, for example `set "Full name" to
 "Alex Demo"; fill "City" with "Pune"`. Quote both the observed field label and its
 exact value. Laya/Jev choose the target; code supplies the literal and checks the
-live value. Missing/ambiguous fields cannot be skipped for completion. Fast has
-no submit/select/date/file tools in this slice. Task-owned browsers close when
+live value and native validity. For example, `set "Departure" to "2026-11-03";
+set "Color" to "Blue"` supports a native date and a uniquely identified dropdown
+option. Dates require valid YYYY-MM-DD within the control's constraints. Custom
+widgets and multiple selection are unsupported. Missing/ambiguous fields cannot
+be skipped for completion, including a field removed after an earlier action.
+Fast has no submit/file tools in this slice. Task-owned browsers close when
 the task finishes, so this field-filling gate does not preserve a form for later
 manual work or establish durable session support.
-
 
 The [configuration guide](docs/user/configuration.md) contains current engine
 settings and explicitly labelled Legacy options. [Debugging](docs/user/debugging.md)
@@ -109,7 +114,9 @@ owns the UI/transport, and Rust retains Legacy mechanics. One controller owns a
 managed task profile. [ADR-022](docs/decisions/ADR-022-local-first-engine-migration.md) and
 [ADR-023](docs/decisions/ADR-023-product-engine-selection.md) explain the migration;
 [ADR-024](docs/decisions/ADR-024-fast-candidate-destinations.md) versions destination
-grounding. No additional orchestration framework or cloud browser is required.
+grounding; [ADR-027](docs/decisions/ADR-027-native-field-verification.md) explains native
+control verification and bounded rereads. No additional orchestration framework
+or cloud browser is required.
 
 The active plan is [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md).
 [CODE_QUALITY.md](CODE_QUALITY.md) and [AGENTS.md](AGENTS.md) govern development.
@@ -163,7 +170,7 @@ measuring it.
 ## Roadmap
 
 The migration checkpoint distinguishes implemented, partial and pending phases.
-Broader forms, dates, dropdowns, tabs, authenticated sessions, long workflows and
+Broader forms, custom controls, tabs, authenticated sessions, long workflows and
 resumability still need replacement evidence. Keep Legacy until those gates pass.
 Task success is the primary metric; do not trade away verification for speed or
 claim production readiness from a few fixture tasks.

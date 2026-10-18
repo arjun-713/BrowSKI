@@ -91,11 +91,15 @@ APIs/events, never by linking agent internals.** Full rationale:
   Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
   `engines/product.py` dispatches configured CLI/extension tasks; `lifecycle.py`
   owns safe pause/cancel boundaries. Fast contracts are v2 with saved-v1 input
-  migration (ADR-024). Fast supports links and approved quoted-literal text
-  fields (ADR-026). `task_literals.py` shares only bounded user-value parsing
+  migration (ADR-024). Fast supports links and approved quoted-literal text,
+  native date and single-select fields (ADR-026/027). `task_literals.py` shares
+  only bounded user-value parsing
   with Legacy. General offers navigation/read and
   approved indexed click/quoted-literal text entry (ADR-025);
   see checkpoint for current gates.
+  `native_fields.py` owns bounded live control reads, option resolution and one
+  safe post-write reread after replacement. Never repeat a write to verify it;
+  recompute all requested field proof from each fresh observation.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.

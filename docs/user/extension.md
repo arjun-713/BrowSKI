@@ -14,7 +14,7 @@ to the next task and are refused during a run.
 
 These engines open a separate task-owned browser profile; source tabs are
 reference context and do not transfer cookies/login state or debugger control.
-Fast supports links and approved literal-bound text fields (see below). General
+Fast supports links and approved literal-bound native fields (see below). General
 additionally supports indexed click/text entry
 with approval for **each** interaction. Quote the exact input text in your task
 (e.g. `Type "Ada" into Name`). Only ordinary main-document text fields are
@@ -29,11 +29,19 @@ See [configuration](configuration.md), [debugging](debugging.md), and the
 
 Fast's supported field instructions are `set "Field" to "Value"`,
 `fill "Field" with "Value"`, and `type "Value" into "Field"`. Both parts must be
-quoted; each accessible label must match one ordinary text field. At most eight
+quoted; each accessible label must match one ordinary text, native date or
+single-select field. At most eight
 assignments, 120-character labels and 256-character plain values are supported.
-Each field needs approval and an actual value match; the expected final page
+Each field needs approval, an actual value match and native validity; the expected final page
 alone cannot complete an unmet field task. Missing or duplicate controls leave
-the task unverified. Fast does not yet submit forms, select options or fill dates.
+the task unverified. For example, `set "Departure" to "2026-11-03"; set "Color"
+to "Blue"` uses the same grammar. Dates must be valid YYYY-MM-DD and satisfy
+min/max/step. Dropdowns resolve one visible label, or one value when no label
+matches; ambiguous or disabled options cannot execute. Custom widgets, multiple
+selection, files and form submission remain unsupported. After a control is
+replaced during a write, one same-document semantic reread may verify it without
+repeating the write. Field proof is recomputed every observation; disappeared
+fields cannot leave stale completion proof behind.
 CLI without an approval sink blocks unmet field requirements before inference.
 Task browsers close at task end; long sessions/manual continuation are not added.
 

@@ -22,6 +22,8 @@ from browser_agent.engines.fast_contract import FastDecisionProvider, Operation,
 from browser_agent.engines.lifecycle import ApprovalHandler
 from browser_agent.task_literals import TaskLiteralError
 
+CONTROL_SETTLE_SECONDS = 0.25
+
 
 class FastConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -45,7 +47,7 @@ async def run_fast(
     before_decision: Callable[[], Awaitable[None]] | None = None,
     approve_action: ApprovalHandler | None = None,
 ) -> EngineResult:
-    """Bounded same-site links and approved literal-bound text entry, no generative calls.
+    """Bounded same-site links and approved literal-bound fields, no generative calls.
 
     Unsupported form operations are not guessed or silently routed to a paid
     provider. Engine contracts and ownership stay the same for Laya and Jev.
@@ -61,6 +63,7 @@ async def run_fast(
         raise ValueError("Fast requires an explicit HTTP(S) starting URL.")
     started = time.perf_counter()
     steps = actions = recoveries = provider_errors = 0
+    retries = 0
     latencies: list[float] = []
     history: list[dict[str, str | bool | None]] = []
     evidence: PageEvidence | None = None
@@ -87,7 +90,8 @@ async def run_fast(
         ).publish(event_sink)
 
     async def execute() -> None:
-        nonlocal evidence, status, steps, actions, recoveries, provider_errors, error, failure_phase
+        nonlocal evidence, status, steps, actions, recoveries, retries
+        nonlocal provider_errors, error, failure_phase
         async with FastBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
             assert owned.browser is not None
             owned.enable_fields(goal, approve_action)
@@ -112,6 +116,12 @@ async def run_fast(
                     error = "Fast text entry requires an approval-capable client; use the sidebar."
                     break
                 if not observation.candidates:
+                    if retries < config.max_recoveries:
+                        retries += 1
+                        recoveries += 1
+                        await emit("recovery", verified=False)
+                        await asyncio.sleep(CONTROL_SETTLE_SECONDS)
+                        continue
                     status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
                     error = "No supported links or literal-bound text fields can advance this task."
                     break
@@ -153,7 +163,9 @@ async def run_fast(
                     error = "Model stopped without independent evidence for the requested outcome."
                     break
                 if (
-                    decision.operation not in {Operation.CLICK, Operation.TYPE_TEXT}
+                    decision.operation is None
+                    or decision.operation
+                    not in {Operation.CLICK, Operation.TYPE_TEXT, Operation.SELECT}
                     or decision.candidate_id is None
                 ):
                     error = "The selected operation is unsupported by this Fast action vocabulary."
@@ -161,20 +173,26 @@ async def run_fast(
                 fresh = await owned.observe_links({host})
                 if fresh.id != decision.observation_id:
                     recoveries += 1
+                    retries += 1
                     await emit("recovery", verified=False)
-                    if recoveries > config.max_recoveries:
+                    if retries > config.max_recoveries:
                         error = "Page kept changing before execution; recovery budget exhausted."
                         break
                     continue
                 failure_phase = "browser"
-                if decision.operation is Operation.TYPE_TEXT:
-                    invoked, verified = await owned.type_observed(decision.candidate_id)
-                    if not verified:
-                        actions += int(invoked)
-                        failure_phase = "verification" if invoked else "approval"
+                if decision.operation in {Operation.TYPE_TEXT, Operation.SELECT}:
+                    outcome = await owned.set_observed(decision.candidate_id, decision.operation)
+                    if outcome.reacquired:
+                        recoveries += 1
+                        await emit(
+                            "recovery", decision.operation, decision.candidate_id, outcome.verified
+                        )
+                    if not outcome.verified:
+                        actions += int(outcome.invoked)
+                        failure_phase = "verification" if outcome.invoked else "approval"
                         error = owned.input_blocked_reason or "Text entry was not verified."
                         await emit(
-                            "verification" if invoked else "approval_blocked",
+                            "verification" if outcome.invoked else "approval_blocked",
                             decision.operation,
                             decision.candidate_id,
                             False,
@@ -196,7 +214,7 @@ async def run_fast(
                         "action": next(
                             c.label for c in observation.candidates if c.id == decision.candidate_id
                         ),
-                        "kind": "type" if decision.operation is Operation.TYPE_TEXT else "click",
+                        "kind": decision.operation.value.lower(),
                         "text": None,
                         "page_changed": progressed,
                     }
@@ -207,7 +225,8 @@ async def run_fast(
                     break
                 if not progressed:
                     recoveries += 1
-                    if recoveries > config.max_recoveries:
+                    retries += 1
+                    if retries > config.max_recoveries:
                         error = "Repeated unverified actions exhausted the recovery budget."
                         break
             else:

@@ -56,19 +56,20 @@ def response_fixture() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("provider_name", ["laya", "jev"])
-@pytest.mark.parametrize("operation", [Operation.CLICK, Operation.TYPE_TEXT])
+@pytest.mark.parametrize("operation", [Operation.CLICK, Operation.TYPE_TEXT, Operation.SELECT])
 async def test_shared_semantic_request_through_both_adapters(
     provider_name: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, operation: Operation
 ) -> None:
     request = request_fixture()
     captured: list[dict[str, Any]] = []
     response = response_fixture()
-    if operation is Operation.TYPE_TEXT:
+    if operation is not Operation.CLICK:
+        role = "combobox" if operation is Operation.SELECT else "textbox"
         observation = request.observation.model_copy(
             update={
                 "candidates": (
-                    Candidate(id="e1", operation=operation, label="Name", role="textbox", value=""),
-                    Candidate(id="e2", operation=operation, label="City", role="textbox", value=""),
+                    Candidate(id="e1", operation=operation, label="Name", role=role, value=""),
+                    Candidate(id="e2", operation=operation, label="City", role=role, value=""),
                 )
             }
         )
@@ -77,7 +78,9 @@ async def test_shared_semantic_request_through_both_adapters(
         response["answers"]["operation"]["probabilities"][operation.value] = response["answers"][
             "operation"
         ]["probabilities"].pop("CLICK")
-        response["answers"]["type_text_target"] = response["answers"].pop("click_target")
+        response["answers"][f"{operation.value.lower()}_target"] = response["answers"].pop(
+            "click_target"
+        )
     request.questions["progress"] = TypedQuestion(
         type="score",
         criteria={"0": "No progress", "1": "Progress"},

@@ -90,6 +90,7 @@ async def run_general(
     calls = 0
     steps = 0
     actions = 0
+    recoveries = 0
     provider_errors = 0
     answer: str | None = None
     evidence: PageEvidence | None = None
@@ -134,7 +135,7 @@ async def run_general(
         await emit("inference_started")
 
     async def after_step(agent: Agent[Any, Any]) -> None:
-        nonlocal steps, evidence, actions, provider_errors, failure_phase
+        nonlocal steps, evidence, actions, recoveries, provider_errors, failure_phase
         steps += 1
         evidence = await page_evidence(agent.browser_session)
         history = cast("AgentHistoryList[Any]", cast(Any, agent).history)
@@ -143,7 +144,7 @@ async def run_general(
             failed = any(result.error for result in last.result)
             if last.model_output:
                 if failed:
-                    failure_phase = "approval" if policy.blocked_reason else "browser"
+                    failure_phase = policy.blocked_phase if policy.blocked_reason else "browser"
                 for index, action in enumerate(last.model_output.action):
                     operation = next(iter(action.model_dump(exclude_none=True)), "unknown")
                     metadata = (
@@ -152,11 +153,23 @@ async def run_general(
                         else None
                     )
                     executed = (metadata or {}).get("browski_executed", True) is not False
+                    if (metadata or {}).get("browski_reacquired") is True:
+                        recoveries += 1
+                        await emit("recovery", operation=operation, verified=not failed)
                     actions += int(operation != "done" and executed)
                     kind = "action_finished"
                     if failed:
-                        kind = "approval_blocked" if policy.blocked_reason else "browser_failed"
-                    await emit(kind, operation=operation)
+                        if not policy.blocked_reason:
+                            kind = "browser_failed"
+                        elif policy.blocked_phase == "verification":
+                            kind = "verification"
+                        else:
+                            kind = "approval_blocked"
+                    await emit(
+                        kind,
+                        operation=operation,
+                        verified=False if kind == "verification" else None,
+                    )
                     if (metadata or {}).get("browski_verified") is True:
                         await emit("verification", operation=operation, verified=True)
             elif failed:
@@ -258,7 +271,7 @@ async def run_general(
                         if policy.blocked_reason:
                             status = EngineStatus.BLOCKED
                             error = policy.blocked_reason
-                            failure_phase = "approval"
+                            failure_phase = policy.blocked_phase
                         elif criteria is not None and criteria.verify(evidence) and answer:
                             if criteria.heading.casefold() in answer.casefold():
                                 status = EngineStatus.COMPLETED
@@ -301,6 +314,7 @@ async def run_general(
         action_count=actions,
         generative_calls=calls,
         provider_errors=provider_errors,
+        recovery_count=recoveries,
         decision_latencies_ms=latencies,
         failure_phase=failure_phase,
         duration_ms=round((time.perf_counter() - started) * 1000, 2),

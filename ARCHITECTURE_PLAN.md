@@ -41,9 +41,14 @@ Native Messaging bridge with the official Agent and bounded live OpenAI inferenc
 This establishes integration, not broad task reliability.
 Fast navigation is implemented in `engines/fast.py` and `fast_browser.py`, using
 the same Browser Use session ownership with local Laya decisions. It supports
-same-site links and approved explicitly named text fields. Caller-owned URL/H1
+same-site links and approved explicitly named ordinary text fields, native dates
+and single-select dropdowns. Caller-owned URL/H1
 checks and every requested field must match before completion. Values come from
-the shared bounded task-literal parser, not model-generated text (ADR-026).
+the shared bounded task-literal parser, not model-generated text (ADR-026/027).
+`engines/native_fields.py` reads actual values, validity and selected options;
+ambiguous or unsupported controls cannot supply proof. One same-document
+semantic reread handles a replaced control after a write, without repeating it.
+Every fresh observation recomputes all field proof, including missing controls.
 Full form workflows are not migrated.
 `cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
 Product task submission and `browski run/task` now dispatch through
@@ -55,7 +60,8 @@ managed browser. Legacy attached execution requires explicit configuration.
 UI also handles task-local General interactions (ADR-025): each indexed click
 or quoted-literal text entry needs approval and fresh page/target validation.
 CLI without an approval sink remains read-only; Fast text entry also requires
-approval support. Managed
+approval support. General does not expose native date or selection tools yet.
+Managed
 CLI/extension runs share opt-in bounded diagnostic capture and model/action/failure
 traces. The final result exposes execution counters and verification. Detailed
 Fast inputs can be compared with `browski compare-fast`; no browser actions are

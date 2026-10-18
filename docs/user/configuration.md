@@ -40,7 +40,9 @@ The sidebar selects General/Fast and Laya/Jev for the next task. Settings expose
 text provider/model, paid permission, checkpoint/endpoint, privacy and trace level.
 Changes are refused during a task; no mid-action provider switching occurs.
 General/Fast use separate task-owned browser profiles, not the attached source
-session. Sidebar Fast supports links and approved quoted-literal text fields.
+session. Sidebar Fast supports links and approved quoted-literal ordinary text,
+native date and single-select fields. It validates actual values and native
+constraints; ambiguous options and unsupported custom controls stay unverified.
 Sidebar General also offers approved click and
 quoted-literal text entry; CLI without an approval sink remains read-only.
 The product General budget is four hosted requests, five steps and 90 seconds

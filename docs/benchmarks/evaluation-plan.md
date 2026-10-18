@@ -106,12 +106,12 @@ only if the actual input value matches. The test checks the empty field before
 approval, the actual value after approved typing, and no receipt before approving
 the button. It then varies the button response:
 
-| Variant | Required terminal outcome | Required effect |
-| --- | --- | --- |
-| Approve | completed, verified | Exact receipt URL/H1; three executed actions |
-| Deny | blocked, unverified | No save; only navigation and approved typing |
-| Stop | cancelled, unverified | No pending click; card cleared and browser cleaned up |
-| Field changed during review | blocked, unverified | No save after stale approval |
+| Variant                     | Required terminal outcome | Required effect                                       |
+| --------------------------- | ------------------------- | ----------------------------------------------------- |
+| Approve                     | completed, verified       | Exact receipt URL/H1; three executed actions          |
+| Deny                        | blocked, unverified       | No save; only navigation and approved typing          |
+| Stop                        | cancelled, unverified     | No pending click; card cleared and browser cleaned up |
+| Field changed during review | blocked, unverified       | No save after stale approval                          |
 
 Separate real-Chrome tool cases cover approved/denied text entry, a live field
 property mutation, append input, invented text and password fields. Task-control
@@ -150,3 +150,31 @@ question/candidate state. Live Jev is still unverified. This gate does not cover
 submit buttons, native dates, dropdowns, uploads, source transfer or retained
 browser sessions; task browsers still close at completion. It is a development
 vertical slice and mechanical regression coverage, not a new autonomous holdout.
+
+## Fast native-control development gate
+
+ADR-027 adds native dates and single-select dropdowns to the same quoted-value
+workflow. The development task sets Departure to 2026-11-03 and Color to Blue.
+Independent reads require exact date value and native validity, plus the actual
+selected option's label/value. Real CPU Laya completed two actions/decisions in
+15.77 s, with 1582/1050 ms decision times, no generative calls, provider errors
+or recoveries. These timings overlap development validation and are not a speed
+comparison. The actual packaged default-Fast sidebar also passed, requiring two
+approvals and no Legacy attachment or hosted credential lookup.
+
+The existing parameterized workflow suite covers fixture and actual CPU Laya,
+impossible/ranged dates, token collisions, duplicate option labels/values, HTML
+option label attributes, disabled options, multiple selects, stale constraints,
+delayed options with/without recovery, replaced controls and wrong replacement
+values. A replacement-date regression improved from blocked after one write to
+completed with two actions and one read recovery, without repeating the write.
+A separate regression reproduced false completion after a later action removed
+a verified date; rebuilding proof each observation now returns partially_completed.
+Negative cases must remain unverified; success cannot come from SDK return status
+or cached field proof. Both adapters pass equivalent SELECT contract fixtures;
+live Jev remains unverified.
+
+These are controlled development cases, not an unseen success-rate estimate.
+Keep custom controls, submit workflows, source transfer, tabs/auth and retained
+sessions outside this gate. Use a fresh frozen end-to-end task set after further
+workflow work; the four navigation first-look cases are already spent.
