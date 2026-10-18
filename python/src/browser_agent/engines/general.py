@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from browser_agent.engines.browser_use_runtime import ManagedBrowser, is_http_url, page_evidence
+from browser_agent.engines.browser_use_runtime import ManagedBrowser, page_evidence
 from browser_agent.engines.contracts import (
     CompletionCriteria,
     EngineEvent,
@@ -20,37 +20,13 @@ from browser_agent.engines.contracts import (
     EventSink,
     PageEvidence,
 )
+from browser_agent.engines.general_tools import InteractionPolicy
+from browser_agent.engines.general_tools import navigation_tools as _navigation_tools
+from browser_agent.engines.lifecycle import ApprovalHandler
 
 if TYPE_CHECKING:
-    from browser_use import Tools
     from browser_use.agent.service import Agent
     from browser_use.agent.views import AgentHistoryList
-
-
-def _navigation_tools() -> Tools[Any]:
-    """Keep upstream mechanics and validate model-proposed navigation at its tool boundary."""
-    from browser_use import Tools
-    from browser_use.agent.views import ActionResult
-
-    class NavigationTools(Tools[Any]):
-        async def act(self, action: Any, browser_session: Any, *args: Any, **kwargs: Any) -> Any:
-            # Variadic arguments are contained at this upstream SDK injection boundary.
-            payload = action.model_dump(exclude_unset=True)
-            navigate = payload.get("navigate")
-            if isinstance(navigate, dict) and not is_http_url(
-                cast(dict[str, object], navigate).get("url")
-            ):
-                return ActionResult(
-                    error="Only HTTP(S) navigation without credentials is permitted."
-                )
-            return await cast(Any, super()).act(action, browser_session, *args, **kwargs)
-
-    tools = NavigationTools()
-    allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "done"}
-    for name in list(tools.registry.registry.actions):
-        if name not in allowed:
-            tools.registry.exclude_action(name)
-    return tools
 
 
 class _InferenceTransport(httpx.AsyncBaseTransport):
@@ -81,8 +57,8 @@ class GeneralConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     model: str = "gpt-6-luna"
     allow_paid_api: bool = False
-    max_calls: int = Field(default=3, ge=1, le=10)
-    max_steps: int = Field(default=4, ge=1, le=20)
+    max_calls: int = Field(default=4, ge=1, le=10)
+    max_steps: int = Field(default=5, ge=1, le=20)
     timeout_seconds: int = Field(default=90, ge=5, le=300)
     chrome_path: str = "/usr/bin/google-chrome"
     headless: bool = True
@@ -98,8 +74,9 @@ async def run_general(
     cancel: asyncio.Event | None = None,
     model_transport: httpx.AsyncBaseTransport | None = None,
     before_decision: Callable[[], Awaitable[None]] | None = None,
+    approve_action: ApprovalHandler | None = None,
 ) -> EngineResult:
-    """Navigation/read-only Agent with explicit inference budgets and independent outcome checks."""
+    """Bounded Agent with optional approved interactions and independent outcome checks."""
     if not config.allow_paid_api:
         raise ValueError(
             "General needs a generative model; OpenAI requires explicit paid API opt-in."
@@ -120,6 +97,7 @@ async def run_general(
     error: str | None = None
     failure_phase: str | None = None
     latencies: list[float] = []
+    policy = InteractionPolicy(goal=goal, approve=approve_action)
 
     async def emit(
         kind: str,
@@ -165,13 +143,22 @@ async def run_general(
             failed = any(result.error for result in last.result)
             if last.model_output:
                 if failed:
-                    failure_phase = "browser"
-                for action in last.model_output.action:
+                    failure_phase = "approval" if policy.blocked_reason else "browser"
+                for index, action in enumerate(last.model_output.action):
                     operation = next(iter(action.model_dump(exclude_none=True)), "unknown")
-                    actions += int(operation != "done")
-                    await emit(
-                        "browser_failed" if failed else "action_finished", operation=operation
+                    metadata = (
+                        cast(dict[str, object] | None, cast(Any, last.result[index]).metadata)
+                        if index < len(last.result)
+                        else None
                     )
+                    executed = (metadata or {}).get("browski_executed", True) is not False
+                    actions += int(operation != "done" and executed)
+                    kind = "action_finished"
+                    if failed:
+                        kind = "approval_blocked" if policy.blocked_reason else "browser_failed"
+                    await emit(kind, operation=operation)
+                    if (metadata or {}).get("browski_verified") is True:
+                        await emit("verification", operation=operation, verified=True)
             elif failed:
                 if calls > 0:
                     failure_phase = "provider"
@@ -189,7 +176,9 @@ async def run_general(
 
     run: asyncio.Task[object] | None = None
     watch: asyncio.Task[bool] | None = None
-    async with ManagedBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
+    async with ManagedBrowser(
+        chrome_path=config.chrome_path, headless=config.headless, highlight_elements=False
+    ) as owned:
         from browser_use import Agent, ChatOpenAI
 
         assert owned.browser is not None
@@ -215,7 +204,7 @@ async def run_general(
                 reasoning_models=["gpt-6"],
                 reasoning_effort="none",
             )
-            tools = _navigation_tools()
+            tools = _navigation_tools(policy)
             agent: Agent[Any, Any] = Agent(
                 task=goal,
                 llm=llm,
@@ -234,7 +223,7 @@ async def run_general(
                 enable_signal_handler=False,
                 directly_open_url=False,
                 final_response_after_failure=False,
-                step_timeout=40,
+                step_timeout=90 if approve_action is not None else 40,
                 max_clickable_elements_length=8000,
             )
             try:
@@ -257,18 +246,24 @@ async def run_general(
                     finished, _ = await asyncio.wait(
                         pending, timeout=config.timeout_seconds, return_when=asyncio.FIRST_COMPLETED
                     )
-                    if run in finished:
+                    if cancel is not None and cancel.is_set():
+                        status = EngineStatus.CANCELLED
+                    elif run in finished:
                         await run
                         # The external library returns AgentHistoryList. Keep it behind
                         # this adapter, rather than storing vendor objects in task state.
                         history = cast("AgentHistoryList[Any]", cast(Any, agent).history)
                         answer = history.final_result()
                         evidence = await page_evidence(owned.browser)
-                        if criteria is not None and criteria.verify(evidence) and answer:
+                        if policy.blocked_reason:
+                            status = EngineStatus.BLOCKED
+                            error = policy.blocked_reason
+                            failure_phase = "approval"
+                        elif criteria is not None and criteria.verify(evidence) and answer:
                             if criteria.heading.casefold() in answer.casefold():
                                 status = EngineStatus.COMPLETED
                                 failure_phase = None
-                        if status is not EngineStatus.COMPLETED:
+                        if status not in {EngineStatus.COMPLETED, EngineStatus.BLOCKED}:
                             error = "Requested outcome is not independently verified."
                             if failure_phase is not None:
                                 status = EngineStatus.FAILED

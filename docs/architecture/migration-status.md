@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -28,7 +28,7 @@ no hosted fallback or Jev request has been made.
 | 4 Local Laya            | Complete for navigation slice — `848cd06`        | Real one- and two-click tasks, zero generative calls; forms/text unsupported                 |
 | 5 Jev/switching         | Complete for offline/selection gate              | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
 | 6 Debug controls        | Complete for navigation diagnostics              | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
-| 7 Reliability           | Navigation slice validated; broader actions open | Frozen first-look 4/4; href defect reproduced/fixed; broader forms/tabs still open           |
+| 7 Reliability           | Navigation committed; approval slice validated | Frozen first-look 4/4; href defect reproduced/fixed; broader forms/tabs still open           |
 | 8 Cleanup               | Pending                                          | No legacy deletion until replacement regression gates                                        |
 
 ## Latest evidence
@@ -90,9 +90,11 @@ platforms. No Ollama daemon was installed or launched.
 
 ## Known limits and next exact action
 
-General currently exposes navigation/reading tools, not consequential clicks,
-forms, arbitrary browser code, uploads or file tools. Its model final text never
-proves completion. Only explicit caller-owned URL/H1 checks can return completed;
+General exposes navigation/reading and a conservative sidebar-only form slice:
+each indexed click and exact quoted-literal text replacement requires approval
+and page/target revalidation (ADR-025). CLI without an approval sink remains
+read-only. Dates, selects, uploads, credentials, arbitrary browser code and
+source-to-field synthesis are not enabled. Model final text never proves completion. Only explicit caller-owned URL/H1 checks can return completed;
 other tasks return an unverified/partial outcome. Cancellation and budgets are
 covered with offline inference and real Chrome.
 
@@ -106,7 +108,8 @@ Next: phase-7 fresh reliability tasks and action coverage; preserve Legacy until
 integration is committed; its aggregate Rust regression issue remains open. General
 and Fast use separate managed Chrome profiles, not the extension debugger relay.
 The sidebar states this; personal tab authentication is not transferred. Existing
-Legacy approvals/rollback remain; new tools are navigation/read only.
+Legacy approvals/rollback remain; General has a bounded approved form slice and
+Fast still supports links only.
 
 Local Fast commands (from repository root):
 
@@ -188,7 +191,7 @@ result text was rendered and inspected at 380 px with no horizontal overflow.
 No more paid OpenAI requests were used. Final `make lint` passed after a
 new fixture annotation was corrected (Rust fmt/clippy, Ruff and strict Pyright). The aggregate Rust stall remains open.
 
-Phase-7 navigation slice (validated, awaiting scoped commit):
+Phase-7 navigation slice — `4a52b9e`:
 
 - Frozen first-look manifest `benchmarks/synthetic/v2-navigation-first-look.json`
   ran through the real extension on runtime `0ebefdb`: 4/4 completed, 0/4 false
@@ -224,8 +227,50 @@ Phase-7 navigation slice (validated, awaiting scoped commit):
   `make lint` passed. Extension source, lock and manifest match **0.2.1**.
   No additional paid OpenAI or live Jev requests were used.
 
-Next exact action: review this navigation slice and create its scoped commit,
-then continue phase 7 with broader actions/approval and verification coverage.
-Do not claim forms/dates/dropdowns/tabs/auth/resumability have migrated. The
+Next exact action: commit the validated managed General approval slice, then
+continue broader Fast actions and outcome coverage.
+Do not claim broad forms/dates/dropdowns/tabs/auth/resumability have migrated. The
 aggregate Rust stress-suite stall remains open; no Rust source changed and its
 isolated 100-cycle case passed. Retain Legacy and keep the migration goal active.
+
+
+Phase-7 managed approval slice (validated, awaiting scoped commit):
+
+- General's actual Browser Use indexed click/input tools now use the existing
+  sidebar approval card and authenticated protocol. A unique task-local future
+  waits for exactly one pending action; no second executor or Legacy graph is
+  created. Session/approval IDs are checked. Deny, Stop and 60-second expiry
+  cannot authorize the action; cleanup clears the card. These are not durable
+  checkpoints. A prior Pause remains effective after the card is consumed.
+- Input is limited to exact quoted task literals, ordinary main-document text
+  fields and replacement input. A fresh native field-value read checks typing.
+  Dates/selects/files/passwords/append and synthesis are not enabled. Every new
+  General interaction needs approval; CLI without a sink remains read-only.
+  Task outcomes still require caller-owned URL/H1 evidence, not model prose.
+- Fresh pre/post-approval state includes complete bounded main-document HTML,
+  live field values, URL, document epoch, target geometry and stable node/target/
+  frame identity. The first packaged run exposed transient CDP session IDs
+  changing with identical node/page hashes. Stable browser target identity
+  fixed that false block without accepting a changed page. The pinned actor
+  also required upstream DOM.getDocument before element inspection, including
+  after input. No independent CDP transport/executor was added (ADR-025).
+- Six real-Chrome input cases pass: approved typing, denial, live property
+  mutation, append refusal, invented-text refusal and password-field refusal.
+  Four packaged form variants pass with **offline HTTP model responses**:
+  approved local save completed with exact URL/H1; Deny and changed field were
+  blocked; Stop cancelled without the pending click. This is integration proof,
+  not autonomous General accuracy. The initial Stop fixture had the wrong
+  button selector (`Stop task` versus the actual `Stop`); corrected and rerun.
+- Latest gates: **711 Python tests passed, 61 opt-in skips, 136.96 s**;
+  **55 engine/contract tests passed, 2 live-Laya skips**, plus the final
+  pause/approval regression in the full Python run. Full packaged gate with
+  CPU-Laya opt-ins enabled: **21 passed, 4 spent-navigation opt-in skips,
+  361.73 s**. Both real local Laya paths passed. This overlapped regression
+  work and is not a performance comparison. `make lint` passed; extension
+  `npm run check` passed with 74 software tests and a successful build.
+  Source/lock/manifest all carry **0.2.2**. No new paid OpenAI or live Jev calls.
+
+Broader Fast forms, dates/dropdowns, source transfer, tab/auth/session workflows,
+durable managed resume and richer goal coverage remain open. Keep the migration
+goal active. The aggregate Rust stress-suite stall remains unresolved; this
+slice changes no Rust source. Retain Legacy until replacement gates pass.

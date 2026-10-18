@@ -22,6 +22,7 @@ def timeline_payload(
     kinds = {
         "provider_failed": ("DecisionMade", "Inference failed"),
         "browser_failed": ("ActionCompleted", "Browser operation failed"),
+        "approval_blocked": ("ActionCompleted", "Interaction blocked by approval policy"),
         "inference_finished": ("DecisionMade", "Inference returned"),
         "task_started": ("RunStarted", "Task started"),
         "inference_started": ("DecisionStarted", "Choosing the next browser step"),
@@ -56,7 +57,7 @@ def timeline_payload(
         "label": label,
         "detail": detail,
         "status": "failed"
-        if event.kind in {"provider_failed", "browser_failed"}
+        if event.kind in {"provider_failed", "browser_failed", "approval_blocked"}
         else "running"
         if event.kind == "inference_started"
         else "info",

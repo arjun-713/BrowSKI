@@ -8,7 +8,8 @@ it is not yet a general production-ready replacement for the Legacy runtime.
   It selects bounded operations/targets; it is not a text generator. Current
   execution supports web links and independently checked final pages.
 - **General** wraps the official **Browser Use Agent**, using a separately
-  configured OpenAI text model. Current tools support navigation/reading.
+  configured OpenAI text model. The sidebar supports navigation/read and a
+  bounded approved click/text-entry slice; broader workflows remain in migration.
 - **Jev** is an optional hosted Fast provider behind the same versioned decision
   contract. Offline contracts and switching pass; live Jev is unverified because
   no credentials are available. No retraining is needed to change adapters.
@@ -63,8 +64,12 @@ Pause/resume/stop and progress/results use the existing local bridge.
 General needs generative inference: select OpenAI and permit paid API calls in
 Settings before choosing it. Keys belong in the OS keyring or runtime environment,
 never task text, TOML or logs. The existing key UI remains available; storing a
-key does not enable paid access. New read/navigation tools cannot submit forms;
-Legacy's consequential-action approval path remains intact.
+key does not enable paid access. In the sidebar, each General click or text entry
+requires approval. Text must appear quoted in the task, such as `Type "Ada" into
+Name`; a fresh field read verifies typing. Denial, Stop, expiry or a changed page
+blocks the pending action. CLI tools stay read-only without an approval sink.
+This controlled form integration has offline model fixtures, not live General
+form-accuracy evidence. Legacy's approval path remains intact.
 
 The [configuration guide](docs/user/configuration.md) contains current engine
 settings and explicitly labelled Legacy options. [Debugging](docs/user/debugging.md)

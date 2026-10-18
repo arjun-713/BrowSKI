@@ -33,7 +33,7 @@ export function ConfirmationCard({
           Deny action
         </button>
       </div>
-      <p className="footnote">The runtime ties this choice to its pending checkpoint.</p>
+      <p className="footnote">Approval applies to this pending action only.</p>
     </section>
   );
 }

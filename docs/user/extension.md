@@ -14,7 +14,13 @@ to the next task and are refused during a run.
 
 These engines open a separate task-owned browser profile; source tabs are
 reference context and do not transfer cookies/login state or debugger control.
-Current tools support navigation/reading. The expected URL/heading fields give
+Fast supports links. General additionally supports indexed click/text entry
+with approval for **each** interaction. Quote the exact input text in your task
+(e.g. `Type "Ada" into Name`). Only ordinary main-document text fields are
+enabled; dates, selects, files, password fields and append input are not part of
+this slice. Approvals expire after 60 seconds. A changed observed page/field invalidates
+the pending action; Deny and Stop cannot execute it. These approvals live only
+in the current task, not in a durable checkpoint. The expected URL/heading fields give
 an independent navigation check; without one, DONE remains unverified. Progress,
 pause/stop and final result counters use the existing Native Messaging bridge.
 See [configuration](configuration.md), [debugging](debugging.md), and the
@@ -22,8 +28,9 @@ See [configuration](configuration.md), [debugging](debugging.md), and the
 
 The attachment, explicit form values, owned supporting tabs, vision and checkpoint
 features documented below apply to **Legacy** unless explicitly stated otherwise.
-They have not all migrated to General/Fast. The new engines' navigation toolset
-cannot bypass consequential-action approval by submitting forms.
+They have not all migrated to General/Fast. The General slice above reuses the
+existing approval card; controlled offline-model integration is not proof of
+autonomous form-task reliability.
 
 ## Build and load
 

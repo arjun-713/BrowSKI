@@ -44,7 +44,7 @@ from browser_agent.telemetry.debug_log import DebugRecorder, record_debug
 
 if TYPE_CHECKING:
     from browser_agent.engines.contracts import EngineEvent
-    from browser_agent.engines.lifecycle import TaskControl
+    from browser_agent.engines.lifecycle import ActionApproval, TaskControl
     from browser_agent.session import BrowserSession
 
 logger = logging.getLogger(__name__)
@@ -561,10 +561,14 @@ class ExtensionBridgeService:
                 async def events(event: EngineEvent) -> None:
                     await self._send_managed_event(writer, event)
 
+                async def approvals(request: ActionApproval | None) -> None:
+                    await self._send_managed_approval(writer, request)
+
                 self._engine_control = TaskControl(
                     config.agent.engine.value,
                     cast(str, self._runtime_session["provider"]),
                     events,
+                    approvals=approvals,
                 )
             self._task_task = asyncio.create_task(
                 self._run_managed_task(writer, payload, self._run_id, config)
@@ -579,13 +583,19 @@ class ExtensionBridgeService:
                 self._runtime_session is None
                 or payload.get("sessionId") != self._runtime_session.get("sessionId")
                 or payload.get("approvalId") != self._pending_approval_id
-                or self._agent_runtime is None
                 or self._run_id is None
+                or (self._agent_runtime is None and self._engine_control is None)
             ):
                 raise ExtensionProtocolError("approval does not match the pending browser action")
             approval_id = cast(str, self._pending_approval_id)
-            await self._send_approval_cleared(writer, approval_id)
             approved = payload.get("decision") == "approve"
+            if self._engine_control is not None:
+                if not self._engine_control.respond_to_approval(approval_id, approved):
+                    raise ExtensionProtocolError("approval is no longer pending")
+                # The waiting engine owns cleanup/status and resumes the same
+                # task. Never create a second executor for a managed approval.
+                return
+            await self._send_approval_cleared(writer, approval_id)
             self._pending_approval_id = None
             self._runtime_suspended = False
             self._pending_approval = None
@@ -810,6 +820,33 @@ class ExtensionBridgeService:
         )
         if value is not None:
             await self._send_timeline(writer, value)
+
+    async def _send_managed_approval(
+        self, writer: asyncio.StreamWriter, request: ActionApproval | None
+    ) -> None:
+        session = self._runtime_session
+        if session is None or self._run_id is None:
+            return
+        if request is None:
+            approval_id = self._pending_approval_id
+            self._pending_approval_id = None
+            if approval_id is not None:
+                await self._send_approval_cleared(writer, approval_id)
+            session["status"] = "running"
+        else:
+            self._pending_approval_id = request.approval_id
+            session["status"] = "awaiting_approval"
+            await self._send_approval_required(
+                writer,
+                request.approval_id,
+                cast(str, session["sessionId"]),
+                {
+                    "action": request.action,
+                    "target": request.target,
+                    "reason": "each new General form interaction requires approval",
+                },
+            )
+        await self._send_runtime_status(writer)
 
     async def _run_managed_task(
         self,

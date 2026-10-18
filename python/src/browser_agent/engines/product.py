@@ -60,6 +60,7 @@ async def _execute_selected_task(
             event_sink=events,
             cancel=control.cancel,
             before_decision=control.decision_boundary,
+            approve_action=control.approval_handler,
         )
     if options.engine is not ExecutionEngine.FAST:
         raise EngineConfigurationError("Managed dispatch supports General and Fast only.")

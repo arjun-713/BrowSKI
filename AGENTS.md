@@ -14,7 +14,8 @@ Build BROWSKI, an open-source browser agent that completes real tasks with
 independently verified outcomes. **BROWSKI 2.0 is TARGET / IN MIGRATION**;
 see the canonical architecture plan and ADR-022. General and Fast navigation slices now run through the product bridge.
 The legacy Luna/LangGraph/Rust runtime remains an explicit rollback option;
-forms, long sessions and broad reliability are not migrated yet.
+General form approval is a bounded migration slice; long sessions and broad
+reliability are not migrated yet.
 
 Target: official Browser Use for the General engine; a small Jev-ultrafast-style
 Fast loop with interchangeable typed Laya (default, local) / Jev (optional,
@@ -90,7 +91,8 @@ APIs/events, never by linking agent internals.** Full rationale:
   Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
   `engines/product.py` dispatches configured CLI/extension tasks; `lifecycle.py`
   owns safe pause/cancel boundaries. Fast contracts are v2 with saved-v1 input
-  migration (ADR-024). Implemented scope is navigation/read only;
+  migration (ADR-024). Fast supports links. General offers navigation/read and
+  approved indexed click/quoted-literal text entry (ADR-025);
   see checkpoint for current gates.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.

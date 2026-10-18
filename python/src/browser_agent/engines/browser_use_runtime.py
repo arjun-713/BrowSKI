@@ -57,10 +57,15 @@ class ManagedBrowser:
     """One isolated profile; no reuse of personal browser cookies or user tabs."""
 
     def __init__(
-        self, *, chrome_path: str = "/usr/bin/google-chrome", headless: bool = True
+        self,
+        *,
+        chrome_path: str = "/usr/bin/google-chrome",
+        headless: bool = True,
+        highlight_elements: bool = True,
     ) -> None:
         self.chrome_path = chrome_path
         self.headless = headless
+        self.highlight_elements = highlight_elements
         self.workspace = tempfile.TemporaryDirectory(prefix="browski-engine-")
         self.browser: BrowserSession | None = None
 
@@ -79,6 +84,7 @@ class ManagedBrowser:
             use_cloud=False,
             keep_alive=True,
             enable_default_extensions=False,
+            highlight_elements=self.highlight_elements,
         )
         self.browser = Browser(browser_profile=profile)
         return self

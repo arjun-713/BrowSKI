@@ -49,7 +49,9 @@ The extension selects General/Fast for the next task and identifies the separate
 managed browser. Legacy attached execution requires explicit configuration.
 `extension/engine_tasks.py` maps engine events into the bounded timeline;
 `engines/lifecycle.py` owns pause boundaries and cancellation. Existing approval
-UI remains available to Legacy; new navigation tools cannot submit forms. Managed
+UI also handles task-local General interactions (ADR-025): each indexed click
+or quoted-literal text entry needs approval and fresh page/target validation.
+CLI without an approval sink remains read-only; Fast remains links-only. Managed
 CLI/extension runs share opt-in bounded diagnostic capture and model/action/failure
 traces. The final result exposes execution counters and verification. Detailed
 Fast inputs can be compared with `browski compare-fast`; no browser actions are

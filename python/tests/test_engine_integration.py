@@ -559,3 +559,124 @@ async def test_link_observation_ignores_malformed_urls_and_removes_destination_q
             if candidate.label == "Botany overview"
         )
         assert overview.href == f"{article_site}/botany.html"
+
+
+@pytest.mark.parametrize("decision", ["approve", "deny", "stop", "timeout"])
+async def test_managed_approval_is_one_use_and_stop_timeout_fail_closed(decision: str) -> None:
+    import asyncio
+
+    from browser_agent.engines.lifecycle import ActionApproval, TaskControl
+
+    requests: list[ActionApproval | None] = []
+    entered = asyncio.Event()
+
+    async def events(event: object) -> None:
+        pass
+
+    async def approvals(request: ActionApproval | None) -> None:
+        requests.append(request)
+        if request is not None:
+            entered.set()
+
+    control = TaskControl("general", "fixture", events, approvals=approvals)
+    request = ActionApproval(action="click", target="Confirm local demo")
+    pending = asyncio.create_task(control.request_approval(request, wait_seconds=0.1))
+    await asyncio.wait_for(entered.wait(), 1)
+    assert not control.respond_to_approval("a-different-action", True)
+    if decision == "stop":
+        control.stop()
+    elif decision != "timeout":
+        assert control.respond_to_approval(request.approval_id, decision == "approve")
+        assert not control.respond_to_approval(request.approval_id, True)
+    assert await asyncio.wait_for(pending, 1) is (decision == "approve")
+    assert requests == [request, None]
+    assert not control.respond_to_approval(request.approval_id, True)
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome approval policy"
+)
+@pytest.mark.parametrize("mode", ["approve", "deny", "changed", "append", "inferred", "password"])
+async def test_general_text_entry_needs_exact_literal_approval_and_unchanged_page(
+    article_site: str, tmp_path: Path, mode: str
+) -> None:
+    from browser_agent.engines.browser_use_runtime import ManagedBrowser
+    from browser_agent.engines.general_tools import InteractionPolicy, navigation_tools
+    from browser_agent.engines.lifecycle import ActionApproval
+
+    (tmp_path / "input.html").write_text(
+        '<h1>Local text entry</h1><label>Name<input id="name" name="name"></label>'
+    )
+    async with ManagedBrowser(highlight_elements=False) as owned:
+        browser = owned.browser
+        assert browser is not None
+        await browser.start()
+        page = cast(Any, await browser.get_current_page())
+        assert page is not None
+        await page.goto(f"{article_site}/input.html")
+        if mode == "password":
+            await page.evaluate("() => document.querySelector('input').type = 'password'")
+        state = await browser.get_browser_state_summary(include_screenshot=False, cached=False)
+        index = next(i for i, n in state.dom_state.selector_map.items() if n.tag_name == "input")
+        approvals: list[str] = []
+
+        async def approve(request: ActionApproval) -> bool:
+            approvals.append(request.approval_id)
+            assert request.target == "name"
+            if mode == "changed":
+                # A live property change has no HTML-attribute mutation.
+                await page.evaluate("() => document.querySelector('input').value = 'Someone else'")
+            return mode != "deny"
+
+        policy = InteractionPolicy(goal='Type "Ada" into Name.', approve=approve)
+        tools = cast(Any, navigation_tools(policy))
+        action_type = tools.registry.create_action_model()
+        action = action_type.model_validate(
+            {
+                "input": {
+                    "index": index,
+                    "text": "Grace" if mode == "inferred" else "Ada",
+                    "clear": mode != "append",
+                }
+            }
+        )
+        result = await tools.act(action, browser)
+        actual = await page.evaluate("() => document.querySelector('input').value")
+        assert actual == (
+            "Ada" if mode == "approve" else "Someone else" if mode == "changed" else ""
+        ), result.model_dump()
+        assert bool(result.error) is (mode != "approve")
+        assert len(approvals) == (0 if mode in {"append", "inferred", "password"} else 1)
+        if mode == "approve":
+            assert result.metadata is not None and result.metadata["browski_verified"] is True
+
+
+async def test_approval_clears_before_a_prior_pause_and_resume_is_still_required() -> None:
+    import asyncio
+
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.lifecycle import ActionApproval, TaskControl
+
+    visible = asyncio.Event()
+    cleared = asyncio.Event()
+    paused = asyncio.Event()
+
+    async def events(event: EngineEvent) -> None:
+        if event.kind == "task_paused":
+            paused.set()
+
+    async def approvals(request: ActionApproval | None) -> None:
+        (visible if request else cleared).set()
+
+    control = TaskControl("general", "fixture", events, approvals=approvals)
+    control.pause()
+    request = ActionApproval(action="input", target="name")
+    pending = asyncio.create_task(control.request_approval(request))
+    await asyncio.wait_for(visible.wait(), 1)
+    assert control.respond_to_approval(request.approval_id, True)
+    await asyncio.wait_for(cleared.wait(), 1)
+    await asyncio.wait_for(paused.wait(), 1)
+    assert not pending.done()
+    assert not control.respond_to_approval(request.approval_id, True)
+    control.resume()
+    assert await asyncio.wait_for(pending, 1)

@@ -90,3 +90,38 @@ observation, changing an anchor's destination without its label/backend ID cause
 one wrong click in the old code. The destination-aware fingerprint refuses that
 click and reacquires the page. This is mechanical correctness evidence, not an
 increase in autonomous task success on the four-case sample.
+
+## Managed General form compatibility gate
+
+The phase-7 form slice uses `test_managed_general_form_approval_from_packaged_panel`
+in the existing managed E2E module. It runs the actual packaged sidebar, Native
+Messaging service, official Browser Use Agent and local Chrome. HTTP inference
+is explicitly replaced with deterministic responses; there are **zero paid
+provider requests**. This is an integration/regression gate, not an autonomous
+General success-rate benchmark.
+
+The task enters the quoted literal `Ada` in a local draft and saves it. The
+fixture changes to `/receipt.html?name=Ada` with the visible H1 `Saved demo record`
+only if the actual input value matches. The test checks the empty field before
+approval, the actual value after approved typing, and no receipt before approving
+the button. It then varies the button response:
+
+| Variant | Required terminal outcome | Required effect |
+| --- | --- | --- |
+| Approve | completed, verified | Exact receipt URL/H1; three executed actions |
+| Deny | blocked, unverified | No save; only navigation and approved typing |
+| Stop | cancelled, unverified | No pending click; card cleared and browser cleaned up |
+| Field changed during review | blocked, unverified | No save after stale approval |
+
+Separate real-Chrome tool cases cover approved/denied text entry, a live field
+property mutation, append input, invented text and password fields. Task-control
+checks cover one-use approval IDs, expiry, Stop and a pre-existing Pause. These
+prove bounded execution/approval behavior. They do not measure dates, selects,
+authentication, source-to-field synthesis, public-site forms or live generative
+model decision quality. The current caller-owned URL/H1 verifier is not a generic
+business-workflow verifier. Keep broader outcome checks and unseen task
+acceptance open, and retain Legacy capabilities until replacements pass.
+
+The 2026-10-18 packaged run passed all four approval variants. The full packaged
+suite passed 21 tests with the two CPU-Laya opt-ins enabled and four spent
+navigation opt-ins skipped. No live General form inference was measured.

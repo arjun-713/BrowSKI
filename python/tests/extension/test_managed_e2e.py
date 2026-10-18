@@ -271,3 +271,157 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
     assert attached_harness.service.runtime_session is not None
     assert attached_harness.service.runtime_session["browserMode"] == "managed"
     assert attached_harness.service._browser_session is None  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("attached_harness", ["fast"], indirect=True)
+@pytest.mark.parametrize("response", ["approve", "deny", "stop", "changed"])
+async def test_managed_general_form_approval_from_packaged_panel(
+    attached_harness: ProductHarness,
+    article_site: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    response: str,
+) -> None:
+    """Real Agent and UI approval; scripted inference proves plumbing, not model accuracy."""
+    import httpx
+
+    from browser_agent.engines import general, product
+    from browser_agent.engines.browser_use_runtime import ManagedBrowser
+    from browser_agent.engines.contracts import EngineResult
+    from browser_agent.engines.general import GeneralConfig
+
+    (tmp_path / "form.html").write_text("""
+        <h1>Local draft</h1><label>Name<input name="name" id="name"></label>
+        <button id="save" onclick="if(document.querySelector('input').value==='Ada'){
+          history.replaceState({},'', '/receipt.html?name=Ada');
+          document.body.innerHTML='<h1>Saved demo record</h1>'}">Save demo record</button>
+    """)
+    harness = attached_harness
+    owned: list[ManagedBrowser] = []
+    results: list[EngineResult] = []
+    calls = 0
+    original_run = general.run_general
+
+    def managed_browser(**kwargs: Any) -> ManagedBrowser:
+        instance = ManagedBrowser(**kwargs)
+        owned.append(instance)
+        return instance
+
+    async def offline_model(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        browser = owned[0].browser
+        assert browser is not None
+        if calls == 1:
+            action = {"navigate": {"url": f"{article_site}/form.html", "new_tab": False}}
+        elif calls in {2, 3}:
+            state = await browser.get_browser_state_summary(include_screenshot=False, cached=True)
+            target = "name" if calls == 2 else "save"
+            index = next(
+                i
+                for i, node in state.dom_state.selector_map.items()
+                if node.attributes.get("id") == target
+            )
+            action = (
+                {"input": {"index": index, "text": "Ada", "clear": True}}
+                if calls == 2
+                else {"click": {"index": index}}
+            )
+        else:
+            action = {"done": {"text": "Saved demo record", "success": True}}
+        return httpx.Response(
+            200,
+            json={
+                "id": "offline-local-form",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "offline-fixture",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps({"action": [action]}),
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    async def bounded_run(goal: str, config: GeneralConfig, **kwargs: Any) -> EngineResult:
+        result = await original_run(
+            goal,
+            config.model_copy(update={"max_calls": 4, "max_steps": 5}),
+            model_transport=httpx.MockTransport(offline_model),
+            **kwargs,
+        )
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(general, "ManagedBrowser", managed_browser)
+    monkeypatch.setattr(general, "run_general", bounded_run)
+    monkeypatch.setattr(product, "configured_openai_api_key", lambda: "offline-fixture-only")
+    panel = harness.panel
+    await panel.get_by_label("Engine", exact=True).select_option("general")
+    await panel.locator(".settings-section > summary").click()
+    await panel.get_by_label("Generative text", exact=True).select_option("openai")
+    await panel.get_by_label("Permit paid API calls for tasks").check()
+    await panel.get_by_role("button", name="Save runtime settings", exact=True).click()
+    await expect(
+        panel.get_by_role("button", name="Save runtime settings", exact=True)
+    ).to_be_disabled()
+    await panel.locator(".settings-section > summary").click()
+    await panel.locator(".task-outcome-fields > summary").click()
+    await panel.get_by_label("Starting page", exact=True).fill(f"{article_site}/form.html")
+    await panel.get_by_label("Expected final page URL").fill(
+        f"{article_site}/receipt.html?name=Ada"
+    )
+    await panel.get_by_label("Expected page heading").fill("Saved demo record")
+    await panel.get_by_label("Task instruction").fill(
+        'Type "Ada" into Name and save the demo record.'
+    )
+    await panel.get_by_role("button", name="Send task", exact=True).click()
+    await expect(panel.get_by_role("heading", name="Confirm input", exact=True)).to_be_visible(
+        timeout=50_000
+    )
+    browser = owned[0].browser
+    assert browser is not None
+    page = cast(Any, await browser.get_current_page())
+    assert await page.evaluate("() => document.querySelector('input').value") == ""
+    await panel.get_by_role("button", name="Approve action", exact=True).click()
+    await expect(panel.get_by_role("heading", name="Confirm click", exact=True)).to_be_visible(
+        timeout=30_000
+    )
+    assert await page.evaluate("() => document.querySelector('input').value") == "Ada"
+    assert "/receipt.html" not in await page.evaluate("() => location.href")
+    if response == "changed":
+        await page.evaluate("() => document.querySelector('input').value = 'Changed after review'")
+    if response == "stop":
+        await panel.get_by_role("button", name="Stop", exact=True).click()
+    else:
+        await panel.get_by_role(
+            "button", name="Deny action" if response == "deny" else "Approve action", exact=True
+        ).click()
+    await expect(panel.get_by_role("heading", name="Confirm click", exact=True)).not_to_be_visible(
+        timeout=30_000
+    )
+    for _ in range(100):
+        if results:
+            break
+        await asyncio.sleep(0.1)
+    assert results
+    result = results[0]
+    assert result.status.value == (
+        "completed" if response == "approve" else "cancelled" if response == "stop" else "blocked"
+    ), result.model_dump()
+    assert result.verified is (response == "approve")
+    assert result.action_count == (3 if response == "approve" else 2)
+    assert calls == (4 if response == "approve" else 3)
+    assert result.evidence is not None and (
+        ("/receipt.html?name=Ada" in result.evidence.url) is (response == "approve")
+    )
+    assert harness.service.runtime_session is not None
+    assert harness.service.runtime_session["status"] == result.status.value
+    assert harness.service._browser_session is None  # pyright: ignore[reportPrivateUsage]
