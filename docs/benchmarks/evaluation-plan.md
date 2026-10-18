@@ -125,3 +125,28 @@ acceptance open, and retain Legacy capabilities until replacements pass.
 The 2026-10-18 packaged run passed all four approval variants. The full packaged
 suite passed 21 tests with the two CPU-Laya opt-ins enabled and four spent
 navigation opt-ins skipped. No live General form inference was measured.
+
+## Fast quoted text-field development gate
+
+ADR-026 adds ordinary text fields without a generative model. The development
+case sets Name to Ada and City to Pune on a page whose URL/H1 already matches
+its caller-owned check. Completion must wait for both actual values, not just
+that initial page match. The first live CPU-Laya engine run completed two input
+actions in 24.66 s with two decisions (1717/1811 ms), no provider errors,
+recoveries or generative calls. These are one-task development timings, not a
+latency benchmark, memory measurement or unseen success-rate estimate.
+
+The same task also passed through the packaged default-Fast sidebar, without
+Legacy attachment or hosted credential access, with two distinct user approvals.
+Native reads confirm both field values. Real-Chrome regressions cover a value
+changed before execution (zero typing actions), a page masking Ada to ADA
+(unverified with one invoked action), and missing/duplicate labels (partial,
+never completed). Input control characters are rejected before approval. Strict
+intent tests reject conflicts, incomplete/unquoted/blank/overlong assignments
+and more than eight bindings; instruction-like literal contents remain data.
+
+Both Laya and Jev pass offline adapter cases for the exact same TYPE_TEXT
+question/candidate state. Live Jev is still unverified. This gate does not cover
+submit buttons, native dates, dropdowns, uploads, source transfer or retained
+browser sessions; task browsers still close at completion. It is a development
+vertical slice and mechanical regression coverage, not a new autonomous holdout.

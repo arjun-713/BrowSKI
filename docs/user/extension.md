@@ -14,7 +14,8 @@ to the next task and are refused during a run.
 
 These engines open a separate task-owned browser profile; source tabs are
 reference context and do not transfer cookies/login state or debugger control.
-Fast supports links. General additionally supports indexed click/text entry
+Fast supports links and approved literal-bound text fields (see below). General
+additionally supports indexed click/text entry
 with approval for **each** interaction. Quote the exact input text in your task
 (e.g. `Type "Ada" into Name`). Only ordinary main-document text fields are
 enabled; dates, selects, files, password fields and append input are not part of
@@ -25,6 +26,16 @@ an independent navigation check; without one, DONE remains unverified. Progress,
 pause/stop and final result counters use the existing Native Messaging bridge.
 See [configuration](configuration.md), [debugging](debugging.md), and the
 [migration checkpoint](../architecture/migration-status.md) for tested scope.
+
+Fast's supported field instructions are `set "Field" to "Value"`,
+`fill "Field" with "Value"`, and `type "Value" into "Field"`. Both parts must be
+quoted; each accessible label must match one ordinary text field. At most eight
+assignments, 120-character labels and 256-character plain values are supported.
+Each field needs approval and an actual value match; the expected final page
+alone cannot complete an unmet field task. Missing or duplicate controls leave
+the task unverified. Fast does not yet submit forms, select options or fill dates.
+CLI without an approval sink blocks unmet field requirements before inference.
+Task browsers close at task end; long sessions/manual continuation are not added.
 
 The attachment, explicit form values, owned supporting tabs, vision and checkpoint
 features documented below apply to **Legacy** unless explicitly stated otherwise.

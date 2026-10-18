@@ -68,7 +68,12 @@ async def _target_state(
         return None
     # New input support is deliberately limited to ordinary main-document text
     # fields. Native dates, files, credentials and rich editors need separate proof.
-    label = node.attributes.get("aria-label") or node.attributes.get("name") or node.tag_name
+    label = (
+        (node.ax_node.name if node.ax_node is not None else None)
+        or node.attributes.get("aria-label")
+        or node.attributes.get("name")
+        or node.tag_name
+    )
     identity = (node.backend_node_id, str(node.target_id), node.frame_id)
     return identity, hashlib.sha256(raw.encode()).hexdigest(), str(label)[:120]
 
@@ -110,6 +115,9 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                     if (
                         not isinstance(text, str)
                         or not 1 <= len(text) <= 4096
+                        or any(
+                            ord(character) < 0x20 or ord(character) == 0x7F for character in text
+                        )
                         or params.get("clear", True) is not True
                         or not any(
                             f"{quote}{text}{quote}" in active_policy.goal for quote in ('"', "'")

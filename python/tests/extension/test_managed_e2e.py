@@ -243,10 +243,13 @@ async def test_frozen_navigation_first_look_from_packaged_panel(
 
 @pytest.mark.skipif(os.environ.get("BROWSKI_LAYA_E2E") != "1", reason="prepared CPU Laya required")
 @pytest.mark.parametrize("attached_harness", ["fast"], indirect=True)
+@pytest.mark.parametrize("task_kind", ["navigation", "fields"])
 async def test_fresh_default_runs_local_task_without_legacy_attachment(
     attached_harness: ProductHarness,
     article_site: str,
     monkeypatch: pytest.MonkeyPatch,
+    task_kind: str,
+    tmp_path: Path,
 ) -> None:
     from browser_agent.engines import product
 
@@ -258,13 +261,39 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
     await expect(panel.get_by_label("Engine", exact=True)).to_have_value("fast")
     assert await panel.get_by_role("button", name="Capture active tab").count() == 0
     await panel.locator(".task-outcome-fields > summary").click()
-    await panel.get_by_label("Expected final page URL").fill(f"{article_site}/botany.html")
-    await panel.get_by_label("Expected page heading").fill("Botany")
+    if task_kind == "fields":
+        (tmp_path / "fields.html").write_text(
+            '<h1>Draft form</h1><label>Name<input name="name"></label>'
+            '<label>City<input name="city"></label>'
+        )
+    path = "fields.html" if task_kind == "fields" else "botany.html"
+    await panel.get_by_label("Expected final page URL").fill(f"{article_site}/{path}")
+    await panel.get_by_label("Expected page heading").fill(
+        "Draft form" if task_kind == "fields" else "Botany"
+    )
     # Exercise the normal task-link start path instead of the debug starting-page field.
     await panel.get_by_label("Task instruction").fill(
-        f"Open the Botany article from {article_site}/index.html"
+        f'Open {article_site}/fields.html; set "Name" to "Ada"; fill "City" with "Pune".'
+        if task_kind == "fields"
+        else f"Open the Botany article from {article_site}/index.html"
     )
     await panel.get_by_role("button", name="Send task", exact=True).click()
+    if task_kind == "fields":
+        seen: set[str] = set()
+        for _ in range(2):
+
+            async def next_approval() -> dict[str, object]:
+                while True:
+                    pending = attached_harness.service._pending_approval  # pyright: ignore[reportPrivateUsage]
+                    if pending is not None and pending["approvalId"] not in seen:
+                        return pending
+                    await asyncio.sleep(0.05)
+
+            pending = await asyncio.wait_for(next_approval(), 60)
+            seen.add(str(pending["approvalId"]))
+            await expect(panel.get_by_text(str(pending["summary"]), exact=True)).to_be_visible()
+            await panel.get_by_role("button", name="Approve action", exact=True).click()
+        assert len(seen) == 2
     await expect(panel.get_by_role("heading", name="Task completed", exact=True)).to_be_visible(
         timeout=120_000
     )

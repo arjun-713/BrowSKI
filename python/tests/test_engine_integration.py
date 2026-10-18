@@ -596,7 +596,9 @@ async def test_managed_approval_is_one_use_and_stop_timeout_fail_closed(decision
 @pytest.mark.skipif(
     os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome approval policy"
 )
-@pytest.mark.parametrize("mode", ["approve", "deny", "changed", "append", "inferred", "password"])
+@pytest.mark.parametrize(
+    "mode", ["approve", "deny", "changed", "append", "inferred", "password", "controls"]
+)
 async def test_general_text_entry_needs_exact_literal_approval_and_unchanged_page(
     article_site: str, tmp_path: Path, mode: str
 ) -> None:
@@ -622,20 +624,25 @@ async def test_general_text_entry_needs_exact_literal_approval_and_unchanged_pag
 
         async def approve(request: ActionApproval) -> bool:
             approvals.append(request.approval_id)
-            assert request.target == "name"
+            assert request.target == "Name"
             if mode == "changed":
                 # A live property change has no HTML-attribute mutation.
                 await page.evaluate("() => document.querySelector('input').value = 'Someone else'")
             return mode != "deny"
 
-        policy = InteractionPolicy(goal='Type "Ada" into Name.', approve=approve)
+        goal = 'Type "Ad\ta" into Name.' if mode == "controls" else 'Type "Ada" into Name.'
+        policy = InteractionPolicy(goal=goal, approve=approve)
         tools = cast(Any, navigation_tools(policy))
         action_type = tools.registry.create_action_model()
         action = action_type.model_validate(
             {
                 "input": {
                     "index": index,
-                    "text": "Grace" if mode == "inferred" else "Ada",
+                    "text": "Grace"
+                    if mode == "inferred"
+                    else "Ad\ta"
+                    if mode == "controls"
+                    else "Ada",
                     "clear": mode != "append",
                 }
             }
@@ -646,7 +653,9 @@ async def test_general_text_entry_needs_exact_literal_approval_and_unchanged_pag
             "Ada" if mode == "approve" else "Someone else" if mode == "changed" else ""
         ), result.model_dump()
         assert bool(result.error) is (mode != "approve")
-        assert len(approvals) == (0 if mode in {"append", "inferred", "password"} else 1)
+        assert len(approvals) == (
+            0 if mode in {"append", "inferred", "password", "controls"} else 1
+        )
         if mode == "approve":
             assert result.metadata is not None and result.metadata["browski_verified"] is True
 
@@ -680,3 +689,141 @@ async def test_approval_clears_before_a_prior_pause_and_resume_is_still_required
     assert not control.respond_to_approval(request.approval_id, True)
     control.resume()
     assert await asyncio.wait_for(pending, 1)
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome literal fields"
+)
+@pytest.mark.parametrize(
+    "provider_name",
+    ["fixture", "laya", "mutating-fixture", "mask-fixture", "duplicate-fixture", "missing-fixture"],
+)
+async def test_fast_requires_actual_field_values_before_matching_page_can_complete(
+    article_site: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_name: str
+) -> None:
+    from browser_agent.engines import fast
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.fast_browser import FastBrowser
+    from browser_agent.engines.fast_contract import (
+        FastDecision,
+        FastDecisionProvider,
+        FastRequest,
+        Operation,
+    )
+    from browser_agent.engines.fast_providers import LayaFastProvider
+    from browser_agent.engines.lifecycle import ActionApproval
+
+    if provider_name == "laya" and os.environ.get("BROWSKI_LAYA_E2E") != "1":
+        pytest.skip("Prepared local CPU Laya required")
+    (tmp_path / "fields.html").write_text(
+        '<h1>Draft form</h1><label>Name<input name="name"></label>'
+        '<label>City<input name="city"></label>'
+    )
+    if provider_name == "mask-fixture":
+        path = tmp_path / "fields.html"
+        path.write_text(
+            path.read_text().replace(
+                '<input name="name">',
+                '<input name="name" oninput="this.value=this.value.toUpperCase()">',
+            )
+        )
+    if provider_name in {"duplicate-fixture", "missing-fixture"}:
+        path = tmp_path / "fields.html"
+        html = path.read_text()
+        if provider_name == "duplicate-fixture":
+            html += '<label>Name<input name="other-name"></label>'
+        else:
+            html = html.replace('<label>City<input name="city"></label>', "")
+        path.write_text(html)
+    owned = FastBrowser()
+
+    def browser_factory(**kwargs: Any) -> FastBrowser:
+        return owned
+
+    monkeypatch.setattr(fast, "FastBrowser", browser_factory)
+    observations: list[dict[str, str]] = []
+    approvals: list[str] = []
+
+    async def approve(request: ActionApproval) -> bool:
+        assert request.action == "input"
+        assert request.target in {"Name", "City"}
+        approvals.append(request.target)
+        return True
+
+    async def events(event: EngineEvent) -> None:
+        if event.kind == "verification":
+            assert owned.browser is not None
+            page = cast(Any, await owned.browser.get_current_page())
+            raw = await page.evaluate(
+                "() => JSON.stringify(Object.fromEntries(Array.from("
+                "document.querySelectorAll('input')).map(e=>[e.name,e.value])))"
+            )
+            observations.append(json.loads(raw))
+
+    class FieldFixture:
+        name = "fixture"
+        model = "bounded-field-fixture"
+        calls = 0
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            self.calls += 1
+            if provider_name == "mutating-fixture" and self.calls > 1:
+                return FastDecision(
+                    observation_id=request.observation.id,
+                    provider=self.name,
+                    model=self.model,
+                    operation=Operation.BLOCKED,
+                    latency_ms=0,
+                )
+            field = next(
+                c for c in request.observation.candidates if c.operation is Operation.TYPE_TEXT
+            )
+            if provider_name == "mutating-fixture":
+                assert owned.browser is not None
+                page = cast(Any, await owned.browser.get_current_page())
+                await page.evaluate("() => document.querySelector('input').value='Someone else'")
+            return FastDecision(
+                observation_id=request.observation.id,
+                provider=self.name,
+                model=self.model,
+                operation=Operation.TYPE_TEXT,
+                candidate_id=field.id,
+                latency_ms=0,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    provider: FastDecisionProvider = (
+        LayaFastProvider(Path(__file__).parents[2] / ".browser-data/laya-browser-v19s")
+        if provider_name == "laya"
+        else FieldFixture()
+    )
+    url = f"{article_site}/fields.html"
+    result = await fast.run_fast(
+        'Set "Name" to "Ada"; fill "City" with "Pune".',
+        url,
+        provider,
+        criteria=CompletionCriteria(url=url, heading="Draft form"),
+        event_sink=events,
+        approve_action=approve,
+    )
+    print("BROWSKI_FIELD_METRIC " + json.dumps(result.model_dump(mode="json")))
+    assert result.generative_calls == 0
+    if provider_name in {"duplicate-fixture", "missing-fixture"}:
+        assert not result.verified and result.action_count == 1
+        assert result.status.value == "partially_completed"
+        assert approvals == (["City"] if provider_name == "duplicate-fixture" else ["Name"])
+    elif provider_name == "mask-fixture":
+        assert not result.verified and result.action_count == 1
+        assert result.failure_phase == "verification"
+        assert approvals == ["Name"]
+        assert observations[-1] == {"name": "ADA", "city": ""}
+    elif provider_name == "mutating-fixture":
+        assert not result.verified and result.action_count == 0
+        assert result.recovery_count == 1
+        assert approvals == []
+    else:
+        assert result.verified, result.model_dump()
+        assert result.action_count == 2 and sorted(approvals) == ["City", "Name"]
+        assert observations[-1] == {"name": "Ada", "city": "Pune"}

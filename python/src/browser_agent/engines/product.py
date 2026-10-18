@@ -106,6 +106,7 @@ async def _execute_selected_task(
         event_sink=events,
         cancel=control.cancel,
         before_decision=control.decision_boundary,
+        approve_action=control.approval_handler,
     )
 
 

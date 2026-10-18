@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`, managed approval as `a5685be`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -25,10 +25,10 @@ no hosted fallback or Jev request has been made.
 | 1 Browser Use baseline  | Complete — `164c036`                             | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
 | 2 Extension integration | Navigation gate committed — `3d62ab2`            | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
 | 3 Fast contract         | Complete — `6b66bfa`                             | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
-| 4 Local Laya            | Complete for navigation slice — `848cd06`        | Real one- and two-click tasks, zero generative calls; forms/text unsupported                 |
+| 4 Local Laya            | Complete for navigation slice — `848cd06`        | Real one- and two-click tasks, zero generative calls; phase 7 adds approved text fields                 |
 | 5 Jev/switching         | Complete for offline/selection gate              | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
 | 6 Debug controls        | Complete for navigation diagnostics              | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
-| 7 Reliability           | Navigation committed; approval slice validated | Frozen first-look 4/4; href defect reproduced/fixed; broader forms/tabs still open           |
+| 7 Reliability           | Navigation/approval committed; text-field gate validated | Frozen first-look 4/4; href defect reproduced/fixed; broader forms/tabs still open           |
 | 8 Cleanup               | Pending                                          | No legacy deletion until replacement regression gates                                        |
 
 ## Latest evidence
@@ -98,7 +98,10 @@ source-to-field synthesis are not enabled. Model final text never proves complet
 other tasks return an unverified/partial outcome. Cancellation and budgets are
 covered with offline inference and real Chrome.
 
-Fast currently offers same-site links only. It refuses candidate overflow,
+Fast offers same-site links and approved quoted-literal ordinary text fields
+(ADR-026). Every requested field must match fresh values as well as the final
+URL/H1. CLI without approval support blocks unmet field requirements. Dates,
+selects, submit buttons, source transfer and persistent sessions remain open. It refuses candidate overflow,
 requires fresh semantic identity before clicking, bounds recovery and does not
 silently invoke text generation. The upstream tokenizer emits a regex warning;
 it has not been suppressed or silently changed from the released checkpoint.
@@ -109,7 +112,7 @@ integration is committed; its aggregate Rust regression issue remains open. Gene
 and Fast use separate managed Chrome profiles, not the extension debugger relay.
 The sidebar states this; personal tab authentication is not transferred. Existing
 Legacy approvals/rollback remain; General has a bounded approved form slice and
-Fast still supports links only.
+Fast also has an approved literal text-field slice.
 
 Local Fast commands (from repository root):
 
@@ -227,14 +230,14 @@ Phase-7 navigation slice — `4a52b9e`:
   `make lint` passed. Extension source, lock and manifest match **0.2.1**.
   No additional paid OpenAI or live Jev requests were used.
 
-Next exact action: commit the validated managed General approval slice, then
-continue broader Fast actions and outcome coverage.
+Next exact action: finish the packaged/regression gate for Fast literal fields,
+commit that slice, then investigate native dates/dropdowns and richer outcomes.
 Do not claim broad forms/dates/dropdowns/tabs/auth/resumability have migrated. The
 aggregate Rust stress-suite stall remains open; no Rust source changed and its
 isolated 100-cycle case passed. Retain Legacy and keep the migration goal active.
 
 
-Phase-7 managed approval slice (validated, awaiting scoped commit):
+Phase-7 managed approval slice — `a5685be`:
 
 - General's actual Browser Use indexed click/input tools now use the existing
   sidebar approval card and authenticated protocol. A unique task-local future
@@ -274,3 +277,45 @@ Broader Fast forms, dates/dropdowns, source transfer, tab/auth/session workflows
 durable managed resume and richer goal coverage remain open. Keep the migration
 goal active. The aggregate Rust stress-suite stall remains unresolved; this
 slice changes no Rust source. Retain Legacy until replacement gates pass.
+
+
+Phase-7 Fast literal text-field slice (validated, awaiting scoped commit):
+
+- Extracted only the bounded quoted set/fill/type grammar and label normalization
+  from Legacy into `task_literals.py`; no Legacy graph/provider imports in Fast.
+  Strict Fast intent rejects conflicts, incomplete/unquoted/blank/overlong field
+  instructions, control characters and overflow. Quoted literal contents cannot
+  become new instructions. Legacy retains soft abstention; its 11 value tests
+  and the full Python regression pass.
+- Fast offers unmet uniquely named ordinary text fields as TYPE_TEXT candidates.
+  Values come from user intent, never a provider response. Both adapters pass the
+  same typed-input contract fixtures. Reuses ADR-025's actual Browser Use input
+  tool, per-action approval, current target/page binding and fresh value read.
+  Approval cards now use accessible names. No new serializer/version change:
+  Fast v2 already defines TYPE_TEXT. No paid fallback or local generative model.
+- Completion now requires final URL/H1 **and all requested fields**. The first
+  live Laya development task filled Name/City (2 actions/decisions, 24.66 s,
+  1717/1811 ms decisions, 0 recoveries/provider errors/generative calls).
+  This is one development timing, not an unseen benchmark or speed claim.
+- Real-Chrome tests cover fixture and actual CPU Laya completion, a live value
+  mutation invalidating the decision (0 typing actions), masked input refusing
+  verification (1 invoked action), duplicate labels and missing fields (partial,
+  never completed). No candidates means bounded abstention without inference.
+  CLI without an approval sink blocks unmet fields before inference. Stop wins
+  a simultaneous engine-return race. Task profiles still close at task end.
+- Actual packaged default-Fast field task passed without Legacy attachment or
+  hosted credential lookup, with two distinct approvals. Full packaged suite:
+  **22 passed, 4 spent-navigation opt-in skips, 321.84 s**, CPU-Laya enabled.
+  Latest full Python: **723 passed, 69 opt-in skips, 166.72 s**. Final focused
+  real-engine/provider/Legacy suite: **88 passed, 164.51 s**; latest six field
+  cases also passed separately. `make lint` and extension `npm run check` pass
+  (74 extension software tests); package/lock/manifest all **0.2.3**.
+  No new paid OpenAI or live Jev calls. Raw development logs remain in /tmp;
+  the frozen navigation manifest has not been changed or reused as unseen data.
+
+Next exact action: review and commit this text-field slice; then investigate
+native date/dropdown primitives and task-specific verification before enabling
+those actions. Submit buttons, source transfer, tabs/auth and persistent managed
+sessions remain open. Keep Legacy and the overall migration goal active. The
+aggregate Rust stress-suite stall remains an outstanding gate; no Rust source
+changed in these slices. Do not call the migration or product production-ready.

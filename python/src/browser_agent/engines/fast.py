@@ -19,6 +19,8 @@ from browser_agent.engines.contracts import (
 )
 from browser_agent.engines.fast_browser import FastBrowser
 from browser_agent.engines.fast_contract import FastDecisionProvider, Operation, build_request
+from browser_agent.engines.lifecycle import ApprovalHandler
+from browser_agent.task_literals import TaskLiteralError
 
 
 class FastConfig(BaseModel):
@@ -41,10 +43,11 @@ async def run_fast(
     event_sink: EventSink | None = None,
     cancel: asyncio.Event | None = None,
     before_decision: Callable[[], Awaitable[None]] | None = None,
+    approve_action: ApprovalHandler | None = None,
 ) -> EngineResult:
-    """Initial supported slice: same-site link navigation, no generative calls.
+    """Bounded same-site links and approved literal-bound text entry, no generative calls.
 
-    Unsupported text/form actions are not guessed or silently routed to a paid
+    Unsupported form operations are not guessed or silently routed to a paid
     provider. Engine contracts and ownership stay the same for Laya and Jev.
     """
     from urllib.parse import urlsplit
@@ -87,6 +90,7 @@ async def run_fast(
         nonlocal evidence, status, steps, actions, recoveries, provider_errors, error, failure_phase
         async with FastBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
             assert owned.browser is not None
+            owned.enable_fields(goal, approve_action)
             await owned.browser.start()
             page = await owned.browser.get_current_page()
             if page is None:
@@ -101,8 +105,15 @@ async def run_fast(
                     break
                 observation = await owned.observe_links({host})
                 evidence = await page_evidence(owned.browser)
-                if criteria is not None and criteria.verify(evidence):
+                if criteria is not None and criteria.verify(evidence) and owned.fields_verified:
                     status = EngineStatus.COMPLETED
+                    break
+                if owned.input_unavailable and not owned.fields_verified:
+                    error = "Fast text entry requires an approval-capable client; use the sidebar."
+                    break
+                if not observation.candidates:
+                    status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
+                    error = "No supported links or literal-bound text fields can advance this task."
                     break
                 request = build_request(
                     goal, observation, tuple(history[-10:]), allow_done=criteria is None
@@ -141,8 +152,11 @@ async def run_fast(
                     status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
                     error = "Model stopped without independent evidence for the requested outcome."
                     break
-                if decision.operation is not Operation.CLICK or decision.candidate_id is None:
-                    error = "The selected operation is unsupported by this navigation slice."
+                if (
+                    decision.operation not in {Operation.CLICK, Operation.TYPE_TEXT}
+                    or decision.candidate_id is None
+                ):
+                    error = "The selected operation is unsupported by this Fast action vocabulary."
                     break
                 fresh = await owned.observe_links({host})
                 if fresh.id != decision.observation_id:
@@ -153,7 +167,21 @@ async def run_fast(
                         break
                     continue
                 failure_phase = "browser"
-                await owned.click_observed(decision.candidate_id)
+                if decision.operation is Operation.TYPE_TEXT:
+                    invoked, verified = await owned.type_observed(decision.candidate_id)
+                    if not verified:
+                        actions += int(invoked)
+                        failure_phase = "verification" if invoked else "approval"
+                        error = owned.input_blocked_reason or "Text entry was not verified."
+                        await emit(
+                            "verification" if invoked else "approval_blocked",
+                            decision.operation,
+                            decision.candidate_id,
+                            False,
+                        )
+                        break
+                else:
+                    await owned.click_observed(decision.candidate_id)
                 actions += 1
                 await emit("action_finished", decision.operation, decision.candidate_id)
                 failure_phase = "verification"
@@ -168,13 +196,13 @@ async def run_fast(
                         "action": next(
                             c.label for c in observation.candidates if c.id == decision.candidate_id
                         ),
-                        "kind": "click",
+                        "kind": "type" if decision.operation is Operation.TYPE_TEXT else "click",
                         "text": None,
                         "page_changed": progressed,
                     }
                 )
                 history[:] = history[-10:]
-                if criteria is not None and criteria.verify(evidence):
+                if criteria is not None and criteria.verify(evidence) and owned.fields_verified:
                     status = EngineStatus.COMPLETED
                     break
                 if not progressed:
@@ -197,7 +225,9 @@ async def run_fast(
         finished, _ = await asyncio.wait(
             pending, timeout=config.timeout_seconds, return_when=asyncio.FIRST_COMPLETED
         )
-        if work in finished:
+        if cancel is not None and cancel.is_set():
+            status = EngineStatus.CANCELLED
+        elif work in finished:
             await work
         elif watch is not None and watch in finished:
             status = EngineStatus.CANCELLED
@@ -205,6 +235,10 @@ async def run_fast(
             error = "Fast task time budget exhausted."
     except asyncio.CancelledError:
         raise
+    except TaskLiteralError as exc:
+        status = EngineStatus.BLOCKED
+        failure_phase = "task"
+        error = str(exc)
     except Exception as exc:
         status = EngineStatus.FAILED
         failure_phase = "provider" if provider_errors else "browser"

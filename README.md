@@ -6,7 +6,8 @@ it is not yet a general production-ready replacement for the Legacy runtime.
 
 - **Fast** defaults to the released browser-tuned **Laya** checkpoint on CPU.
   It selects bounded operations/targets; it is not a text generator. Current
-  execution supports web links and independently checked final pages.
+  execution supports web links and approved quoted-literal text fields in the
+  sidebar. Final page checks and every requested field must match.
 - **General** wraps the official **Browser Use Agent**, using a separately
   configured OpenAI text model. The sidebar supports navigation/read and a
   bounded approved click/text-entry slice; broader workflows remain in migration.
@@ -70,6 +71,15 @@ Name`; a fresh field read verifies typing. Denial, Stop, expiry or a changed pag
 blocks the pending action. CLI tools stay read-only without an approval sink.
 This controlled form integration has offline model fixtures, not live General
 form-accuracy evidence. Legacy's approval path remains intact.
+
+Fast reuses the existing bounded field grammar, for example `set "Full name" to
+"Alex Demo"; fill "City" with "Pune"`. Quote both the observed field label and its
+exact value. Laya/Jev choose the target; code supplies the literal and checks the
+live value. Missing/ambiguous fields cannot be skipped for completion. Fast has
+no submit/select/date/file tools in this slice. Task-owned browsers close when
+the task finishes, so this field-filling gate does not preserve a form for later
+manual work or establish durable session support.
+
 
 The [configuration guide](docs/user/configuration.md) contains current engine
 settings and explicitly labelled Legacy options. [Debugging](docs/user/debugging.md)
