@@ -49,6 +49,10 @@ the shared bounded task-literal parser, not model-generated text (ADR-026/027).
 ambiguous or unsupported controls cannot supply proof. One same-document
 semantic reread handles a replaced control after a write, without repeating it.
 Every fresh observation recomputes all field proof, including missing controls.
+Fast keeps body text in its decision-freshness hash, but excludes arbitrary text
+from the structural stagnation signal (ADR-028). URL/title, candidates, private
+destinations, native state and visible H1 can establish change; independent
+outcome checks still decide completion.
 Full form workflows are not migrated.
 `cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
 Product task submission and `browski run/task` now dispatch through

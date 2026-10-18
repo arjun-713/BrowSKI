@@ -178,3 +178,18 @@ These are controlled development cases, not an unseen success-rate estimate.
 Keep custom controls, submit workflows, source transfer, tabs/auth and retained
 sessions outside this gate. Use a fresh frozen end-to-end task set after further
 workflow work; the four navigation first-look cases are already spent.
+
+## Fast repeated-action regression
+
+ADR-028 separates decision freshness from structural progress. A real-Chrome
+fixture repeatedly clicks a receipt link that prevents navigation, varying
+whether it also changes an unrelated output counter. Before the fix the ticking
+case executed four ineffective clicks and exhausted the outer five-iteration
+budget; the static page stopped after two. Afterward both stop within the
+configured one-retry allowance (at most two clicks), with actual click counts
+checked in the page and false verification events. Initial candidate retries
+share the same bound and may leave only one click available. Neither variant
+may complete. Use this to detect regressions in wasted actions, separately from
+the existing positive navigation/field tasks and frozen navigation outcomes.
+No provider inference is required for this mechanical gate; no autonomous
+success-rate or latency improvement is inferred from it.

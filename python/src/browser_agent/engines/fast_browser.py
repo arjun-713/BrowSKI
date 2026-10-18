@@ -31,6 +31,7 @@ class FastBrowser(ManagedBrowser):
         self._verified_fields: set[str] = set()
         self._input_policy: InteractionPolicy | None = None
         self._input_tools: Any = None
+        self.progress_id = ""
 
     def enable_fields(self, goal: str, approve: ApprovalHandler | None) -> None:
         assert self.browser is not None
@@ -164,15 +165,18 @@ class FastBrowser(ManagedBrowser):
         # cannot be part of a semantic freshness fingerprint. Read page text
         # separately, and keep backend-node identity in the candidate table.
         text = await cast(Any, page).evaluate("() => document.body.innerText.slice(0,6000)")
-        payload = "\n".join(
+        structure = "\n".join(
             [
                 state.url,
                 state.title,
-                text,
                 *[c.model_dump_json() for c in candidates],
                 *destinations,
             ]
         )
+        # Text remains part of decision freshness. An unrelated counter/banner
+        # changing after a click must not by itself reset stagnation detection.
+        self.progress_id = hashlib.sha256(structure.encode()).hexdigest()
+        payload = f"{structure}\n{text}"
         return FastObservation(
             id=hashlib.sha256(payload.encode()).hexdigest(),
             url=state.url,

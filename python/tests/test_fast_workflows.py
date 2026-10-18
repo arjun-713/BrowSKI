@@ -392,3 +392,78 @@ async def test_native_date_and_option_workflow_checks_properties_and_events(
             "selectValid": True,
             "changes": {"departure": 1, "color": 1},
         }
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome stagnation boundary"
+)
+@pytest.mark.parametrize("unrelated_text_changes", [False, True])
+async def test_noop_clicks_exhaust_recovery_despite_unrelated_text_changes(
+    article_site: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unrelated_text_changes: bool,
+) -> None:
+    from browser_agent.engines import fast
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.fast_browser import FastBrowser
+    from browser_agent.engines.fast_contract import FastDecision, FastRequest, Operation
+
+    (tmp_path / "stalled.html").write_text("""
+        <h1>Pending receipt</h1><output>0</output>
+        <a href="/stalled.html" onclick="event.preventDefault(); window.attempts++;
+          if (window.tick) document.querySelector('output').textContent=window.attempts;
+        ">Open receipt</a><script>window.attempts=0;</script>
+    """)
+    owned = FastBrowser()
+    attempts: list[int] = []
+    progress: list[bool | None] = []
+
+    def browser_factory(**kwargs: Any) -> FastBrowser:
+        return owned
+
+    monkeypatch.setattr(fast, "FastBrowser", browser_factory)
+
+    async def events(event: EngineEvent) -> None:
+        if event.kind not in {"task_started", "verification"}:
+            return
+        assert owned.browser is not None
+        page = cast(Any, await owned.browser.get_current_page())
+        if event.kind == "task_started":
+            await page.evaluate(f"() => window.tick={json.dumps(unrelated_text_changes)}")
+        if event.kind == "verification":
+            attempts.append(int(await page.evaluate("() => window.attempts")))
+            progress.append(event.verified)
+
+    class RepeatingFixture:
+        name = "fixture"
+        model = "stagnation-fixture"
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            return FastDecision(
+                observation_id=request.observation.id,
+                provider=self.name,
+                model=self.model,
+                operation=Operation.CLICK,
+                candidate_id=request.observation.candidates[0].id,
+                latency_ms=0,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    result = await fast.run_fast(
+        "Open the receipt page.",
+        f"{article_site}/stalled.html",
+        RepeatingFixture(),
+        fast.FastConfig(max_steps=5, max_recoveries=1),
+        criteria=CompletionCriteria(url=f"{article_site}/receipt.html", heading="Receipt"),
+        event_sink=events,
+    )
+    print("BROWSKI_STAGNATION_METRIC " + json.dumps(result.model_dump(mode="json")))
+    assert not result.verified and result.generative_calls == 0
+    assert 1 <= result.action_count <= 2, result.model_dump()
+    assert result.recovery_count == 2
+    assert result.error == "Repeated unverified actions exhausted the recovery budget."
+    assert attempts == list(range(1, result.action_count + 1))
+    assert progress == [False] * result.action_count

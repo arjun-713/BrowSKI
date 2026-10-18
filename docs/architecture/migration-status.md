@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`, managed approval as `a5685be`, Fast literal fields as `99c702a`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`, phase 6 diagnostics as `0ebefdb`, phase-7 navigation as `4a52b9e`, managed approval as `a5685be`, Fast literal fields as `99c702a`, native controls as `d62b15a`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -31,7 +31,7 @@ no hosted fallback or Jev request has been made.
 | 7 Reliability           | Navigation/approval/text committed; native-control gate validated | Dates/selects/replacement/disappearing-field checks; broader workflows/tabs still open       |
 | 8 Cleanup               | Pending                                                           | No legacy deletion until replacement regression gates                                        |
 
-## Latest evidence
+## Baseline evidence (earlier phases)
 
 - General: official Browser Use Agent opened
   `https://en.wikipedia.org/wiki/Alan_Turing`, returned Alan Turing, fresh DOM
@@ -313,7 +313,7 @@ Phase-7 Fast literal text-field slice — `99c702a`:
   No new paid OpenAI or live Jev calls. Raw development logs remain in /tmp;
   the frozen navigation manifest has not been changed or reused as unseen data.
 
-Phase-7 Fast native controls and fresh proof — validated in this commit:
+Phase-7 Fast native controls and fresh proof — `d62b15a`:
 
 - ADR-027 retains Browser Use's executor and Fast v2. Native dates use TYPE_TEXT;
   single-select uses SELECT. Both provider adapters receive equivalent state.
@@ -347,8 +347,27 @@ Phase-7 Fast native controls and fresh proof — validated in this commit:
   Four compact migration test boundaries remain; field cases moved into the
   functional workflow suite, reusing the existing HTTP fixture.
 
-Next exact action: reproduce dynamic-page freshness and stagnation behavior on
-controlled pages before changing conservative fingerprints. Submit buttons,
+Phase-7 Fast stagnation — validated in this commit:
+
+- ADR-028 reproduces an ineffective receipt click changing an unrelated counter:
+  four clicks exhausted the outer five-iteration budget despite one retry being
+  allowed. Static text already stopped after two. Neither falsely completed.
+- A separate structural signature plus fresh visible H1 now drives stagnation.
+  Full body-text observations still guard decision freshness; approvals and
+  final outcome checks are unchanged. Both fixture variants stop within at most
+  two clicks. Actual click counters and false verification events are checked.
+  Initial missing-candidate retries share the budget, so one observed ticking
+  run stopped after one click. Recovery events now expose these attempts.
+- Full Python: **725 passed, 88 opt-in skips, 128.37 s**. Focused real-browser/
+  provider/workflow suite: **97 passed, 188.52 s**. Final strict typing required
+  handling the existing optional page-evidence result; the final targeted
+  stagnation pair passed again. `make lint` passes with strict Pyright 0 errors.
+  Full packaged gate: **23 passed, 4 spent-navigation skips, 316.10 s**, with real
+  CPU Laya enabled. Package/lock/built manifest remain 0.2.3; no rebuild needed.
+  No additional hosted requests, dependencies, schema or extension changes.
+
+Next exact action: reproduce unrelated dynamic-page freshness/approval blocks
+before changing conservative fingerprints. Submit buttons,
 source transfer, tabs/auth, generic outcome coverage and persistent managed
 sessions remain open. Keep Legacy and the overall migration goal active. The
 aggregate Rust stress-suite stall remains an outstanding gate; no Rust source

@@ -108,7 +108,10 @@ async def run_fast(
                     status = EngineStatus.CANCELLED
                     break
                 observation = await owned.observe_links({host})
-                evidence = await page_evidence(owned.browser)
+                current_evidence = await page_evidence(owned.browser)
+                evidence = current_evidence
+                headings = tuple(current_evidence.headings) if current_evidence else ()
+                progress_before = (owned.progress_id, headings)
                 if criteria is not None and criteria.verify(evidence) and owned.fields_verified:
                     status = EngineStatus.COMPLETED
                     break
@@ -204,9 +207,11 @@ async def run_fast(
                 await emit("action_finished", decision.operation, decision.candidate_id)
                 failure_phase = "verification"
                 # Fresh DOM/AX collection also waits for the navigation watchdog.
-                after = await owned.observe_links({host})
-                evidence = await page_evidence(owned.browser)
-                progressed = after.id != observation.id
+                await owned.observe_links({host})
+                current_evidence = await page_evidence(owned.browser)
+                evidence = current_evidence
+                headings = tuple(current_evidence.headings) if current_evidence else ()
+                progressed = (owned.progress_id, headings) != progress_before
                 failure_phase = None
                 await emit("verification", decision.operation, decision.candidate_id, progressed)
                 history.append(
@@ -226,6 +231,7 @@ async def run_fast(
                 if not progressed:
                     recoveries += 1
                     retries += 1
+                    await emit("recovery", decision.operation, decision.candidate_id, False)
                     if retries > config.max_recoveries:
                         error = "Repeated unverified actions exhausted the recovery budget."
                         break
