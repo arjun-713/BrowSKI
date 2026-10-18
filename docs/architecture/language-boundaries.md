@@ -1,5 +1,12 @@
 # Language boundaries
 
+**Migration note (ADR-022, 2026-10-18):** The sections below describe the
+legacy runtime. New General/Fast engines may use Python library-backed browser
+mechanics. One active browser controller per session is mandatory. Python owns
+engine adapters, local inference and product lifecycle; TypeScript retains UI
+and permission brokerage. Legacy Rust/PyO3 stays for rollback until replacement
+gates pass. See the root `ARCHITECTURE_PLAN.md` and migration checkpoint.
+
 ## Why Rust (browser core)
 
 Low-level browser runtime, CDP, event processing, DOM/state handling, element
@@ -36,7 +43,7 @@ and Node compatibility must be weighed for any distributed library.
 ## When Go would be justified
 
 Isolated high-throughput services (e.g. a crawl/extraction fleet endpoint)
-*if benchmarks justify it*. Adding Go for architectural variety is a no-go;
+_if benchmarks justify it_. Adding Go for architectural variety is a no-go;
 the ADR bar applies.
 
 ## Cross-language communication
