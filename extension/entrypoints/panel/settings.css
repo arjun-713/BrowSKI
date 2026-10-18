@@ -1,0 +1,74 @@
+.settings-section {
+    flex: none;
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+}
+.settings-section > summary {
+    min-height: 44px;
+    padding: 12px 0;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+}
+.settings-content {
+    padding-bottom: 16px;
+}
+label {
+    display: block;
+    margin: 14px 0 6px;
+    font-size: 12px;
+    font-weight: 550;
+}
+input:not([type="checkbox"]),
+select {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    color: var(--ink);
+    background: var(--surface);
+}
+.credential-setting {
+    margin: 20px 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+.setting-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-weight: 550;
+}
+.runtime-readonly-setting {
+    margin-top: 16px;
+}
+.setting-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-weight: 400;
+}
+.setting-toggle input {
+    flex: none;
+    margin-top: 3px;
+    accent-color: var(--accent);
+}
+.settings-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+.settings-list div {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    gap: 8px;
+}
+.settings-list dt {
+    color: var(--muted);
+}
+.settings-list dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}

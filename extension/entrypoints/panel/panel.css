@@ -1,4 +1,5 @@
 @import "./composer.css";
+@import "./settings.css";
 
 :root {
     color-scheme: light;
@@ -521,32 +522,6 @@ code {
     overflow-wrap: anywhere;
 }
 
-.settings-section {
-    margin-top: 8px;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-}
-
-.settings-section summary {
-    min-height: 42px;
-    padding: 13px 0;
-    color: #5d554e;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 590;
-}
-
-.settings-content {
-    padding: 0 0 14px;
-}
-
-label {
-    display: block;
-    margin: 13px 0 6px;
-    font-size: 12px;
-    font-weight: 570;
-}
-
 .visually-hidden {
     position: absolute;
     width: 1px;
@@ -555,97 +530,6 @@ label {
     clip-path: inset(50%);
     overflow: hidden;
     white-space: nowrap;
-}
-
-.credential-setting {
-    margin: 0 0 17px;
-    padding: 0 0 14px;
-    border-bottom: 1px solid var(--line);
-}
-
-#openai-key,
-select,
-textarea {
-    width: 100%;
-    border: 1px solid var(--line-strong);
-    border-radius: 8px;
-    color: var(--ink);
-    background: var(--surface);
-}
-
-#openai-key,
-select {
-    min-height: 38px;
-    padding: 8px 10px;
-}
-
-textarea {
-    min-height: 66px;
-    max-height: 180px;
-    padding: 10px 11px;
-    resize: vertical;
-    line-height: 1.45;
-}
-
-textarea::placeholder {
-    color: #827a72;
-}
-
-textarea:disabled,
-#openai-key:disabled,
-select:disabled {
-    color: #716960;
-    background: var(--soft);
-}
-
-.setting-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    font-weight: 580;
-}
-
-.runtime-readonly-setting {
-    margin-top: 14px;
-}
-
-.setting-toggle {
-    display: flex;
-    align-items: flex-start;
-    margin: 0 0 14px;
-    gap: 8px;
-    font-weight: 450;
-    line-height: 1.45;
-}
-
-.setting-toggle input {
-    width: 16px;
-    height: 16px;
-    flex: none;
-    margin: 0;
-    accent-color: var(--accent);
-}
-
-.settings-list {
-    display: grid;
-    gap: 9px;
-    margin: 0;
-}
-
-.settings-list div {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr);
-    gap: 8px;
-}
-
-.settings-list dt {
-    color: var(--muted);
-}
-
-.settings-list dd {
-    margin: 0;
-    overflow-wrap: anywhere;
 }
 
 .button-row .footnote {
