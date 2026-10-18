@@ -20,11 +20,14 @@ dependencies = [
   "cryptography>=44.0,<51.0",
   "anyio>=4.0",
   "structlog>=23.0",
+  "httpx>=0.28,<1",
   "langgraph>=1.0,<2.0",
   "langgraph-checkpoint-sqlite>=3.1,<4.0",
 ]
 
 [project.optional-dependencies]
+engines = ["browser-use==0.13.13"]
+laya-cpu = ["torch==2.10.0", "transformers==5.17.0", "safetensors>=0.4"]
 llm = ["litellm>=1.0"]
 reasoning-openai = ["openai>=2.54,<3"]
 decisions-cloud = ["typesafe-sdk>=0.1"]
@@ -79,3 +82,13 @@ venv = ".venv"
 
 [tool.uv]
 package = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+# Upstream fixes its OpenAI SDK pin here; .13.11 conflicts with legacy Luna.
+browser-use = { git = "https://github.com/browser-use/browser-use", rev = "aa093a843da5edbf323c0b4145c9b6a0db3ecde8" }

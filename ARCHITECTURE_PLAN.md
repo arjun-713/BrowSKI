@@ -32,7 +32,14 @@ performance of the new engines. Do not retune against that spent holdout.
 - `providers/`, `persistence/`: privacy boundary, encrypted legacy checkpoints,
   keyring credentials, local metrics/debug retention.
 
-These are legacy capabilities, not proof that the target is implemented.
+New General implementation: `engines/general.py` wraps the official Agent;
+`engines/browser_use_runtime.py` owns its isolated profile and fresh URL/H1
+evidence; `cli/engines.py` exposes an explicit paid-opt-in migration command.
+A small live Wikipedia extraction passed with two authorized OpenAI calls.
+This proves that vertical slice, not extension integration or broad reliability.
+
+These are legacy capabilities and a narrow new engine slice, not proof that
+the whole target is implemented.
 See the checkpoint for the latest verified phase.
 
 ## Target responsibilities
@@ -43,7 +50,7 @@ flowchart TD
     Product --> Choice{Engine fixed for task}
     Choice --> General[General: official Browser Use Agent]
     Choice --> Fast[Fast: Jev-ultrafast-style bounded loop]
-    General --> Text[Explicit local text / generative model]
+    General --> Text[Separate text model / disabled by default]
     Fast --> Contract[Versioned FastDecisionProvider]
     Contract --> Laya[Laya browser-tuned / CPU / default]
     Contract --> Jev[Jev hosted / optional / opt-in]
@@ -72,8 +79,12 @@ Chrome is the first vertical slice; do not expose unrestricted personal tabs.
 
 ## Inference and outbound policy
 
-Target defaults: Fast + local Laya, local text generation, `allow_paid_api=false`.
-General requires an explicitly configured local generative model. Installation,
+Target defaults: Fast + local Laya, text generation disabled, `allow_paid_api=false`.
+The user clarified that this machine may run only Laya locally. Text generation
+is therefore disabled, not downloaded or inferred on CPU. The user subsequently authorized small bounded OpenAI debugging and reuse of
+the existing key. Use explicit paid opt-in for those smoke runs only; routine
+inference and all fallbacks remain local-only/disabled. No General success is
+claimed before real verification. Installation,
 doctor and offline tests must not require Jev or any hosted credentials.
 Hosted inference needs explicit provider selection, endpoint, credentials and
 paid-API permission; no silent fallback, telemetry inference or cloud browser.

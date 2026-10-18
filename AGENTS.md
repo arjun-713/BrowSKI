@@ -17,7 +17,9 @@ still the legacy Luna/LangGraph/Rust runtime until replacement gates pass.
 
 Target: official Browser Use for the General engine; a small Jev-ultrafast-style
 Fast loop with interchangeable typed Laya (default, local) / Jev (optional,
-hosted) providers. Text generation is separate and local by default. Hosted
+hosted) providers. Text generation is separate and disabled on this machine: the user permits
+only Laya as a local model (2026-10-18 correction). The user permits small bounded OpenAI debugging runs after offline validation,
+using the existing key (explicitly confirmed); routine paid inference stays off. Hosted
 inference requires explicit provider selection, credentials and paid-API opt-in.
 Never silently fall back to a paid model, including from legacy entry points.
 The model powering Codex is not a BROWSKI runtime inference endpoint.
@@ -226,8 +228,9 @@ architectural options. Read ADR-001 and ADR-002 first.
 
 - General and Fast are separate engines, selected for the whole task initially.
   One active controller per browser session. No unproven mid-task engine handoff.
-- Browser Use Agent is the General engine, with explicitly configured local
-  generative inference. Browser Use Cloud is not required.
+- Browser Use Agent is the General engine, with separately configured generative
+  inference. On this machine, local generative models are disabled; the user
+  authorizes only small explicit OpenAI debugging runs. Cloud browsers are not required.
 - Fast uses versioned semantic state + typed questions + stable candidates.
   Laya/Jev adapters normalize status, choice/score, probabilities, latency,
   provider identity, failures and abstention. Browser actions, task state,
