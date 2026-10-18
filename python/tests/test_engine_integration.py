@@ -238,3 +238,174 @@ async def test_pause_boundary_resumes_and_stop_unblocks_pause() -> None:
     control.stop()
     await asyncio.wait_for(control.decision_boundary(), 1)
     assert control.cancel.is_set()
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome/offline provider failure"
+)
+async def test_general_http_failure_is_a_provider_error_not_a_browser_error() -> None:
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.general import GeneralConfig, run_general
+
+    events: list[EngineEvent] = []
+
+    async def sink(event: EngineEvent) -> None:
+        events.append(event)
+
+    result = await run_general(
+        "Read a page heading.",
+        GeneralConfig(allow_paid_api=True, max_calls=1),
+        api_key="offline-fixture-only",
+        event_sink=sink,
+        model_transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                500,
+                json={"error": {"message": "Offline provider unavailable", "type": "server_error"}},
+            )
+        ),
+    )
+    assert not result.verified and result.action_count == 0
+    assert result.provider_errors == 1
+    assert result.failure_phase == "provider"
+    assert any(event.kind == "provider_failed" for event in events)
+    assert not any(event.kind == "browser_failed" for event in events)
+    assert len(result.decision_latencies_ms) == 1
+
+
+async def test_managed_opt_in_debug_records_events_and_safe_counters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from browser_agent.cli.config import load_config
+    from browser_agent.engines import product
+    from browser_agent.engines.contracts import EngineEvent, EngineResult, EngineStatus
+    from browser_agent.engines.lifecycle import TaskControl
+    from browser_agent.telemetry.debug_log import DebugLogConfig
+
+    config = replace(
+        load_config(), debug=DebugLogConfig(enabled=True, directory=tmp_path / "capture")
+    )
+
+    async def selected(*args: object, **kwargs: object) -> EngineResult:
+        await EngineEvent(kind="provider_failed", provider="laya", model="fixture").publish(None)
+        return EngineResult(
+            status=EngineStatus.FAILED,
+            provider="laya",
+            model="fixture",
+            provider_errors=1,
+            failure_phase="provider",
+        )
+
+    async def events(event: EngineEvent) -> None:
+        pass
+
+    monkeypatch.setattr(product, "_execute_selected_task", selected)
+    result = await product.execute_managed_task(
+        "Read public article",
+        config,
+        start_url=None,
+        criteria=None,
+        events=events,
+        control=TaskControl("fast", "laya", events),
+        run_id="debug-fixture",
+        session_id="session-fixture",
+    )
+    capture = tmp_path / "capture/debug-fixture/events.jsonl"
+    records = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert [record["event"] for record in records] == [
+        "task.received",
+        "engine.event",
+        "task.result",
+    ]
+    assert result.run_id == "debug-fixture"
+    assert records[-1]["payload"]["provider_errors"] == 1
+    assert records[-1]["payload"]["failure_phase"] == "provider"
+    assert "answer" not in records[-1]["payload"] and "evidence" not in records[-1]["payload"]
+    assert capture.stat().st_mode & 0o777 == 0o600
+
+
+def test_engine_failure_timeline_and_result_preserve_category_and_counts() -> None:
+    from browser_agent.engines.contracts import EngineEvent, EngineResult, EngineStatus
+    from browser_agent.extension.engine_tasks import result_summary, timeline_payload
+
+    for kind, label in [
+        ("provider_failed", "Inference failed"),
+        ("browser_failed", "Browser operation failed"),
+    ]:
+        event = timeline_payload(
+            EngineEvent(kind=kind, provider="laya", model="fixture", step=2),
+            session_id="s",
+            run_id="r",
+            sequence=3,
+            request_id=None,
+        )
+        assert event is not None and event["status"] == "failed" and event["label"] == label
+    result = EngineResult(
+        status=EngineStatus.FAILED,
+        provider="laya",
+        model="fixture",
+        provider_errors=1,
+        failure_phase="provider",
+        steps=2,
+        generative_calls=0,
+    )
+    summary = result_summary(result)
+    assert "1 provider errors" in summary and "0 generative calls" in summary
+    assert "outcome unverified" in summary and "provider failure" in summary
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome/sanitized decision replay"
+)
+async def test_detailed_fast_capture_round_trips_a_bounded_public_navigation_input(
+    article_site: str,
+    tmp_path: Path,
+) -> None:
+    from browser_agent.engines.fast import FastConfig, run_fast
+    from browser_agent.engines.fast_contract import FastDecision, FastRequest, normalize_response
+    from browser_agent.telemetry.debug_log import DebugLogConfig, DebugRecorder
+
+    class FixtureProvider:
+        name = "fixture"
+        model = "deterministic-navigation-fixture"
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            target = next(c.id for c in request.observation.candidates if c.label == "Botany")
+            answers: dict[str, dict[str, object]] = {}
+            for name, question in request.questions.items():
+                selected = "CLICK" if name == "operation" else target
+                answers[name] = {
+                    "choice": selected,
+                    "probabilities": {key: float(key == selected) for key in question.criteria},
+                }
+            return normalize_response(
+                request, {"answers": answers}, provider=self.name, model=self.model, latency_ms=0
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    directory = tmp_path / "capture"
+    with DebugRecorder(DebugLogConfig(enabled=True, directory=directory)).bind(
+        "fixture", "session"
+    ):
+        result = await run_fast(
+            "Open Botany",
+            f"{article_site}/index.html",
+            FixtureProvider(),
+            FastConfig(detailed_trace=True),
+            criteria=CompletionCriteria(url=f"{article_site}/botany.html", heading="Botany"),
+        )
+    assert result.verified
+    records = [
+        json.loads(line) for line in (directory / "fixture/events.jsonl").read_text().splitlines()
+    ]
+    saved = next(
+        record["payload"] for record in records if record["event"] == "fast.decision_input"
+    )
+    request = FastRequest.model_validate(saved)
+    assert request.version == "browski.fast.v1"
+    assert all(candidate.value == "[REDACTED]" for candidate in request.observation.candidates)
+    assert any(record["event"] == "fast.decision_result" for record in records)

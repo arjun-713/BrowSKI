@@ -44,12 +44,20 @@ class EngineEvent(BaseModel):
     kind: str
     engine: str = "fast"
     provider: str
+    model: str | None = None
     step: int = 0
     operation: str | None = None
     candidate_id: str | None = None
     verified: bool | None = None
     latency_ms: float | None = None
     error: str | None = None
+
+    async def publish(self, sink: EventSink | None) -> None:
+        from browser_agent.telemetry.debug_log import record_debug
+
+        record_debug("engine.event", self.model_dump(mode="json"), step=self.step)
+        if sink is not None:
+            await sink(self)
 
 
 EventSink = Callable[[EngineEvent], Awaitable[None]]
@@ -71,4 +79,6 @@ class EngineResult(BaseModel):
     recovery_count: int = 0
     decision_latencies_ms: list[float] = Field(default_factory=list[float])
     duration_ms: float = 0
+    failure_phase: str | None = None
+    run_id: str | None = None
     error: str | None = None

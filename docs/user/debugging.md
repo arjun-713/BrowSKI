@@ -86,3 +86,43 @@ failures before a public response is returned produce error metadata instead.
 
 Disable capture with `enabled = false` and restart the service. Delete the
 `debug-logs/` directory to remove stored captures after debugging.
+
+## BROWSKI 2.0 managed engines
+
+`browski run/task` and extension General/Fast tasks now use the same opt-in
+capture binding. The result includes a `run_id`; the sidebar uses its existing
+run identity. `engine.event` records the engine, model/provider, step, operation,
+target ID, observed effect and inference timing. A provider failure is distinct
+from a browser-operation failure. `task.result` records final status, verification,
+steps, actions, generative calls, recoveries, provider errors and elapsed time;
+it excludes final prose and browser content. The timeline shows these counters
+in the final result. Existing raw provider request/response capture described
+above belongs to Legacy; the Browser Use adapter does not capture hidden reasoning
+or raw HTTP bodies.
+
+Detailed Fast capture additionally needs `[traces] level = "detailed"` and
+`[debug] enabled = true`. It records `fast.decision_input` and
+`fast.decision_result`. Inputs are sanitized by the same bounded logger: field
+values are redacted, long strings may be truncated, and URL query/fragment data
+is removed. A replay compares the saved sanitized state, which may differ from
+the original page state. It never replays a browser action.
+
+When Jev credentials become available, export one input and compare providers:
+
+```sh
+jq -c 'select(.event == "fast.decision_input") | .payload' \
+  debug-logs/RUN_ID/events.jsonl | head -n 1 > /tmp/browski-decision.json
+browski compare-fast /tmp/browski-decision.json \
+  --checkpoint /absolute/path/to/laya-browser-v19s --allow-paid-api
+```
+
+`compare-fast` needs `TYPESAFE_API_KEY` and explicit paid permission before
+reading the input or loading Laya. It validates the contract, sends the same
+request to both adapters, reports normalized choices/timings, and executes zero
+browser actions. Malformed or excessively large inputs are refused. Live Jev
+comparison is unverified until real credentials exist; offline tests cover wiring.
+
+General inference timing covers the complete HTTP response. Laya's reported
+inference timing excludes checkpoint/tokenizer loading. Task elapsed time includes
+startup, observation and cleanup; do not compare these different timing scopes
+as though they were equivalent benchmarks.

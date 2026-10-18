@@ -506,3 +506,10 @@ def test_fast_cli_missing_checkpoint_reports_setup_problem(tmp_path: Path) -> No
     )
     assert result.exit_code != 0
     assert "Prepare the pinned Laya" in result.output
+
+
+def test_saved_decision_comparison_requires_paid_opt_in_before_reading_input() -> None:
+    result = CliRunner().invoke(app, ["compare-fast", "/does-not-exist.json"])
+    assert result.exit_code != 0
+    assert "explicitly enable paid" in result.output
+    assert "No such file" not in result.output

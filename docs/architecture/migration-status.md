@@ -6,7 +6,7 @@ Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 ## Repository and user constraints
 
 Branch `migration/browski-v2`, clean starting base `6a80e9b`. Phase 0 committed
-as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`. Legacy Luna/LangGraph/Rust and the extension are retained for
+as `41fb40d`; phase 1 as `164c036`; phase 3 contract as `6b66bfa`, phase 4 navigation as `848cd06`, phase 2 product integration as `3d62ab2`, phase 5 switching as `84aac2a`. Legacy Luna/LangGraph/Rust and the extension are retained for
 rollback; new engines do not use that graph or Rust executor.
 
 Machine verified: i5-8350U, 8 logical CPUs, 15 GiB usable RAM; Chrome and uv.
@@ -19,17 +19,17 @@ no hosted fallback or Jev request has been made.
 
 ## Phase status
 
-| Phase                   | State                                     | Evidence / next gate                                                                      |
-| ----------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 0 Guidance              | Complete — `41fb40d`                      | Branch, canonical plan, AGENTS and ADR-022 validated                                      |
-| 1 Browser Use baseline  | Complete — `164c036`                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls             |
-| 2 Extension integration | Navigation gate committed — `3d62ab2`     | Packaged General (offline + bounded live), local two-click Laya, results and ownership    |
-| 3 Fast contract         | Complete — `6b66bfa`                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests         |
-| 4 Local Laya            | Complete for navigation slice — `848cd06` | Real one- and two-click tasks, zero generative calls; forms/text unsupported              |
-| 5 Jev/switching         | Complete for offline/selection gate       | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key |
-| 6 Debug controls        | Pending                                   | Product engine/provider controls and trace mapping                                        |
-| 7 Reliability           | Partial experiment only                   | Premature DONE rejected; two small cases do not prove general reliability                 |
-| 8 Cleanup               | Pending                                   | No legacy deletion until replacement regression gates                                     |
+| Phase                   | State                                     | Evidence / next gate                                                                         |
+| ----------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 0 Guidance              | Complete — `41fb40d`                      | Branch, canonical plan, AGENTS and ADR-022 validated                                         |
+| 1 Browser Use baseline  | Complete — `164c036`                      | Wikipedia URL + visible heading checked independently; 2 authorized API calls                |
+| 2 Extension integration | Navigation gate committed — `3d62ab2`     | Packaged General (offline + bounded live), local two-click Laya, results and ownership       |
+| 3 Fast contract         | Complete — `6b66bfa`                      | Same semantic request through Laya/Jev adapters, malformed-input and policy tests            |
+| 4 Local Laya            | Complete for navigation slice — `848cd06` | Real one- and two-click tasks, zero generative calls; forms/text unsupported                 |
+| 5 Jev/switching         | Complete for offline/selection gate       | 25 contract/policy/dispatch checks; settings round trips; live Jev unverified without key    |
+| 6 Debug controls        | Complete for navigation diagnostics       | 75 focused checks, packaged General/Laya 2/2, safe capture and saved-input comparison wiring |
+| 7 Reliability           | Partial experiment only                   | Premature DONE rejected; two small cases do not prove general reliability                    |
+| 8 Cleanup               | Pending                                   | No legacy deletion until replacement regression gates                                        |
 
 ## Latest evidence
 
@@ -102,7 +102,7 @@ silently invoke text generation. The upstream tokenizer emits a regex warning;
 it has not been suppressed or silently changed from the released checkpoint.
 No general Laya calibration or unseen public-site reliability is established.
 
-Next: phase-6 inference/action failure traces and result counters. Phase-2 navigation
+Next: phase-7 fresh reliability tasks and action coverage; preserve Legacy until its capabilities are replaced. Phase-2 navigation
 integration is committed; its aggregate Rust regression issue remains open. General
 and Fast use separate managed Chrome profiles, not the extension debugger relay.
 The sidebar states this; personal tab authentication is not transferred. Existing
@@ -149,8 +149,9 @@ Phase-2 evidence (2026-10-18):
 - A broader Python run caught the old diagnostic constructing a paid Legacy
   provider under Fast defaults. Fixed: active managed configuration is validated
   without creating a provider, and local mode does not need an OpenAI key. Its
-  six tests pass. The initial full run hit its overall time cap; a clean rerun
-  after the fix is pending. Do not claim a complete full-suite pass yet.
+  six tests pass. The initial full run hit its overall time cap; the clean rerun
+  passed **691 tests, 38 opt-in skips in 230.13 s**. This precedes phase-6 changes;
+  do not present it as a current full-suite result for later edits.
 - `make lint` passed after the diagnostic fix (Ruff, Rust fmt/clippy, strict Pyright).
   The latest extension `npm run check` passes with 74 software tests. No further
   paid inference is needed for the phase-2 gate.
@@ -163,6 +164,26 @@ answers, explicit opt-in, credential-safe redirects, invalid endpoints and an
 in-flight timeout. 25 focused tests pass; no live Jev request has been made.
 Settings changes require no runtime restart and affect the next task.
 
-Remaining: phase 6 needs complete error/counter trace coverage, phase 7 needs fresh failure-category
-benchmarks and broader actions, phase 8 cannot delete useful Legacy capabilities
+Remaining: phase 7 needs fresh failure-category benchmarks and broader actions, phase 8 cannot delete useful Legacy capabilities
 before replacements pass. No live Jev execution is claimed.
+
+Phase-6 acceptance (not yet committed): General HTTP/network errors are counted
+separately from browser action errors; earlier `history.errors()` incorrectly
+mixed them. Events include model identity, inference timing, action/verification
+and recovery information. Final sidebar summaries include steps/actions,
+generative calls, provider errors, recovery count, task latency and verification.
+
+`engines/product.py` binds opt-in sanitized capture for managed CLI/extension
+runs. Detailed Fast capture saves versioned inputs/normalized decisions;
+`browski compare-fast` validates a bounded saved request and compares Laya/Jev
+without browser actions. It requires explicit paid opt-in and Jev credentials
+before reading input or loading models. Live Jev remains unverified.
+
+Validation: 75 focused tests passed with real Browser Use + offline inference,
+HTTP-500 classification, capture permissions/replay, CLI gates and comparison
+wiring. Two live-CPU Laya cases were opt-in skips in that run; the
+packaged multi-step Laya task passed separately. Packaged General (offline inference) and local multi-step
+Laya both passed after trace changes (2/2, 61.02 s including harness). The new
+result text was rendered and inspected at 380 px with no horizontal overflow.
+No more paid OpenAI requests were used. Final `make lint` passed after a
+new fixture annotation was corrected (Rust fmt/clippy, Ruff and strict Pyright). The aggregate Rust stall remains open.

@@ -26,6 +26,30 @@ if TYPE_CHECKING:
     from browser_use.agent.views import AgentHistoryList
 
 
+class _InferenceTransport(httpx.AsyncBaseTransport):
+    """Measure HTTP inference separately from browser/library errors."""
+
+    def __init__(
+        self, inner: httpx.AsyncBaseTransport, finished: Callable[[float, bool], Awaitable[None]]
+    ) -> None:
+        self._inner = inner
+        self._finished = finished
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        started = time.perf_counter()
+        try:
+            response = await self._inner.handle_async_request(request)
+            await response.aread()
+        except Exception:
+            await self._finished((time.perf_counter() - started) * 1000, True)
+            raise
+        await self._finished((time.perf_counter() - started) * 1000, response.status_code >= 300)
+        return response
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
 class GeneralConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     model: str = "gpt-6-luna"
@@ -67,19 +91,33 @@ async def run_general(
     evidence: PageEvidence | None = None
     status = EngineStatus.PARTIALLY_COMPLETED
     error: str | None = None
+    failure_phase: str | None = None
+    latencies: list[float] = []
 
-    async def emit(kind: str, operation: str | None = None, verified: bool | None = None) -> None:
-        if event_sink is not None:
-            await event_sink(
-                EngineEvent(
-                    kind=kind,
-                    engine="general",
-                    provider="openai",
-                    step=steps,
-                    operation=operation,
-                    verified=verified,
-                )
-            )
+    async def emit(
+        kind: str,
+        operation: str | None = None,
+        verified: bool | None = None,
+        latency_ms: float | None = None,
+    ) -> None:
+        await EngineEvent(
+            kind=kind,
+            engine="general",
+            provider="openai",
+            model=config.model,
+            step=steps,
+            operation=operation,
+            verified=verified,
+            latency_ms=latency_ms,
+        ).publish(event_sink)
+
+    async def inference_finished(latency: float, failed: bool) -> None:
+        nonlocal provider_errors, failure_phase
+        latencies.append(latency)
+        if failed:
+            provider_errors += 1
+            failure_phase = "provider"
+        await emit("provider_failed" if failed else "inference_finished", latency_ms=latency)
 
     async def request_guard(request: httpx.Request) -> None:
         nonlocal calls
@@ -91,17 +129,31 @@ async def run_general(
         await emit("inference_started")
 
     async def after_step(agent: Agent[Any, Any]) -> None:
-        nonlocal steps, evidence, actions
+        nonlocal steps, evidence, actions, provider_errors, failure_phase
         steps += 1
         evidence = await page_evidence(agent.browser_session)
         history = cast("AgentHistoryList[Any]", cast(Any, agent).history)
         if history.history:
             last = history.history[-1]
+            failed = any(result.error for result in last.result)
             if last.model_output:
+                if failed:
+                    failure_phase = "browser"
                 for action in last.model_output.action:
                     operation = next(iter(action.model_dump(exclude_none=True)), "unknown")
                     actions += int(operation != "done")
-                    await emit("action_finished", operation=operation)
+                    await emit(
+                        "browser_failed" if failed else "action_finished", operation=operation
+                    )
+            elif failed:
+                if calls > 0:
+                    failure_phase = "provider"
+                    if provider_errors == 0:
+                        provider_errors += 1
+                        await emit("provider_failed")
+                else:
+                    failure_phase = "browser"
+                    await emit("browser_failed")
         await emit("observation")
 
     async def before_step(agent: Agent[Any, Any]) -> None:
@@ -118,7 +170,10 @@ async def run_general(
             trust_env=False,
             follow_redirects=False,
             event_hooks={"request": [request_guard]},
-            transport=model_transport,
+            transport=_InferenceTransport(
+                model_transport or httpx.AsyncHTTPTransport(retries=0, trust_env=False),
+                inference_finished,
+            ),
         ) as client:
             llm = ChatOpenAI(
                 model=config.model,
@@ -187,23 +242,30 @@ async def run_general(
                         # this adapter, rather than storing vendor objects in task state.
                         history = cast("AgentHistoryList[Any]", cast(Any, agent).history)
                         answer = history.final_result()
-                        provider_errors = sum(e is not None for e in history.errors())
                         evidence = await page_evidence(owned.browser)
                         if criteria is not None and criteria.verify(evidence) and answer:
                             if criteria.heading.casefold() in answer.casefold():
                                 status = EngineStatus.COMPLETED
+                                failure_phase = None
                         if status is not EngineStatus.COMPLETED:
                             error = "Requested outcome is not independently verified."
+                            if failure_phase is not None:
+                                status = EngineStatus.FAILED
+                            else:
+                                failure_phase = "verification"
                     elif watch is not None and watch in finished:
                         status = EngineStatus.CANCELLED
                     else:
                         status = EngineStatus.BLOCKED
                         error = "Task time budget exhausted."
+                        failure_phase = "timeout"
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 status = EngineStatus.FAILED
-                error = f"General engine failed ({type(exc).__name__})."
+                failure_phase = "provider" if provider_errors else "browser"
+                await emit("provider_failed" if provider_errors else "browser_failed")
+                error = f"General {failure_phase} failed ({type(exc).__name__})."
             finally:
                 for task in (run, watch):
                     if task is not None and not task.done():
@@ -223,6 +285,8 @@ async def run_general(
         action_count=actions,
         generative_calls=calls,
         provider_errors=provider_errors,
+        decision_latencies_ms=latencies,
+        failure_phase=failure_phase,
         duration_ms=round((time.perf_counter() - started) * 1000, 2),
         error=error,
     )

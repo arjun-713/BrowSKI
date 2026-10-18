@@ -28,19 +28,15 @@ class TaskControl:
 
     async def decision_boundary(self) -> None:
         if not self._running.is_set() and not self.cancel.is_set():
-            await self._events(
-                EngineEvent(
-                    kind="task_paused",
-                    engine=self._engine,
-                    provider=self._provider,
-                )
-            )
+            await EngineEvent(
+                kind="task_paused",
+                engine=self._engine,
+                provider=self._provider,
+            ).publish(self._events)
             await self._running.wait()
             if not self.cancel.is_set():
-                await self._events(
-                    EngineEvent(
-                        kind="task_resumed",
-                        engine=self._engine,
-                        provider=self._provider,
-                    )
-                )
+                await EngineEvent(
+                    kind="task_resumed",
+                    engine=self._engine,
+                    provider=self._provider,
+                ).publish(self._events)

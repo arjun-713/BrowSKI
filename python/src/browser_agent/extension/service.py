@@ -820,6 +820,7 @@ class ExtensionBridgeService:
     ) -> None:
         from browser_agent.engines.contracts import CompletionCriteria, EngineStatus
         from browser_agent.engines.product import EngineConfigurationError, execute_managed_task
+        from browser_agent.extension.engine_tasks import result_summary
 
         control = self._engine_control
         if self._runtime_session is None or control is None:
@@ -840,10 +841,10 @@ class ExtensionBridgeService:
                 events=lambda event: self._send_managed_event(writer, event),
                 control=control,
                 headless=self._managed_headless,
+                run_id=run_id,
+                session_id=cast(str, self._runtime_session["sessionId"]),
             )
-            summary = result.answer or ""
-            if result.error:
-                summary = f"{summary}\n{result.error}".strip()
+            summary = result_summary(result)
             await self._finish_task(
                 writer,
                 success=result.status is EngineStatus.COMPLETED,

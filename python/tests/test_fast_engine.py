@@ -362,3 +362,58 @@ async def test_jev_inflight_timeout_authorizes_no_action() -> None:
     finally:
         await provider.aclose()
     assert entered
+
+
+def test_saved_comparison_uses_identical_validated_input_and_executes_no_browser_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from browser_agent.cli.main import app
+    from browser_agent.engines import fast_providers, laya_worker
+    from browser_agent.engines.fast_contract import FastDecision
+
+    source = tmp_path / "saved.json"
+    source.write_text(request_fixture().model_dump_json())
+    inputs: list[FastRequest] = []
+
+    class OfflineProvider:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            inputs.append(request)
+            return normalize_response(
+                request,
+                response_fixture(),
+                provider=self.name,
+                model="offline-fixture",
+                latency_ms=1,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    def local(path: Path) -> OfflineProvider:
+        assert path == tmp_path
+        return OfflineProvider("laya")
+
+    def hosted(**options: Any) -> OfflineProvider:
+        assert options["allow_paid_api"] is True
+        return OfflineProvider("jev")
+
+    def validated(path: Path) -> None:
+        assert path == tmp_path
+
+    monkeypatch.setattr(fast_providers, "LayaFastProvider", local)
+    monkeypatch.setattr(fast_providers, "JevFastProvider", hosted)
+    monkeypatch.setattr(laya_worker, "validate_checkpoint", validated)
+    result = CliRunner().invoke(
+        app, ["compare-fast", str(source), "--allow-paid-api", "--checkpoint", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    output = json.loads(result.stdout)
+    assert len(inputs) == 2 and inputs[0] is inputs[1]
+    assert output["browser_actions"] == 0 and output["same_choice"] is True
+    assert output["laya"]["provider"] == "laya" and output["jev"]["provider"] == "jev"

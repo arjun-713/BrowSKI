@@ -124,3 +124,83 @@ def fast(
     typer.echo(result.model_dump_json(indent=2))
     if result.status is not EngineStatus.COMPLETED:
         raise typer.Exit(2)
+
+
+def compare_fast(
+    input_path: str = typer.Argument(
+        ..., help="Saved browski.fast.v1 request JSON; no browser actions."
+    ),
+    checkpoint: str = typer.Option(
+        ".browser-data/laya-browser-v19s", help="Prepared CPU Laya checkpoint."
+    ),
+    allow_paid_api: bool = typer.Option(
+        False, "--allow-paid-api", help="Explicit opt-in for the Jev comparison request."
+    ),
+    jev_endpoint: str = typer.Option(
+        "https://api.typesafe.ai/v1/systemone", help="Configured Jev HTTPS endpoint."
+    ),
+) -> None:
+    """Compare local Laya and optional hosted Jev on exactly the same saved input."""
+    import json
+    import os
+    from pathlib import Path
+
+    from browser_agent.engines.fast_contract import FastRequest
+    from browser_agent.engines.fast_providers import JevFastProvider, LayaFastProvider
+    from browser_agent.engines.laya_worker import validate_checkpoint
+
+    # Check permission/credentials before loading a local model or reading input.
+    try:
+        jev = JevFastProvider(
+            api_key=os.environ.get("TYPESAFE_API_KEY"),
+            allow_paid_api=allow_paid_api,
+            endpoint=jev_endpoint,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+    try:
+        source = Path(input_path)
+        if not source.is_file() or source.stat().st_size > 256 * 1024:
+            raise ValueError("Input exceeds comparison budget")
+        with source.open("rb") as stream:
+            data = stream.read(256 * 1024 + 1)
+        if len(data) > 256 * 1024:
+            raise ValueError("Input exceeds comparison budget")
+        request = FastRequest.model_validate_json(data)
+        path = Path(checkpoint)
+        validate_checkpoint(path)
+    except (OSError, ValueError):
+        raise typer.BadParameter(
+            "Use a valid bounded browski.fast.v1 input and a prepared checkpoint. "
+            "No inference started."
+        ) from None
+    laya = LayaFastProvider(path)
+
+    async def compare() -> dict[str, object]:
+        try:
+            local = await laya.predict(request)
+            hosted = await jev.predict(request)
+            return {
+                "contract_version": request.version,
+                "observation_id": request.observation.id,
+                "laya": local.model_dump(mode="json"),
+                "jev": hosted.model_dump(mode="json"),
+                "same_choice": (local.operation, local.candidate_id)
+                == (hosted.operation, hosted.candidate_id),
+                "browser_actions": 0,
+            }
+        finally:
+            await laya.aclose()
+            await jev.aclose()
+
+    try:
+        output = asyncio.run(compare())
+    except KeyboardInterrupt:
+        typer.echo("Comparison cancelled; inference resources closed.", err=True)
+        raise typer.Exit(130) from None
+    except Exception as error:
+        typer.echo(
+            f"Comparison failed ({type(error).__name__}); no browser action executed.", err=True
+        )
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(output, indent=2))

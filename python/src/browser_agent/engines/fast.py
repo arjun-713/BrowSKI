@@ -25,6 +25,7 @@ class FastConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     chrome_path: str = "/usr/bin/google-chrome"
     headless: bool = True
+    detailed_trace: bool = False
     max_steps: int = Field(default=12, ge=1, le=100)
     max_recoveries: int = Field(default=3, ge=0, le=5)
     timeout_seconds: int = Field(default=120, ge=5, le=600)
@@ -60,6 +61,7 @@ async def run_fast(
     evidence: PageEvidence | None = None
     status = EngineStatus.BLOCKED
     error: str | None = None
+    failure_phase: str | None = None
 
     async def emit(
         kind: str,
@@ -68,21 +70,19 @@ async def run_fast(
         verified: bool | None = None,
         latency_ms: float | None = None,
     ) -> None:
-        if event_sink is not None:
-            await event_sink(
-                EngineEvent(
-                    kind=kind,
-                    provider=provider.name,
-                    step=steps,
-                    operation=operation,
-                    candidate_id=target,
-                    verified=verified,
-                    latency_ms=latency_ms,
-                )
-            )
+        await EngineEvent(
+            kind=kind,
+            provider=provider.name,
+            model=provider.model,
+            step=steps,
+            operation=operation,
+            candidate_id=target,
+            verified=verified,
+            latency_ms=latency_ms,
+        ).publish(event_sink)
 
     async def execute() -> None:
-        nonlocal evidence, status, steps, actions, recoveries, provider_errors, error
+        nonlocal evidence, status, steps, actions, recoveries, provider_errors, error, failure_phase
         async with FastBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
             assert owned.browser is not None
             await owned.browser.start()
@@ -105,12 +105,22 @@ async def run_fast(
                 request = build_request(
                     goal, observation, tuple(history[-10:]), allow_done=criteria is None
                 )
+                from browser_agent.telemetry.debug_log import record_debug
+
+                if config.detailed_trace:
+                    record_debug("fast.decision_input", request.model_dump(mode="json"), step=steps)
                 try:
                     await emit("inference_started")
                     decision = await provider.predict(request)
                 except Exception:
                     provider_errors += 1
+                    failure_phase = "provider"
+                    await emit("provider_failed")
                     raise
+                if config.detailed_trace:
+                    record_debug(
+                        "fast.decision_result", decision.model_dump(mode="json"), step=steps
+                    )
                 steps += 1
                 latencies.append(decision.latency_ms)
                 await emit(
@@ -120,6 +130,9 @@ async def run_fast(
                     latency_ms=decision.latency_ms,
                 )
                 if decision.status == "failed":
+                    provider_errors += 1
+                    failure_phase = "provider"
+                    await emit("provider_failed")
                     error = "Decision provider failed; no browser action executed."
                     break
                 if decision.operation in (Operation.DONE, Operation.BLOCKED):
@@ -137,12 +150,16 @@ async def run_fast(
                         error = "Page kept changing before execution; recovery budget exhausted."
                         break
                     continue
+                failure_phase = "browser"
                 await owned.click_observed(decision.candidate_id)
                 actions += 1
+                await emit("action_finished", decision.operation, decision.candidate_id)
+                failure_phase = "verification"
                 # Fresh DOM/AX collection also waits for the navigation watchdog.
                 after = await owned.observe_links({host})
                 evidence = await page_evidence(owned.browser)
                 progressed = after.id != observation.id
+                failure_phase = None
                 await emit("verification", decision.operation, decision.candidate_id, progressed)
                 history.append(
                     {
@@ -188,7 +205,10 @@ async def run_fast(
         raise
     except Exception as exc:
         status = EngineStatus.FAILED
-        error = f"Fast engine failed ({type(exc).__name__})."
+        failure_phase = "provider" if provider_errors else "browser"
+        if not provider_errors:
+            await emit("browser_failed")
+        error = f"Fast {failure_phase} failed ({type(exc).__name__})."
     finally:
         for task in (work, watch):
             if task is not None and not task.done():
@@ -212,5 +232,6 @@ async def run_fast(
         recovery_count=recoveries,
         decision_latencies_ms=latencies,
         duration_ms=(time.perf_counter() - started) * 1000,
+        failure_phase=failure_phase,
         error=error,
     )
