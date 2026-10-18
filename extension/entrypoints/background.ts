@@ -5,6 +5,7 @@ import { createPanelMessageHandler } from "../src/panel-router";
 import { isTrustedPanelSender } from "../src/panel-sender";
 import { OwnedTabs } from "../src/owned-tabs";
 import { StartupGate, withStartupTimeout } from "../src/startup-gate";
+import { createActivityPublisher, pageActivity } from "../src/page-activity";
 import type { ExtensionSnapshot } from "../src/protocol";
 
 const ATTACHMENT_STORAGE_KEY = "browserAttachment";
@@ -48,6 +49,10 @@ const ownedTabs = new OwnedTabs({
     await chrome.tabs.remove(tabId);
   },
 });
+
+const publishActivity = createActivityPublisher((tabId, message) =>
+  chrome.tabs.sendMessage(tabId, message),
+);
 
 const nativeHost = new NativeHostController({
   snapshot,
@@ -96,6 +101,7 @@ function sendToPanel(): void {
 
 function publishSnapshot(): void {
   sendToPanel();
+  publishActivity(snapshot, ownedTabs.snapshot());
 }
 
 async function stopOwnedTabs(attachment: Attachment): Promise<void> {
@@ -234,6 +240,17 @@ function handleHostDetachRequest(payload: Record<string, unknown>): void {
 }
 
 export default defineBackground(() => {
+  chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (
+      message?.type !== "activity.read" ||
+      sender.id !== chrome.runtime.id ||
+      sender.tab?.id === undefined
+    ) {
+      return false;
+    }
+    respond(pageActivity(snapshot, ownedTabs.getByChromeTab(sender.tab.id)));
+    return false;
+  });
   chrome.action.onClicked.addListener(async (tab) => {
     if (typeof tab.windowId === "number") {
       await chrome.sidePanel.open({ windowId: tab.windowId });

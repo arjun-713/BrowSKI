@@ -1,0 +1,8 @@
+/* Only the extension-owned host is styled in the page's document. */
+#browski-page-activity {
+    all: initial;
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    pointer-events: none;
+}
