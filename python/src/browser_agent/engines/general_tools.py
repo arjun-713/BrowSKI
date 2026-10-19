@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from browser_agent.engines.browser_use_runtime import is_http_url
+from browser_agent.engines.browser_use_runtime import is_http_url, read_page_evidence
 from browser_agent.engines.lifecycle import ActionApproval, ApprovalHandler
 from browser_agent.engines.native_fields import (
     native_field_state,
@@ -15,6 +15,7 @@ from browser_agent.engines.native_fields import (
     resolve_native_option,
     validate_native_date,
 )
+from browser_agent.engines.owned_tabs import OwnedTab, TabStateChanged, focus_owned_tab
 from browser_agent.task_literals import TaskLiteralError, normalize_field_label
 
 if TYPE_CHECKING:
@@ -119,6 +120,41 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
             if isinstance(navigate, dict) and not is_http_url(navigate.get("url")):
                 return ActionResult(
                     error="Only HTTP(S) navigation without credentials is permitted."
+                )
+            switch = cast(dict[str, object] | None, payload.get("switch"))
+            if isinstance(switch, dict):
+                tab_id = switch.get("tab_id")
+                matches = [
+                    target
+                    for target in browser_session.get_page_targets()
+                    if isinstance(tab_id, str)
+                    and 1 <= len(tab_id) <= 100
+                    and str(target.target_id).endswith(tab_id)
+                ]
+                if len(matches) != 1:
+                    return ActionResult(
+                        error="The owned tab target is unavailable or ambiguous.",
+                        metadata={"browski_executed": False},
+                    )
+                from browser_use.actor.page import Page
+
+                target_id = str(matches[0].target_id)
+                evidence = await read_page_evidence(Page(browser_session, target_id))
+                if not is_http_url(evidence.url):
+                    return ActionResult(
+                        error="Only owned HTTP(S) task tabs may be selected.",
+                        metadata={"browski_executed": False},
+                    )
+                try:
+                    await focus_owned_tab(browser_session, OwnedTab(target_id, evidence))
+                except TabStateChanged as changed:
+                    return ActionResult(
+                        error="The owned tab focus was not verified.",
+                        metadata={"browski_executed": changed.invoked},
+                    )
+                return ActionResult(
+                    extracted_content=f"Selected owned tab {target_id[-4:]}.",
+                    metadata={"browski_executed": True, "browski_verified": True},
                 )
             for operation in ("click", "input", "select_dropdown"):
                 if operation not in payload:
@@ -281,7 +317,7 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
             )
 
     tools = ApprovedTools()
-    allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "done"}
+    allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "switch", "done"}
     if active_policy.approve is not None:
         allowed.update({"click", "input"})
         if active_policy.native_fields:

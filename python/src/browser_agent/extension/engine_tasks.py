@@ -28,6 +28,7 @@ def timeline_payload(
         "inference_started": ("DecisionStarted", "Choosing the next browser step"),
         "decision": ("DecisionMade", "Selected a browser action"),
         "action_finished": ("ActionCompleted", "Browser action executed"),
+        "tab_selected": ("VerificationCompleted", "Selected browser tab"),
         "observation": ("ObservationCompleted", "Observed browser state"),
         "verification": ("VerificationCompleted", "Checked browser effect"),
         "recovery": ("RecoveryStarted", "Reobserving before another action"),

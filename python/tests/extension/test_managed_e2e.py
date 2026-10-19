@@ -243,7 +243,7 @@ async def test_frozen_navigation_first_look_from_packaged_panel(
 
 @pytest.mark.skipif(os.environ.get("BROWSKI_LAYA_E2E") != "1", reason="prepared CPU Laya required")
 @pytest.mark.parametrize("attached_harness", ["fast"], indirect=True)
-@pytest.mark.parametrize("task_kind", ["navigation", "fields", "native", "submit"])
+@pytest.mark.parametrize("task_kind", ["navigation", "fields", "native", "submit", "tabs"])
 async def test_fresh_default_runs_local_task_without_legacy_attachment(
     attached_harness: ProductHarness,
     article_site: str,
@@ -282,6 +282,16 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
             <button type="submit">Save demo record</button></form>
         """)
         (tmp_path / "receipt.html").write_text("<h1>Saved local draft</h1>")
+    elif task_kind == "tabs":
+        (tmp_path / "panel-tabs.html").write_text(
+            "<title>Task start</title><h1>Task start</h1>"
+            '<a href="/panel-reference.html" target="_blank">Reference</a>'
+        )
+        (tmp_path / "panel-reference.html").write_text(
+            "<title>Reference</title><h1>Reference</h1>"
+            '<a href="/panel-tab-receipt.html">Receipt</a>'
+        )
+        (tmp_path / "panel-tab-receipt.html").write_text("<h1>Reference receipt</h1>")
     scenarios = {
         "navigation": (
             "botany.html",
@@ -304,6 +314,12 @@ async def test_fresh_default_runs_local_task_without_legacy_attachment(
             "Saved local draft",
             f'Open {article_site}/submit.html; set "Name" to "Ada"; '
             'fill "City" with "Pune"; click "Save demo record".',
+        ),
+        "tabs": (
+            "panel-tab-receipt.html",
+            "Reference receipt",
+            f"Open {article_site}/panel-tabs.html; open Reference in its supporting tab, "
+            "then open that page's Receipt link.",
         ),
     }
     path, heading, goal = scenarios[task_kind]

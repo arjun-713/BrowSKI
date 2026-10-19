@@ -62,6 +62,15 @@ Missing or already-satisfied outcome criteria block before interaction. URL
 query/fragment values compare exactly; plain paths retain trailing-slash tolerance.
 This is a bounded single-form workflow, not general business-outcome validation
 or an arbitrary sequence of buttons. Broader workflows remain in migration.
+Owned-tab navigation is implemented in `engines/owned_tabs.py` (ADR-030). Fast
+offers non-active same-host HTTP tabs as CLICK candidates with role `tab`, using
+full target IDs and fresh actor-page evidence. The SDK event bus performs the
+switch; code verifies focus and destination before reporting it. Duplicate
+`_blank` links reuse an already-open exact destination. Popup readiness and
+stale/closed tabs use the existing retry bound; Fast refuses more than eight
+owned pages. Native DOM actions stay bound to the active main-document target.
+General's official switch tool resolves unique displayed IDs to owned full IDs
+and uses the same focus verifier. Source-to-field memory is not migrated yet.
 `cli/fast.py` exposes checkpoint preparation and local-default Fast execution.
 Product task submission and `browski run/task` now dispatch through
 `engines/product.py`, defaulting to Fast/Laya with paid inference disabled.
@@ -192,8 +201,10 @@ Browser ownership and approval guarantees must pass before extension rollout.
   configuration and event translation, not duplicate agent intelligence.
 - `crates/`, `agent/`, `reasoning/`: legacy rollback until replacements pass.
   Shared legacy schemas remain Rust-owned plus the sanctioned Pydantic mirror.
-- `python/tests/`, `benchmarks/`: extend existing suites. Prefer four compact
+- `python/tests/`, `benchmarks/`: extend existing suites. Prefer compact
   boundaries: provider contract, engine integration, product lifecycle, E2E.
+  A fifth migration file covers cross-page ownership/provenance (ADR-030),
+  reusing the shared HTTP fixture rather than creating another harness.
 
 ## Phases and acceptance
 

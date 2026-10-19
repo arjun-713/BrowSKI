@@ -53,6 +53,13 @@ disappearance still invalidates proof. Multiple named clicks are not yet support
 CLI without an approval sink blocks unmet field requirements before inference.
 Task browsers close at task end; long sessions/manual continuation are not added.
 
+Fast can follow a link that opens a supporting tab, select that task-owned tab
+and continue through its links. Selection is independently checked against the
+full browser target identity and destination. Fast permits at most eight owned
+tabs on the allowed host; closed or changed tabs trigger bounded reacquisition.
+General can also select an owned HTTP tab. This does not import personal tabs,
+authentication or source-page values into form fields.
+
 The attachment, explicit form values, owned supporting tabs, vision and checkpoint
 features documented below apply to **Legacy** unless explicitly stated otherwise.
 They have not all migrated to General/Fast. The General slice above reuses the

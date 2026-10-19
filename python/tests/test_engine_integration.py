@@ -331,9 +331,10 @@ def test_engine_failure_timeline_and_result_preserve_category_and_counts() -> No
     from browser_agent.engines.contracts import EngineEvent, EngineResult, EngineStatus
     from browser_agent.extension.engine_tasks import result_summary, timeline_payload
 
-    for kind, label in [
-        ("provider_failed", "Inference failed"),
-        ("browser_failed", "Browser operation failed"),
+    for kind, label, status in [
+        ("provider_failed", "Inference failed", "failed"),
+        ("browser_failed", "Browser operation failed", "failed"),
+        ("tab_selected", "Selected browser tab", "info"),
     ]:
         event = timeline_payload(
             EngineEvent(kind=kind, provider="laya", model="fixture", step=2),
@@ -342,7 +343,7 @@ def test_engine_failure_timeline_and_result_preserve_category_and_counts() -> No
             sequence=3,
             request_id=None,
         )
-        assert event is not None and event["status"] == "failed" and event["label"] == label
+        assert event is not None and event["status"] == status and event["label"] == label
     result = EngineResult(
         status=EngineStatus.FAILED,
         provider="laya",

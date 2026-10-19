@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self
 
 from browser_agent.engines.contracts import PageEvidence
 
@@ -45,7 +45,12 @@ async def page_evidence(browser: BrowserSession) -> PageEvidence | None:
     page = await browser.get_current_page()
     if page is None:
         return None
-    raw = await cast(Any, page).evaluate(
+    return await read_page_evidence(page)
+
+
+async def read_page_evidence(page: Any) -> PageEvidence:
+    """Read the same fixed evidence projection from any task-owned actor page."""
+    raw = await page.evaluate(
         "() => JSON.stringify({url: location.href, title: document.title, "
         "headings: Array.from(document.querySelectorAll('h1'))."
         "filter(e => e.getClientRects().length > 0).map(e => e.innerText.trim())})"

@@ -18,6 +18,8 @@ it is not yet a general production-ready replacement for the Legacy runtime.
   no credentials are available. No retraining is needed to change adapters.
 - The WXT/React extension remains the product UI. General/Fast open an isolated
   task-owned Chrome profile; selected source tabs do not transfer authentication.
+  Fast can open supporting tabs through native links and select owned HTTP tabs
+  on the same host. General also has a verified owned-tab switch tool.
 - Rust/CDP, Luna and LangGraph remain available under an explicit **Legacy**
   configuration for rollback. Their broader forms/tabs/checkpoint capabilities
   have not all migrated and must not be attributed to the new engines.
@@ -177,7 +179,7 @@ measuring it.
 ## Roadmap
 
 The migration checkpoint distinguishes implemented, partial and pending phases.
-Broader forms, custom controls, tabs, authenticated sessions, long workflows and
+Broader forms, custom controls, source-to-field transfer, authenticated sessions, long workflows and
 resumability still need replacement evidence. Keep Legacy until those gates pass.
 Task success is the primary metric; do not trade away verification for speed or
 claim production readiness from a few fixture tasks.

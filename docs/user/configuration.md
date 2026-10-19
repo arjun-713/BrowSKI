@@ -46,6 +46,11 @@ constraints; ambiguous options and unsupported custom controls stay unverified.
 One quoted named click may follow verified fields, with a separate approval and
 fresh final URL/heading checks. Without discriminating outcome criteria it blocks;
 after the click it only reads for the receipt, without repeating submission.
+Fast can open supporting tabs through links and select task-owned HTTP tabs on
+the allowed host. It verifies focus using full browser target identities and
+refuses more than eight tabs. General can also select an owned HTTP tab. These
+tabs belong to the isolated task profile; this does not import personal tabs,
+authentication or values from supporting pages into fields.
 Sidebar General also offers approved click and
 quoted-literal text entry; CLI without an approval sink remains read-only.
 The product General budget is four hosted requests, five steps and 90 seconds
@@ -66,7 +71,7 @@ route. Its paid reasoner and optional vision also require paid permission.
 `reasoning.effort`, `decision.mode`, `decision.shadow_telemetry`, `[vision]` and
 `[browser_code]` belong to that route. Legacy Laya remains a non-executing shadow;
 this is distinct from the new executable CPU Fast provider. High-risk Legacy
-actions still require approval. Broader forms, supporting tabs and encrypted
+actions still require approval. Broader forms, source-to-field transfer and encrypted
 checkpoints remain Legacy features until migrated and validated.
 
 Settings changes are validated by the local runtime, written atomically to the

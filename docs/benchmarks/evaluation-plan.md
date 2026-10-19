@@ -222,3 +222,31 @@ in the checkpoint, retain normal timeouts and use the isolated focused run to
 check reproducibility; do not hide it with automatic retries or relaxed gates.
 Generic server business-state verification, multiple named transitions,
 source transfer, authentication and persistent sessions remain outside this gate.
+
+## Owned-tab navigation gate
+
+ADR-030 adds a development task that opens Reference in a second owned tab,
+selects it and follows its Receipt link. Final URL/H1 checks, an actual source
+visit, one verified focus event and exactly two owned targets are required.
+With deterministic fixture decisions, the committed pre-tab adapter blocked
+after three repeated opening clicks; the new adapter completed in three actions.
+The separate first CPU-Laya run completed with three actions, four decisions, two
+recoveries, 18.10 s task time and no generative calls/provider errors. The
+packaged default-Fast sidebar also exercises this path without Legacy attachment
+or hosted credential lookup. These cases are development/regression evidence,
+not fresh benchmark success-rate or comparative latency estimates.
+
+Use the existing loopback server in `test_engine_cross_page.py` for fixture and
+real Laya runs. Negative cases close or change the inactive target before the
+decision executes, exhaust the step budget and simulate a successful SDK event
+that does not change focus. They must never complete. A two-tab same-URL case
+checks full target identity rather than URL alone. General uses the official
+Agent with offline HTTP responses to navigate, open a new tab and return;
+missing target IDs must execute no switch. Shared provider fixtures cover the
+same CLICK/role-tab candidate through both adapters; live Jev remains unverified.
+
+Serialize model-heavy gates. Record decisions/actions, recoveries, task and
+decision latency, provider errors and false completion. Do not repurpose the
+spent navigation first-look cases as unseen data. Source-to-field provenance,
+authentication, retained sessions and richer business outcomes need separate
+gates before claiming broader workflow support.

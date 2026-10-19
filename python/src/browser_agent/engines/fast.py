@@ -18,8 +18,14 @@ from browser_agent.engines.contracts import (
     PageEvidence,
 )
 from browser_agent.engines.fast_browser import FastBrowser
-from browser_agent.engines.fast_contract import FastDecisionProvider, Operation, build_request
+from browser_agent.engines.fast_contract import (
+    FastDecisionProvider,
+    FastObservation,
+    Operation,
+    build_request,
+)
 from browser_agent.engines.lifecycle import ApprovalHandler
+from browser_agent.engines.owned_tabs import TabStateChanged
 from browser_agent.task_literals import TaskLiteralError
 
 CONTROL_SETTLE_SECONDS = 0.25
@@ -93,6 +99,20 @@ async def run_fast(
         nonlocal evidence, status, steps, actions, recoveries, retries
         nonlocal provider_errors, error, failure_phase
         receipt_target: str | None = None
+
+        async def observe(owned: FastBrowser) -> FastObservation:
+            nonlocal recoveries, retries
+            while True:
+                try:
+                    return await owned.observe_links({host})
+                except TabStateChanged:
+                    recoveries += 1
+                    retries += 1
+                    await emit("recovery", verified=False)
+                    if retries > config.max_recoveries:
+                        raise
+                    await asyncio.sleep(CONTROL_SETTLE_SECONDS)
+
         async with FastBrowser(chrome_path=config.chrome_path, headless=config.headless) as owned:
             assert owned.browser is not None
             owned.enable_fields(goal, approve_action)
@@ -108,7 +128,7 @@ async def run_fast(
                 if cancel is not None and cancel.is_set():
                     status = EngineStatus.CANCELLED
                     break
-                observation = await owned.observe_links({host})
+                observation = await observe(owned)
                 current_evidence = await page_evidence(owned.browser)
                 evidence = current_evidence
                 headings = tuple(current_evidence.headings) if current_evidence else ()
@@ -208,12 +228,15 @@ async def run_fast(
                     error = "The decision does not match its observed operation and target."
                     await emit("provider_failed", decision.operation, decision.candidate_id, False)
                     break
-                fresh = await owned.observe_links({host})
+                fresh = await observe(owned)
                 if fresh.id != decision.observation_id:
                     recoveries += 1
                     retries += 1
                     await emit("recovery", verified=False)
                     if retries > config.max_recoveries:
+                        status = (
+                            EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
+                        )
                         error = "Page kept changing before execution; recovery budget exhausted."
                         break
                     continue
@@ -248,12 +271,29 @@ async def run_fast(
                     if decision.operation is Operation.CLICK:
                         receipt_target = decision.candidate_id
                 else:
-                    await owned.click_observed(decision.candidate_id)
+                    try:
+                        await owned.click_observed(decision.candidate_id)
+                    except TabStateChanged as changed:
+                        actions += int(changed.invoked)
+                        recoveries += 1
+                        retries += 1
+                        await emit("recovery", decision.operation, decision.candidate_id, False)
+                        if retries > config.max_recoveries:
+                            status = (
+                                EngineStatus.PARTIALLY_COMPLETED
+                                if actions
+                                else EngineStatus.BLOCKED
+                            )
+                            error = "Owned tab changes exhausted the recovery budget."
+                            break
+                        continue
+                    if selected.role == "tab":
+                        await emit("tab_selected", decision.operation, decision.candidate_id, True)
                 actions += 1
                 await emit("action_finished", decision.operation, decision.candidate_id)
                 failure_phase = "verification"
                 # Fresh DOM/AX collection also waits for the navigation watchdog.
-                await owned.observe_links({host})
+                await observe(owned)
                 current_evidence = await page_evidence(owned.browser)
                 evidence = current_evidence
                 headings = tuple(current_evidence.headings) if current_evidence else ()
@@ -270,7 +310,9 @@ async def run_fast(
                         "action": next(
                             c.label for c in observation.candidates if c.id == decision.candidate_id
                         ),
-                        "kind": decision.operation.value.lower(),
+                        "kind": "select_tab"
+                        if selected.role == "tab"
+                        else decision.operation.value.lower(),
                         "text": None,
                         "page_changed": progressed,
                     }
@@ -287,6 +329,7 @@ async def run_fast(
                         error = "Repeated unverified actions exhausted the recovery budget."
                         break
             else:
+                status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
                 error = "Fast decision step budget exhausted."
 
     work: asyncio.Task[None] | None = None
@@ -308,6 +351,7 @@ async def run_fast(
         elif watch is not None and watch in finished:
             status = EngineStatus.CANCELLED
         else:
+            status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
             error = "Fast task time budget exhausted."
     except asyncio.CancelledError:
         raise
@@ -315,6 +359,11 @@ async def run_fast(
         status = EngineStatus.BLOCKED
         failure_phase = "task"
         error = str(exc)
+    except TabStateChanged:
+        status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
+        failure_phase = "browser"
+        error = "Owned tab changes exhausted the recovery budget."
+        await emit("browser_failed")
     except Exception as exc:
         status = EngineStatus.FAILED
         failure_phase = "provider" if provider_errors else "browser"

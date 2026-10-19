@@ -61,6 +61,7 @@ def response_fixture() -> dict[str, Any]:
     [
         (Operation.CLICK, "link"),
         (Operation.CLICK, "button"),
+        (Operation.CLICK, "tab"),
         (Operation.TYPE_TEXT, "textbox"),
         (Operation.SELECT, "combobox"),
     ],
@@ -75,7 +76,7 @@ async def test_shared_semantic_request_through_both_adapters(
     request = request_fixture()
     captured: list[dict[str, Any]] = []
     response = response_fixture()
-    if operation is not Operation.CLICK or role == "button":
+    if operation is not Operation.CLICK or role in {"button", "tab"}:
         observation = request.observation.model_copy(
             update={
                 "candidates": (

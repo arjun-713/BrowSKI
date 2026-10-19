@@ -106,6 +106,10 @@ APIs/events, never by linking agent internals.** Full rationale:
   arbitrary field disappearance must still invalidate proof.
   Fast uses full observations for freshness and separate structural state for
   stagnation (ADR-028); arbitrary body-text changes alone are not progress.
+  `owned_tabs.py` reads full SDK target identities and verifies tab focus
+  (ADR-030). Fast exposes task-owned same-host tabs as CLICK candidates with
+  role `tab`; do not dispatch them as DOM nodes or resolve ambiguous short IDs.
+  Popup readiness and tab races consume the existing bounded recovery budget.
 - `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.

@@ -241,6 +241,7 @@ async def test_native_date_and_option_workflow_checks_properties_and_events(
     owned = FastBrowser()
     observed: list[dict[str, Any]] = []
     approvals: list[str] = []
+    recovery_events: list[EngineEvent] = []
 
     def browser_factory(**kwargs: Any) -> FastBrowser:
         return owned
@@ -268,6 +269,8 @@ async def test_native_date_and_option_workflow_checks_properties_and_events(
         monkeypatch.setattr(fast_browser, "native_field_state", delayed_state)
 
     async def events(event: EngineEvent) -> None:
+        if event.kind == "recovery":
+            recovery_events.append(event)
         if event.kind == "verification":
             assert owned.browser is not None
             page = cast(Any, await owned.browser.get_current_page())
@@ -353,7 +356,11 @@ async def test_native_date_and_option_workflow_checks_properties_and_events(
         assert observed[-1]["changes"] == {"departure": 1, "color": 1}
     elif case == "replaced-date-wrong":
         assert not result.verified and result.action_count == 1
-        assert result.failure_phase == "verification" and result.recovery_count == 1
+        assert result.failure_phase == "verification"
+        # Page acquisition may also recover before acting. The failed write
+        # gets exactly one replacement read and must never be repeated.
+        assert sum(event.operation == "TYPE_TEXT" for event in recovery_events) == 1
+        assert result.recovery_count == len(recovery_events)
         assert approvals == ["Departure"]
         assert observed[-1]["departure"] == "2026-11-02"
     elif case == "delayed-no-recovery":

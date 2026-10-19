@@ -18,6 +18,12 @@ from browser_agent.engines.native_fields import (
     resolve_native_option,
     validate_native_date,
 )
+from browser_agent.engines.owned_tabs import (
+    OwnedTab,
+    TabStateChanged,
+    focus_owned_tab,
+    observe_owned_tabs,
+)
 from browser_agent.task_literals import (
     normalize_field_label,
     quoted_click_target,
@@ -41,6 +47,8 @@ class FastBrowser(ManagedBrowser):
         self._click_label: str | None = None
         self._click_invoked = False
         self._fields_at_click = False
+        self._tab_targets: dict[str, OwnedTab] = {}
+        self._pending_popup: set[str] | None = None
 
     def enable_fields(self, goal: str, approve: ApprovalHandler | None) -> None:
         assert self.browser is not None
@@ -94,17 +102,36 @@ class FastBrowser(ManagedBrowser):
     async def observe_links(self, allowed_hosts: set[str]) -> FastObservation:
         """Fresh links plus explicitly enabled, user-literal-bound native fields."""
         assert self.browser is not None
+        tabs = await observe_owned_tabs(self.browser, allowed_hosts)
+        if self._pending_popup is not None:
+            if not any(tab.target_id not in self._pending_popup for tab in tabs.tabs):
+                raise TabStateChanged()
+            self._pending_popup = None
         state = await self.browser.get_browser_state_summary(include_screenshot=False, cached=False)
+        active = self.browser.get_focused_target()
+        active_page = next((tab for tab in tabs.tabs if tab.target_id == tabs.active_id), None)
+        title = active_page.evidence.title if active_page is not None else state.title
+        if (
+            active is None
+            or str(active.target_id) != tabs.active_id
+            or (active_page is not None and active_page.evidence.url != state.url)
+        ):
+            raise TabStateChanged()
         candidates: list[Candidate] = []
         destinations: list[str] = []
         self._targets.clear()
         self._input_values.clear()
         self._field_operations.clear()
+        self._tab_targets.clear()
         # A field verified on an earlier page may have disappeared or changed.
         # Completion requires every assignment in this observation, not history.
         self._verified_fields.clear()
         for node in state.dom_state.selector_map.values():
-            if node.tag_name != "a" or node.attributes.get("aria-disabled") == "true":
+            if (
+                node.tag_name != "a"
+                or str(node.target_id) != tabs.active_id
+                or node.attributes.get("aria-disabled") == "true"
+            ):
                 continue
             try:
                 href = urljoin(state.url, node.attributes.get("href", ""))
@@ -124,6 +151,12 @@ class FastBrowser(ManagedBrowser):
                 continue
             if self._click_label == normalize_field_label(label):
                 continue
+            if node.attributes.get("target", "").lower() == "_blank" and any(
+                tab.target_id != tabs.active_id and tab.evidence.url == href for tab in tabs.tabs
+            ):
+                # Reuse the already-open destination instead of offering another
+                # identical popup. Its owned tab is an explicit candidate below.
+                continue
             candidate = Candidate(
                 id=f"n{node.backend_node_id}",
                 operation=Operation.CLICK,
@@ -138,7 +171,10 @@ class FastBrowser(ManagedBrowser):
             self._targets[candidate.id] = node
         fields: dict[str, list[Any]] = {}
         for node in state.dom_state.selector_map.values():
-            if node.tag_name not in {"input", "textarea", "select"}:
+            if (
+                node.tag_name not in {"input", "textarea", "select"}
+                or str(node.target_id) != tabs.active_id
+            ):
                 continue
             label = node.ax_node.name if node.ax_node is not None else ""
             key = normalize_field_label(label or "")
@@ -194,10 +230,13 @@ class FastBrowser(ManagedBrowser):
                 node
                 for node in state.dom_state.selector_map.values()
                 if (
-                    node.tag_name in {"a", "button"}
-                    or (
-                        node.tag_name == "input"
-                        and node.attributes.get("type") in {"button", "submit"}
+                    str(node.target_id) == tabs.active_id
+                    and (
+                        node.tag_name in {"a", "button"}
+                        or (
+                            node.tag_name == "input"
+                            and node.attributes.get("type") in {"button", "submit"}
+                        )
                     )
                 )
                 and normalize_field_label((node.ax_node.name or "") if node.ax_node else "")
@@ -224,6 +263,21 @@ class FastBrowser(ManagedBrowser):
                     self._targets[candidate.id] = node
                     self._field_operations[candidate.id] = Operation.CLICK
                     destinations.append(f"action:{candidate.id}:{raw}")
+        for tab in tabs.tabs:
+            if tab.target_id == tabs.active_id:
+                continue
+            destination = urlsplit(tab.evidence.url)
+            candidate = Candidate(
+                id=f"t{tab.target_id}",
+                operation=Operation.CLICK,
+                label=(tab.evidence.title or destination.path)[:500],
+                role="tab",
+                href=urlunsplit((destination.scheme, destination.netloc, destination.path, "", ""))[
+                    :500
+                ],
+            )
+            candidates.append(candidate)
+            self._tab_targets[candidate.id] = tab
         if len(candidates) > 120:
             raise ValueError(
                 "Page exceeds the current 120-candidate Fast limit; no targets truncated."
@@ -238,7 +292,8 @@ class FastBrowser(ManagedBrowser):
         structure = "\n".join(
             [
                 state.url,
-                state.title,
+                title,
+                tabs.fingerprint,
                 *[c.model_dump_json() for c in candidates],
                 *destinations,
             ]
@@ -250,21 +305,31 @@ class FastBrowser(ManagedBrowser):
         return FastObservation(
             id=hashlib.sha256(payload.encode()).hexdigest(),
             url=state.url,
-            title=state.title,
+            title=title,
             text=text,
             candidates=tuple(candidates),
         )
 
     async def click_observed(self, candidate_id: str) -> None:
         assert self.browser is not None
+        if candidate_id in self._tab_targets:
+            await focus_owned_tab(self.browser, self._tab_targets[candidate_id])
+            return
         node = self._targets.get(candidate_id)
         if node is None:
             raise ValueError("Target is not in the fresh Browser Use observation.")
         page = await self.browser.get_current_page()
         if page is None:
             raise ValueError("The task's browser page is no longer available.")
+        active = self.browser.get_focused_target()
+        if active is None or str(active.target_id) != str(node.target_id):
+            raise TabStateChanged()
         element = await page.get_element(node.backend_node_id)
+        previous = None
+        if node.attributes.get("target", "").lower() == "_blank":
+            previous = {str(target.target_id) for target in self.browser.get_page_targets()}
         await element.click()
+        self._pending_popup = previous
 
     async def execute_observed(self, candidate_id: str, operation: Operation) -> ActionExecution:
         """Approved fields verify live state; named clicks await a receipt in the loop."""
