@@ -238,6 +238,10 @@ architectural options. Read ADR-001 and ADR-002 first.
 - Do not add a new language without justification.
 - Do not touch the CDP socket outside `crates/cdp/src/transport.rs` — only
   the transport owns the socket; everything else uses typed commands/events.
+- Legacy observation must release the registry binding guard before a fresh
+  generation retry; the recursive retry must never reacquire its own lock.
+- Native Messaging callbacks belong to one port instance. Ignore callbacks
+  from an old port after disconnect/reconnect before parsing any frame.
 - Do not hold a lock guard across `.await`, and never `if let` directly on
   `tabs.read().await…` when the body locks again (scrutinee temporaries live
   through the body and self-deadlock). Resolve to an owned value first.

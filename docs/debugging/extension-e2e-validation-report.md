@@ -2,6 +2,11 @@
 
 Status: in progress. This is an evidence ledger, not a completion claim.
 
+Scope: October 16 results below concern the explicit **Legacy attached-browser**
+path. Current General/Fast defaults and managed-task results are governed by
+[the architecture plan](../../ARCHITECTURE_PLAN.md). The October 22 follow-up
+below separates these paths; Legacy Laya shadow policy is not the new Fast policy.
+
 ## Previous 24-task evidence
 
 The saved latest comparison contains **16/24**, not the 18/24 cited in the
@@ -155,3 +160,162 @@ New test sources:
 
 No Jev calls or Laya tuning are permitted. Laya remains shadow-only. Paid Luna
 regression calls start only after the deterministic infrastructure gate passes.
+
+
+## October 22 revalidation before inference
+
+The user-requested attached-backend gate ran before any new hosted inference.
+The current checkout is `mango`, branch `migration/browski-v2`, with pre-existing
+uncommitted source-transfer work retained. General/Fast remain managed engines;
+these tests explicitly select Legacy when proving Rust/extension attachment.
+No new OpenAI/Jev request, local model run, model tuning or benchmark-label
+change was used.
+
+| Gate | Observed result | Scope |
+| --- | --- | --- |
+| Rust generation-race regression before fix | Failed at one-second timeout | Reproduces the recursive registry-lock wait |
+| Same regression after fix | Passed | One retry, second-race refusal, subsequent observation works |
+| Full Rust workspace after fix | 147 passed; one manual benchmark ignored | All twelve stress cases passed in 28.58 seconds |
+| Rust fmt / strict Clippy | Passed | Workspace and all targets |
+| Native port-ownership regressions before fix | Two failed, six existing cases passed | Old-port callback corrupts handshake/current run |
+| Full extension software checks after fix | 76 passed; types/lint/format/build passed | Built version 0.2.4 |
+| Full default Python | 743 passed, 117 opt-in skips, 115.54 seconds | Rebuilt optimized binding; no live model opt-ins |
+| Python formatting / strict Pyright | Passed | 219 formatted files; zero type errors |
+| Python Ruff lint | Passed after two literal-wrap corrections | Exact string values preserved; migration feature edits remain uncommitted |
+| Initial unchanged popup differential | Mode A passed, Mode B failed after one action | Mode C not reached; no owned supporting-tab candidate |
+
+The initial full Rust run stalled and its verified owned test/browser processes
+were terminated after inspection. It is not a passing run. The deterministic
+before/after regression proves the newly repaired lock defect. A complete green
+rerun is stronger than the historical non-stress subset, but does not establish
+that every prior hang had the same cause.
+
+The native port regressions replay callbacks directly at the listener boundary.
+They prove state isolation after replacement, not a measured incidence rate in
+Chrome. Real packaged reconnect/reload tests exercise the transport lifecycle
+separately. No browser permissions or protocol capabilities were broadened.
+
+### Original 24-case baseline, preserved
+
+The table below reads the saved October 15 **tuned development + V3 holdout**
+rows. It is historical managed-browser/model evidence, not a new run. A grader
+pass can intentionally mean asking the user or waiting for confirmation.
+Task IDs refer to the frozen JSONL definitions; task text, bounds and gold are
+unchanged. B/C values are deliberately unmeasured for this corpus. The six-case
+differential fixture suite is separate and cannot substitute for these tasks.
+
+| Frozen case | Size | Historical managed grader | Historical runtime | New attached B/C |
+| --- | --- | --- | --- | --- |
+| `dev-s-03` | small | pass | `completed` | Not rerun |
+| `dev-m-06` | medium | pass | `completed` | Not rerun |
+| `dev-m-02` | medium | pass | `completed` | Not rerun |
+| `dev-s-05` | small | pass | `completed` | Not rerun |
+| `dev-s-06` | small | pass | `awaiting_user` | Not rerun |
+| `dev-m-04` | medium | pass | `completed` | Not rerun |
+| `dev-l-06` | large | pass | `completed` | Not rerun |
+| `dev-m-01` | medium | pass | `completed` | Not rerun |
+| `dev-s-04` | small | pass | `completed` | Not rerun |
+| `dev-l-04` | large | pass | `pending_confirmation` | Not rerun |
+| `dev-m-05` | medium | pass | `completed` | Not rerun |
+| `dev-l-01` | large | pass | `completed` | Not rerun |
+| `dev-m-03` | medium | pass | `completed` | Not rerun |
+| `dev-l-03` | large | fail | `failed` | Not rerun |
+| `dev-l-05` | large | fail | `awaiting_user` | Not rerun |
+| `dev-s-02` | small | pass | `completed` | Not rerun |
+| `dev-s-01` | small | pass | `completed` | Not rerun |
+| `dev-l-02` | large | pass | `completed` | Not rerun |
+| `v3-l-01` | large | fail | `failed` | Not rerun |
+| `v3-m-01` | medium | fail | `awaiting_user` | Not rerun |
+| `v3-l-03` | large | fail | `awaiting_user` | Not rerun |
+| `v3-l-02` | large | fail | `awaiting_user` | Not rerun |
+| `v3-l-04` | large | fail | `awaiting_user` | Not rerun |
+| `v3-m-02` | medium | fail | `awaiting_user` | Not rerun |
+
+Historical totals remain **16/18 development**, **0/6 holdout**, **16/24 combined**.
+By size across those 24: small **6/6**, medium **6/8**, large **4/10**. These are
+saved-corpus grades, not current extension task-success rates. The new 24-task
+run remains pending: routine paid inference is disabled, the deterministic
+attached popup capability still fails, and the replacement engines do not yet
+control personal attached Chrome tabs. No automatic paid rerun was started.
+
+### Completion audit still open
+
+- Native `_blank` popup ownership must be solved within a bounded, authorized
+  attachment contract. Do not adopt unrelated existing tabs or replace attached
+  mode with managed mode to improve the result.
+- Runtime restart currently proves cancellation/no replay and explicit new
+  attachment. It does not prove durable extension run continuation.
+- Legacy event correlation has run/request/browser-session/trace/step fields,
+  but the complete original cross-layer identifier tuple, including tab identity
+  at every Rust transition, remains unaudited rather than complete.
+- Current user-installed Chrome acceptance and the new 24-task extension/model
+  evaluation remain unproven. Software fixture success does not prove arbitrary
+  public-site task reliability.
+- Initial lint found two E501 violations in pre-existing migration edits.
+  Wrapping the literals without changing their values clears the lint/format
+  gate. Those feature files remain uncommitted; no lint rule was relaxed.
+
+Reproduction uses the existing real Chromium/native-host harness and
+`PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright"`, with
+`BROWSKI_EXTENSION_E2E=1`, `BROWSKI_GENERAL_LIVE_DEBUG=0` and
+`BROWSKI_LAYA_E2E=0`. Keep the full original corpus and difficult popup case.
+
+
+### Final packaged result for this follow-up
+
+With optimized Rust bindings and built extension **0.2.4**, the unchanged
+five-module packaged group finished with **31 passed, one failed, ten explicit
+opt-in skips**, in **461.01 seconds**. The sole failure is `multi_tab` in the
+six-case A/B/C differential suite. The other five differential cases pass all
+three modes. No failing assertion was removed or changed to xfail.
+
+The ten skips are six CPU-Laya product cases and four spent navigation cases;
+those opt-ins were intentionally disabled. The official General Agent's
+navigation/read case and all four form-approval variants still ran with offline
+HTTP inference, actual Chrome, Native Messaging and the packaged panel. The
+provider warning in the failing popup test names the Legacy adapter `openai`,
+but its provider is the fixture `ScenarioReasoner`; there was no network API call.
+
+| Actual packaged scenario | Result | JUnit case duration |
+| --- | --- | ---: |
+| Full multi-step/multi-tab demo, stop before submission | Pass | 23.315 s |
+| Pause/resume with verified trace | Pass | 11.748 s |
+| Stop during decision | Pass | 13.673 s |
+| Extension reload cancels pending action | Pass | 7.277 s |
+| Runtime restart, no replay, new explicit attachment | Pass | 12.352 s |
+| Nested document panel task | Pass | 10.096 s |
+| Crowded nested document panel task | Pass | 57.771 s |
+| Ten-action journey through A/B/C modes | Pass | 34.262 s |
+| Native `_blank` differential | Fail in B after A passes | 10.235 s |
+
+These are test-case durations with fixture/harness work, not autonomous model
+latency percentiles or a broad task-success benchmark. Two pytest warnings note
+that `record_property` is incompatible with the default xunit2 schema; recorded
+properties are still present in the XML. No test was skipped because it failed.
+
+Owner-only evidence is retained locally, ignored by Git, at
+`debug-logs/extension-reliability-20261022/`:
+
+- `browski-extension-differential-20261022.xml` — initial popup reproduction;
+- `browski-python-20261022.xml` — complete default Python result;
+- `browski-native-host-20261022.xml` — all eight listener-boundary cases;
+- `browski-packaged-extension-20261022.xml` — complete 42-case packaged group.
+
+The read-only installed-runtime check is separate: `browski doctor` finds the
+binding, Chrome, native-host registration, extension build and pinned local
+checkpoint, with Fast/Laya and paid inference disabled. `browski doctor
+--extension` fails its authenticated runtime probe because the user's normal
+bridge service is not running. This is not a passing installed-Chrome task test.
+Starting/reconnecting that installed session remains a separate acceptance step.
+
+Commits: Rust repair `1d96423`; Native Messaging repair `67504fc`.
+Uncommitted source-transfer migration work was preserved (with two literal-only
+lint wraps); it is not included in these repair commits. The full goal remains
+active: the native-popup failure and the other open completion gates above are
+not converted into a success claim.
+
+Final repository checks: **102 tracked Markdown files, 213 local links, zero
+missing paths**; `git diff --check` passes. Six unavailable historical private-log
+hyperlinks were converted to explicit local-artifact references, without adding
+private logs to Git. Both lint-only Python literal wraps preserve the complete
+module AST, checked against their pre-wrap forms. `CODE_QUALITY.md` is unchanged.

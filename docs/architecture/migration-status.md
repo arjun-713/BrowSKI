@@ -1,16 +1,16 @@
 # BROWSKI 2.0 migration checkpoint
 
-**Status: TARGET / IN MIGRATION.** Updated 2026-10-19.
+**Status: TARGET / IN MIGRATION.** Updated 2026-10-22.
 Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
 This checkpoint replaces the accumulated phase diary; detailed decisions and
 historical validation remain in ADR-022–030, the evaluation plan and Git history.
 
 ## Repository and constraints
 
-Branch `migration/browski-v2`, starting base `6a80e9b`. Last committed phase:
-**`526669b` — approved Fast form workflows**. Owned-tab navigation (ADR-030) is
-implemented and validated in this phase. Record its commit in the
-next checkpoint update; a commit cannot contain its own hash.
+Branch `migration/browski-v2`, starting base `6a80e9b`. Last committed migration
+phase: **`5b6113d` — verified owned-tab navigation (ADR-030)**. The separately
+validated Legacy reliability follow-up is recorded below; source-to-field
+migration work is not marked complete.
 
 Machine: i5-8350U, 8 logical CPUs, 15 GiB usable RAM, Fedora, Chrome and uv.
 **Only Laya may run locally; no local generative model or training.** An earlier
@@ -37,7 +37,7 @@ inference stays off. No hosted fallback or live Jev request has been made.
 | 7 Native controls       | `d62b15a`      | Native dates/single-select, validity, option identity, replacement reread        |
 | 7 Stagnation            | `1085895`      | Unrelated body-text changes do not count as structural progress                  |
 | 7 Form workflow         | `526669b`      | One approved named transition, one invocation, exact fresh receipt               |
-| 7 Owned tabs            | Validated here | Native popup, full target identity, verified focus, bounded races                |
+| 7 Owned tabs            | `5b6113d`      | Native popup, full target identity, verified focus, bounded races                |
 | 7 Broader workflows     | Pending        | Source-to-field provenance, richer goal checks, auth/session coverage            |
 | 8 Cleanup               | Pending        | Retain Legacy until replacement behavior and evaluation gates pass               |
 
@@ -199,3 +199,43 @@ changed facts, and prove actual field/receipt outcomes through the packaged UI.
 Reuse the cross-page suite/HTTP fixture. Broader authentication/session state,
 generic goal coverage, fresh unseen evaluations and Legacy replacement remain
 open. Keep the overall migration goal active; do not claim production readiness.
+
+
+## Legacy reliability follow-up — 2026-10-22
+
+The previous committed migration phase is `5b6113d` (owned-tab navigation).
+The validated registry-lock repair is committed as `1d96423`.
+Pre-existing uncommitted source-transfer work remains separate and unclaimed.
+This follow-up repairs the retained Legacy path without changing the target
+architecture or marking broader workflow migration complete.
+
+- A deterministic navigation-race regression reproduced an observation retry
+  waiting on its own registry write guard. Release the completed binding guard
+  before further awaits. The same regression verifies one fresh retry, refusal
+  after a second race, and later observation usability.
+- The full Rust rerun passes 147 tests, one manual benchmark ignored, including
+  all twelve stress cases in 28.58 seconds. The first stalled run was terminated;
+  do not rewrite it as a pass or claim every historical stall is explained.
+- Two stale Native Messaging callback regressions reproduce handshake failure
+  and replacement-run corruption. Messages are now scoped to the active port.
+  Extension checks pass 76 tests and the 0.2.4 production build.
+- The rebuilt optimized binding passes the full default Python suite: 743 tests,
+  117 opt-in skips. Strict typing/lint/formatting pass. Two existing E501 errors
+  were cleared by wrapping literals without changing their values; those
+  source-transfer feature files remain uncommitted.
+- The unchanged Legacy native-popup differential still passes managed mode and
+  fails attached mode. New General/Fast managed-tab evidence is not an attached
+  personal-Chrome fix. Full popup ownership, cross-layer correlation, durable
+  extension continuation and a fresh 24-task extension evaluation remain open.
+- No new OpenAI/Jev call or local inference was made. See the
+  [validation ledger](../debugging/extension-e2e-validation-report.md) and
+  [root-cause report](../debugging/extension-e2e-root-cause-report.md).
+
+The source-to-field work listed above remains the migration next action; this
+bug-fix pass does not implement or claim that separate pending phase.
+
+Packaged revalidation for these repairs: **31 passed, one failed, ten opt-in
+skips, 461.01 seconds**. The unchanged native-popup differential is the failure;
+reload, restart, approval and controls pass. Native port repair: `67504fc`.
+The user's installed service is currently stopped according to the authenticated
+doctor probe; packaged fixture success is not installed-Chrome acceptance.

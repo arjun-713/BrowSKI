@@ -88,6 +88,12 @@ traces. The final result exposes execution counters and verification. Detailed
 Fast inputs can be compared with `browski compare-fast`; no browser actions are
 executed by comparison, and live Jev remains unverified without credentials.
 
+Legacy reliability follow-up: observation drops its completed registry-binding
+guard before a navigation retry, and extension callbacks are scoped to the
+active Native Messaging port. These fixes preserve the existing ownership
+contracts; they do not add popup adoption or migrate attached control to
+General/Fast. See the [root-cause report](docs/debugging/extension-e2e-root-cause-report.md).
+
 These are legacy capabilities and a narrow new engine slice, not proof that
 the whole target is implemented.
 See the checkpoint for the latest verified phase.
