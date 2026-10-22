@@ -43,10 +43,17 @@ function controllerHarness() {
   });
   controller.connectHost();
 
-  function send(type: string, payload: Record<string, unknown>) {
-    for (const listener of listeners) {
-      listener({ protocolVersion: 1, eventId: crypto.randomUUID(), type, payload });
-    }
+  function send(
+    type: string,
+    payload: Record<string, unknown>,
+    connection = listeners.length - 1,
+  ) {
+    listeners[connection]({
+      protocolVersion: 1,
+      eventId: crypto.randomUUID(),
+      type,
+      payload,
+    });
   }
 
   send("host.hello", {
@@ -193,5 +200,74 @@ describe("run-scoped native timeline", () => {
     expect(harness.snapshot.protocolReady).toBe(false);
     expect(harness.disconnectPort).toHaveBeenCalledOnce();
     expect(harness.controller.sendNative("runtime.snapshot.request", {})).toBe(false);
+  });
+});
+
+describe("native connection ownership", () => {
+  it("ignores queued data from a disconnected port during the next handshake", () => {
+    const harness = controllerHarness();
+    harness.startRun("old-run");
+    harness.controller.disconnectHost();
+    harness.controller.connectHost();
+
+    harness.send(
+      "runtime.status",
+      {
+        session: {
+          sessionId: "old-session",
+          runId: "old-run",
+          status: "running",
+          updatedAt: timestamp,
+        },
+      },
+      0,
+    );
+
+    expect(harness.snapshot.host).toBe("connecting");
+    expect(harness.snapshot.protocolReady).toBe(false);
+    expect(harness.snapshot.hostError).toBeNull();
+    // Only the intentionally closed old port may have been disconnected.
+    expect(harness.disconnectPort).toHaveBeenCalledOnce();
+    harness.controller.disconnectHost();
+  });
+
+  it("refuses to replace the current run with a snapshot from an old connection", () => {
+    const harness = controllerHarness();
+    harness.startRun("old-run");
+    harness.controller.disconnectHost();
+    harness.controller.connectHost();
+    harness.send("host.hello", {
+      supportedProtocolVersions: [1],
+      debuggerProtocolVersion: 1,
+      debuggerMethods: [],
+      debuggerEvents: [],
+    });
+    harness.send("runtime.snapshot", {
+      session: null,
+      events: [],
+      pendingApproval: null,
+    });
+    harness.startRun("current-run");
+    harness.event("current-run", 1, "RunStarted");
+
+    harness.send(
+      "runtime.snapshot",
+      {
+        session: {
+          sessionId: "old-session",
+          runId: "old-run",
+          status: "failed",
+          updatedAt: timestamp,
+        },
+        events: [],
+        pendingApproval: null,
+      },
+      0,
+    );
+
+    expect(harness.snapshot.protocolReady).toBe(true);
+    expect(harness.snapshot.session?.runId).toBe("current-run");
+    expect(harness.snapshot.events.map((event) => event.type)).toEqual(["RunStarted"]);
+    harness.controller.disconnectHost();
   });
 });

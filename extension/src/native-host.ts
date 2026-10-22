@@ -85,7 +85,12 @@ export class NativeHostController {
           "Local runtime did not complete its connection within 10 seconds. Retry connecting.",
         );
       }, HOST_HANDSHAKE_TIMEOUT_MS);
-      port.onMessage.addListener(this.onNativeMessage);
+      port.onMessage.addListener((message: unknown) => {
+        // A queued callback can outlive disconnect. It has no authority over
+        // the replacement port's handshake, session, or debugger commands.
+        if (this.nativePort !== port) return;
+        this.onNativeMessage(message);
+      });
       port.onDisconnect.addListener(() => {
         const lastError = chrome.runtime.lastError?.message;
         if (this.nativePort !== port) return;
