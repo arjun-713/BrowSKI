@@ -15,8 +15,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from browser_agent.cli.config import load_config
+from browser_agent.cli.config import BrowskiConfig, ExecutionEngine, load_config
 from browser_agent.credentials import CredentialStore, SystemCredentialStore
+from browser_agent.extension.agent_relay import AgentRelay, RelayError
 from browser_agent.extension.backend import (
     Attachment,
     ExtensionBackendError,
@@ -43,17 +44,30 @@ from browser_agent.extension.wire import write_native_frame as _write_native_fra
 from browser_agent.telemetry.debug_log import DebugRecorder, record_debug
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from browser_agent.engines.contracts import EngineEvent, EngineResult
+    from browser_agent.engines.lifecycle import ActionApproval, TaskControl
     from browser_agent.session import BrowserSession
 
 logger = logging.getLogger(__name__)
 
 _AUTH_TIMEOUT_SECONDS = 3
 _HELLO_TIMEOUT_SECONDS = 5
-_MESSAGE_TIMEOUT_SECONDS = 300
+# Timeline detail bound shared with the extension's isTimelineEvent validator.
+_TIMELINE_DETAIL_CHARS = 500
 
 
 class BridgeServiceError(RuntimeError):
     """Raised when the local extension bridge cannot start or serve safely."""
+
+
+def _timeline_detail(verdict: Mapping[str, object], summary: str) -> str:
+    reason = verdict.get("reason")
+    text = reason if isinstance(reason, str) and reason else summary
+    if len(text) <= _TIMELINE_DETAIL_CHARS:
+        return text
+    return text[: _TIMELINE_DETAIL_CHARS - 1].rstrip() + "…"
 
 
 def default_socket_path() -> Path:
@@ -78,10 +92,12 @@ class ExtensionBridgeService:
         config_path: Path | None = None,
         database_path: Path = Path("browski-checkpoints.sqlite"),
         credential_store: CredentialStore | None = None,
+        managed_headless: bool = False,
     ) -> None:
         self.socket_path = (socket_path or default_socket_path()).expanduser()
         self.config_path = config_path
         self.database_path = database_path.expanduser()
+        self._managed_headless = managed_headless
         self._settings_service = ExtensionSettingsService(
             config_path=self.config_path,
             credential_store=credential_store or SystemCredentialStore(),
@@ -108,6 +124,7 @@ class ExtensionBridgeService:
         self._attachment_started = asyncio.Event()
         self._task_task: asyncio.Task[None] | None = None
         self._agent_runtime: object | None = None
+        self._engine_control: TaskControl | None = None
         self._runtime_context: object | None = None
         self._run_id: str | None = None
         self._request_id: str | None = None
@@ -117,11 +134,18 @@ class ExtensionBridgeService:
         self._closed = False
         self._diagnostic_task: asyncio.Task[DiagnosticResponse] | None = None
         self._diagnostic_request_ids: set[str] = set()
+        self._agent_relay = AgentRelay(self._notify_extension)
+        self._result_extras: dict[str, object] = {}
 
     @property
     def runtime_session(self) -> dict[str, object] | None:
         """Return a copy of the currently attached browser session summary."""
         return dict(self._runtime_session) if self._runtime_session is not None else None
+
+    @property
+    def agent_relay(self) -> AgentRelay:
+        """The single relay that leases the user's tabs to General tasks."""
+        return self._agent_relay
 
     async def wait_for_attached_browser(
         self, *, wait_seconds: float | None = None
@@ -394,15 +418,16 @@ class ExtensionBridgeService:
             self._extension_writer = writer
             if self._backend is not None:
                 self._backend.set_extension_connection(writer, methods=methods, events=events)
+            self._configure_idle_engine_session(load_config(self.config_path))
             await self._send_host_hello(writer, methods, events)
             await self._send_runtime_snapshot(writer)
             await self._settings_service.send_credentials_status(writer)
 
             phase = "connected"
             while True:
-                value = await asyncio.wait_for(
-                    _read_native_frame(reader), timeout=_MESSAGE_TIMEOUT_SECONDS
-                )
+                # No idle timeout: an idle panel or a long task legitimately sends
+                # nothing here, and a dead native host closes the socket (EOF).
+                value = await _read_native_frame(reader)
                 message = validator.validate(value)
                 await self._handle_message(writer, message)
         except (
@@ -454,6 +479,10 @@ class ExtensionBridgeService:
         if message_type == "runtime.snapshot.request":
             await self._send_runtime_snapshot(writer)
         elif message_type == "browser.tab.attached":
+            if self._has_active_task():
+                raise ExtensionProtocolError(
+                    "finish the active task before attaching another browser"
+                )
             payload_value = message["payload"]
             if isinstance(payload_value, dict):
                 payload = cast(dict[str, object], payload_value)
@@ -494,19 +523,22 @@ class ExtensionBridgeService:
                 browser_session, self._browser_session = self._browser_session, None
                 if browser_session is not None:
                     await cast(Any, browser_session).close()
-                self._runtime_session = None
-                await self._cancel_task()
+                if not self._is_engine_session():
+                    self._runtime_session = None
+                    await self._cancel_task()
                 await self._send_runtime_snapshot(writer)
         elif message_type == "runtime.task.submit":
             payload = cast(dict[str, object], message["payload"])
             if self._diagnostic_task is not None and not self._diagnostic_task.done():
                 raise ExtensionProtocolError("wait for the read-only browser diagnostic to finish")
-            if (
-                self._runtime_session is None
-                or self._backend is None
-                or self._backend.attachment is None
+            config = load_config(self.config_path)
+            managed = config.agent.engine is not ExecutionEngine.LEGACY
+            if managed:
+                self._configure_idle_engine_session(config)
+            if self._runtime_session is None or (
+                not managed and (self._backend is None or self._backend.attachment is None)
             ):
-                raise ExtensionProtocolError("attach a browser tab before starting a task")
+                raise ExtensionProtocolError("attach a browser tab before starting a legacy task")
             if payload.get("sessionId") != self._runtime_session.get("sessionId"):
                 raise ExtensionProtocolError("task belongs to a different browser session")
             if self._task_task is not None and not self._task_task.done():
@@ -525,7 +557,11 @@ class ExtensionBridgeService:
                         "source": "extension",
                         "request_id": self._request_id,
                         "trace_id": self._run_id,
-                        "tab_id": self._backend.attachment.tab_id,
+                        "tab_id": (
+                            self._backend.attachment.tab_id
+                            if self._backend and self._backend.attachment
+                            else None
+                        ),
                     },
                 )
             self._pending_approval_id = None
@@ -535,8 +571,25 @@ class ExtensionBridgeService:
             self._runtime_session["runId"] = self._run_id
             self._runtime_session["status"] = "running"
             self._runtime_session["updatedAt"] = datetime.now(UTC).isoformat()
+            if managed:
+                from browser_agent.engines.lifecycle import TaskControl
+
+                async def events(event: EngineEvent) -> None:
+                    await self._send_managed_event(writer, event)
+
+                async def approvals(request: ActionApproval | None) -> None:
+                    await self._send_managed_approval(writer, request)
+
+                self._engine_control = TaskControl(
+                    config.agent.engine.value,
+                    cast(str, self._runtime_session["provider"]),
+                    events,
+                    approvals=approvals,
+                )
             self._task_task = asyncio.create_task(
-                self._run_attached_task(writer, cast(str, payload["task"]), self._run_id),
+                self._run_managed_task(writer, payload, self._run_id, config)
+                if managed
+                else self._run_attached_task(writer, cast(str, payload["task"]), self._run_id),
                 name=f"browski-run-{self._run_id}",
             )
             await self._send_runtime_status(writer)
@@ -546,13 +599,19 @@ class ExtensionBridgeService:
                 self._runtime_session is None
                 or payload.get("sessionId") != self._runtime_session.get("sessionId")
                 or payload.get("approvalId") != self._pending_approval_id
-                or self._agent_runtime is None
                 or self._run_id is None
+                or (self._agent_runtime is None and self._engine_control is None)
             ):
                 raise ExtensionProtocolError("approval does not match the pending browser action")
             approval_id = cast(str, self._pending_approval_id)
-            await self._send_approval_cleared(writer, approval_id)
             approved = payload.get("decision") == "approve"
+            if self._engine_control is not None:
+                if not self._engine_control.respond_to_approval(approval_id, approved):
+                    raise ExtensionProtocolError("approval is no longer pending")
+                # The waiting engine owns cleanup/status and resumes the same
+                # task. Never create a second executor for a managed approval.
+                return
+            await self._send_approval_cleared(writer, approval_id)
             self._pending_approval_id = None
             self._runtime_suspended = False
             self._pending_approval = None
@@ -564,6 +623,23 @@ class ExtensionBridgeService:
             await self._send_runtime_status(writer)
         elif message_type == "runtime.task.control":
             payload = cast(dict[str, object], message["payload"])
+            if self._engine_control is not None:
+                if (
+                    self._runtime_session is None
+                    or payload.get("sessionId") != self._runtime_session.get("sessionId")
+                    or payload.get("runId") != self._run_id
+                ):
+                    raise ExtensionProtocolError(
+                        "task control does not match the active engine run"
+                    )
+                control = payload.get("control")
+                if control == "pause":
+                    self._engine_control.pause()
+                elif control == "resume":
+                    self._engine_control.resume()
+                else:
+                    self._engine_control.stop()
+                return
             if (
                 self._runtime_session is None
                 or payload.get("sessionId") != self._runtime_session.get("sessionId")
@@ -610,6 +686,9 @@ class ExtensionBridgeService:
             )
             if not handled:
                 raise ExtensionProtocolError("settings service did not handle a supported message")
+            if message_type == "runtime.settings.update" and not self._has_active_task():
+                self._configure_idle_engine_session(load_config(self.config_path))
+                await self._send_runtime_snapshot(writer)
         elif message_type == "browser.event.dropped":
             return
         else:
@@ -627,12 +706,15 @@ class ExtensionBridgeService:
         self._task_task = None
 
     async def _cancel_task(self) -> None:
+        if self._engine_control is not None:
+            self._engine_control.stop()
         task, self._task_task = self._task_task, None
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         await self._close_runtime_context()
         self._agent_runtime = None
+        self._engine_control = None
         self._run_id = None
         self._pending_approval_id = None
         self._pending_approval = None
@@ -708,6 +790,180 @@ class ExtensionBridgeService:
                         )
                     except Exception:
                         logger.debug("Could not clear failed attached browser ownership")
+
+    def _configure_idle_engine_session(self, config: BrowskiConfig) -> None:
+        if self._task_task is not None and not self._task_task.done():
+            return
+        if config.agent.engine is ExecutionEngine.LEGACY:
+            if self._is_engine_session():
+                self._runtime_session = None
+            elif self._backend is None or self._backend.attachment is None:
+                self._runtime_session = None
+            return
+        provider = (
+            config.agent.fast_provider.value
+            if config.agent.engine is ExecutionEngine.FAST
+            else config.agent.text_provider.value
+        )
+        if self._runtime_session is None:
+            self._runtime_session = {
+                "sessionId": str(uuid.uuid4()),
+                "status": "idle",
+                "updatedAt": datetime.now(UTC).isoformat(),
+            }
+        self._runtime_session.update(
+            engine=config.agent.engine.value,
+            provider=provider,
+            # General drives the user's own tabs through the relay (ADR-032).
+            browserMode="attached" if config.agent.engine is ExecutionEngine.GENERAL else "managed",
+        )
+
+    async def _send_managed_event(self, writer: asyncio.StreamWriter, event: EngineEvent) -> None:
+        from browser_agent.extension.engine_tasks import timeline_payload
+
+        session = self._runtime_session
+        if session is None or self._run_id is None:
+            return
+        if event.kind in {"task_paused", "task_resumed"}:
+            session["status"] = "paused" if event.kind == "task_paused" else "running"
+            await self._send_runtime_status(writer)
+        value = timeline_payload(
+            event,
+            session_id=cast(str, session["sessionId"]),
+            run_id=self._run_id,
+            sequence=max((cast(int, item["sequence"]) for item in self._timeline_events), default=0)
+            + 1,
+            request_id=self._request_id,
+        )
+        if value is not None:
+            await self._send_timeline(writer, value)
+
+    async def _send_managed_approval(
+        self, writer: asyncio.StreamWriter, request: ActionApproval | None
+    ) -> None:
+        session = self._runtime_session
+        if session is None or self._run_id is None:
+            return
+        if request is None:
+            approval_id = self._pending_approval_id
+            self._pending_approval_id = None
+            if approval_id is not None:
+                await self._send_approval_cleared(writer, approval_id)
+            session["status"] = "running"
+        else:
+            self._pending_approval_id = request.approval_id
+            session["status"] = "awaiting_approval"
+            await self._send_approval_required(
+                writer,
+                request.approval_id,
+                cast(str, session["sessionId"]),
+                {
+                    "action": request.action,
+                    "target": request.target,
+                    "reason": request.reason or "This action needs your approval.",
+                },
+            )
+        await self._send_runtime_status(writer)
+
+    async def _run_managed_task(
+        self,
+        writer: asyncio.StreamWriter,
+        payload: dict[str, object],
+        run_id: str,
+        config: BrowskiConfig,
+    ) -> None:
+        from browser_agent.engines.contracts import CompletionCriteria, EngineStatus
+        from browser_agent.engines.product import (
+            EngineConfigurationError,
+            execute_managed_task,
+            preflight_general,
+        )
+        from browser_agent.extension.engine_tasks import result_extras, result_summary
+
+        control = self._engine_control
+        if self._runtime_session is None or control is None:
+            return
+        try:
+            verification = payload.get("verification")
+            criteria = (
+                CompletionCriteria.model_validate(verification)
+                if verification is not None
+                else None
+            )
+            start_url = cast(str | None, payload.get("startUrl"))
+            session_id = cast(str, self._runtime_session["sessionId"])
+
+            async def run(cdp_url: str | None = None) -> EngineResult:
+                return await execute_managed_task(
+                    cast(str, payload["task"]),
+                    config,
+                    start_url=start_url,
+                    criteria=criteria,
+                    events=lambda event: self._send_managed_event(writer, event),
+                    control=control,
+                    headless=self._managed_headless,
+                    run_id=run_id,
+                    session_id=session_id,
+                    cdp_url=cdp_url,
+                )
+
+            if config.agent.engine is ExecutionEngine.GENERAL:
+                preflight_general(config)
+                result = await self._run_in_user_tabs(run, control)
+            else:
+                result = await run()
+            self._result_extras = result_extras(result)
+            summary = result_summary(result)
+            await self._finish_task(
+                writer,
+                success=result.status is EngineStatus.COMPLETED,
+                task_status=result.status.value,
+                summary=summary or result.status.value,
+            )
+        except asyncio.CancelledError:
+            raise
+        except (EngineConfigurationError, RelayError) as error:
+            await self._finish_task(
+                writer, success=False, task_status="blocked", summary=str(error)
+            )
+        except Exception as error:
+            await self._report_task_failure(writer, error)
+        finally:
+            if self._engine_control is control:
+                self._engine_control = None
+
+    async def _run_in_user_tabs(
+        self,
+        run: Callable[[str | None], Awaitable[EngineResult]],
+        control: TaskControl,
+    ) -> EngineResult:
+        """Lease the user's current tab through the relay for one General task."""
+        async with self._agent_relay.lease() as lease:
+
+            async def stop_when_cancelled_in_browser() -> None:
+                await lease.cancelled.wait()
+                control.stop()
+
+            watcher = asyncio.create_task(stop_when_cancelled_in_browser())
+            try:
+                return await run(lease.cdp_url)
+            finally:
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
+
+    async def _notify_extension(self, message_type: str, payload: dict[str, object]) -> None:
+        writer = self._extension_writer
+        if writer is None or writer.is_closing():
+            raise RelayError("The browser extension is not connected.")
+        await _write_native_frame(
+            writer,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": message_type,
+                "eventId": str(uuid.uuid4()),
+                "payload": payload,
+            },
+        )
 
     async def _run_attached_task(
         self,
@@ -958,6 +1214,7 @@ class ExtensionBridgeService:
         summary: str,
         stopped: bool = False,
         failure: Mapping[str, object] | None = None,
+        task_status: str | None = None,
     ) -> None:
         session = self._runtime_session
         if session is None or writer.is_closing():
@@ -971,6 +1228,48 @@ class ExtensionBridgeService:
         elif stopped:
             status = "stopped"
             outcome = "stopped"
+        if not success and task_status in {"partially_completed", "blocked", "cancelled"}:
+            status = task_status
+            outcome = task_status
+        if self._is_engine_session() and self._run_id is not None:
+            terminal = {
+                "completed": ("RunCompleted", "Task completed"),
+                "partially_completed": ("RunPartiallyCompleted", "Task partially completed"),
+                "blocked": ("RunBlocked", "Task blocked"),
+                "cancelled": ("RunCancelled", "Task cancelled"),
+                "failed": ("RunFailed", "Task failed"),
+            }
+            kind, label = terminal[status]
+            await self._send_timeline(
+                writer,
+                {
+                    "eventId": str(uuid.uuid4()),
+                    "sessionId": session_id,
+                    "runId": self._run_id,
+                    "sequence": max(
+                        (cast(int, e["sequence"]) for e in self._timeline_events), default=0
+                    )
+                    + 1,
+                    "step": max(
+                        (cast(int, e.get("step", 0)) for e in self._timeline_events), default=0
+                    ),
+                    "createdAt": datetime.now(UTC).isoformat(),
+                    "type": kind,
+                    "label": label,
+                    # The full answer travels in runtime.task.result; the timeline
+                    # line must stay inside the extension's protocol bound.
+                    "detail": _timeline_detail(
+                        cast(dict[str, object], self._result_extras.get("verdict") or {}),
+                        summary,
+                    ),
+                    "status": "completed"
+                    if success
+                    else "failed"
+                    if status == "failed"
+                    else "info",
+                    **({"requestId": self._request_id} if self._request_id else {}),
+                },
+            )
         session["status"] = status
         session["updatedAt"] = datetime.now(UTC).isoformat()
         await self._send_runtime_status(writer)
@@ -985,6 +1284,7 @@ class ExtensionBridgeService:
                     **({"runId": self._run_id} if self._run_id is not None else {}),
                     "outcome": outcome,
                     "summary": summary[:2_000],
+                    **self._result_extras,
                     "finishedAt": datetime.now(UTC).isoformat(),
                     **({"failure": dict(failure)} if failure is not None else {}),
                 },
@@ -994,6 +1294,7 @@ class ExtensionBridgeService:
         self._request_id = None
         self._pending_approval_id = None
         self._pending_approval = None
+        self._result_extras = {}
 
     async def _send_runtime_status(self, writer: asyncio.StreamWriter) -> None:
         if self._runtime_session is None:
@@ -1067,6 +1368,11 @@ class ExtensionBridgeService:
                 "payload": {"approvalId": approval_id},
             },
         )
+
+    def _is_engine_session(self) -> bool:
+        """General/Fast runs, as opposed to an explicit Legacy tab attachment."""
+        session = self._runtime_session
+        return session is not None and session.get("engine") in {"fast", "general"}
 
     def _has_active_task(self) -> bool:
         if self._task_task is not None and not self._task_task.done():

@@ -217,6 +217,12 @@ async fn perform_click(
     match viewport_point(session, &r.session, r.backend).await {
         Ok((x, y)) => {
             if hit_passes(session, &r.session, r.backend, x, y).await {
+                if let Some(evidence) =
+                    super::popup::click_expected_popup(session, r, (x, y), button, click_count)
+                        .await?
+                {
+                    return Ok(evidence);
+                }
                 let transport = session.transport_pub().await;
                 let targets_before = count_page_targets(transport.as_ref()).await;
                 let button_str = match button {

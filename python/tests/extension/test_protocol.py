@@ -253,3 +253,30 @@ def test_sequence_mode_cannot_change_and_invalid_payload_does_not_advance_it() -
     legacy.validate(_hello())
     with pytest.raises(ExtensionProtocolError, match="sequence mode changed"):
         legacy.validate({**snapshot, "sequence": 1})
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "file:///tmp/private",
+        "https://user:pass@example.org/",
+        ["https://example.org/"],
+    ],
+)
+def test_managed_submission_rejects_unsafe_or_malformed_page_urls(url: object) -> None:
+    validator = ExtensionMessageValidator()
+    validator.validate(_hello())
+    with pytest.raises(ExtensionProtocolError):
+        validator.validate(
+            _message(
+                "bad-url",
+                "runtime.task.submit",
+                {
+                    "sessionId": "s",
+                    "task": "Read page",
+                    "startUrl": url,
+                    "verification": {"url": "https://example.org/", "heading": "Example"},
+                },
+            )
+        )

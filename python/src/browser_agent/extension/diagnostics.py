@@ -62,7 +62,17 @@ def _persistence_check(database_path: Path) -> DiagnosticCheck:
     )
 
 
-def _key_check() -> DiagnosticCheck:
+def _key_check(config_path: Path | None) -> DiagnosticCheck:
+    from browser_agent.cli.config import ExecutionEngine, load_config
+
+    config = load_config(config_path)
+    if config.agent.engine is ExecutionEngine.FAST or not config.agent.allow_paid_api:
+        return DiagnosticCheck(
+            name="Runtime OpenAI configuration",
+            status="INFO",
+            detail="not required by the active local/disabled engine",
+        )
+
     from browser_agent.credentials import configured_openai_api_key
 
     configured = configured_openai_api_key() is not None
@@ -76,18 +86,27 @@ def _key_check() -> DiagnosticCheck:
 
 
 def _graph_checks(browser: BrowserSession, config_path: Path | None) -> list[DiagnosticCheck]:
-    from browser_agent.agent import AgentRuntime, LunaDecisionAgent
-    from browser_agent.cli.config import load_config
-    from browser_agent.cli.main import create_luna_reasoning_provider
+    from browser_agent.cli.config import ExecutionEngine, load_config
 
     checks: list[DiagnosticCheck] = []
     try:
         config = load_config(config_path)
+        if config.agent.engine is not ExecutionEngine.LEGACY:
+            return [
+                DiagnosticCheck(
+                    name="Agent configuration",
+                    status="PASS",
+                    detail=f"{config.agent.engine.value} configuration validated; "
+                    "no inference performed",
+                )
+            ]
+        from browser_agent.agent import AgentRuntime, LunaDecisionAgent
+
         # Construction compiles the actual graph but never schedules a node.
         # No SQLite saver, HTTP client request or shadow decision is started.
         agent = LunaDecisionAgent(
             None,
-            create_luna_reasoning_provider(config),
+            None,
             model=config.reasoning.model,
             default_effort=config.reasoning.effort,
             site_aliases=config.site_aliases,
@@ -142,7 +161,7 @@ async def inspect_attached_runtime(
         )
     )
     checks.append(await asyncio.to_thread(_persistence_check, database_path))
-    checks.append(await asyncio.to_thread(_key_check))
+    checks.append(await asyncio.to_thread(_key_check, config_path))
     if run_owns_browser:
         checks.append(
             DiagnosticCheck(

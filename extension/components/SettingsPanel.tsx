@@ -1,9 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   PROTOCOL_VERSION,
+  editableRuntimeSettings,
   type ExtensionSnapshot,
   type RuntimeSettingsUpdate,
 } from "../src/protocol";
+import { EngineSettingsFields } from "./EngineSettingsFields";
+import { TabAttachment } from "./TabAttachment";
+import { Icon } from "./Icon";
 
 export function SettingsPanel({
   snapshot,
@@ -21,301 +25,336 @@ export function SettingsPanel({
   onSaveRuntimeSettings: (settings: RuntimeSettingsUpdate) => Promise<void>;
 }) {
   const [apiKey, setApiKey] = useState("");
-  const [runtimeDraft, setRuntimeDraft] = useState<RuntimeSettingsUpdate | null>(null);
-  const [savingRuntimeSettings, setSavingRuntimeSettings] = useState(false);
-  const runtimeSettings = snapshot.runtimeSettings;
-
+  const [draft, setDraft] = useState<RuntimeSettingsUpdate | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const settings = snapshot.runtimeSettings;
   useEffect(() => {
-    if (runtimeSettings) {
-      setRuntimeDraft({
-        effort: runtimeSettings.effort,
-        privacyMode: runtimeSettings.privacyMode,
-        layaMode: runtimeSettings.layaMode,
-        traceLevel: runtimeSettings.traceLevel,
-      });
-    }
-  }, [runtimeSettings]);
+    if (settings) setDraft(editableRuntimeSettings(settings));
+  }, [settings]);
 
-  async function saveApiKey(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const result = await onDispatch({ type: "credentials.set", apiKey });
-    if (!result.error) {
-      setApiKey("");
-    }
-  }
-
-  async function saveRuntimeSettings(): Promise<void> {
-    if (!runtimeDraft) {
-      return;
-    }
-    setSavingRuntimeSettings(true);
-    try {
-      await onSaveRuntimeSettings(runtimeDraft);
-    } finally {
-      setSavingRuntimeSettings(false);
-    }
-  }
-
-  function updateRuntimeSetting<Key extends keyof RuntimeSettingsUpdate>(
-    key: Key,
-    value: RuntimeSettingsUpdate[Key],
-  ): void {
-    setRuntimeDraft((current) => (current ? { ...current, [key]: value } : current));
-  }
-
-  const hasActiveTask = ["running", "paused", "awaiting_approval"].includes(
+  const active = ["running", "paused", "awaiting_approval"].includes(
     snapshot.session?.status ?? "",
   );
-  const runtimeSettingsChanged = Boolean(
-    runtimeSettings &&
-    runtimeDraft &&
-    (runtimeSettings.effort !== runtimeDraft.effort ||
-      runtimeSettings.privacyMode !== runtimeDraft.privacyMode ||
-      runtimeSettings.layaMode !== runtimeDraft.layaMode ||
-      runtimeSettings.traceLevel !== runtimeDraft.traceLevel),
-  );
-  const runtimeSettingsDisabled =
-    !snapshot.protocolReady ||
-    busy ||
-    savingRuntimeSettings ||
-    hasActiveTask ||
-    !runtimeDraft;
+  const disabled = !snapshot.protocolReady || busy || saving || active || !draft;
+  const changed =
+    settings &&
+    draft &&
+    JSON.stringify(editableRuntimeSettings(settings)) !== JSON.stringify(draft);
+  const valid =
+    !draft ||
+    [draft.textModel, draft.layaCheckpoint, draft.jevEndpoint].every(
+      (value) => value === undefined || value.trim().length > 0,
+    );
+
+  function update(patch: Partial<RuntimeSettingsUpdate>): void {
+    setDraft((current) => (current ? { ...current, ...patch } : current));
+    setNotice(null);
+  }
+
+  async function save(): Promise<void> {
+    if (!draft || !valid) return;
+    setSaving(true);
+    try {
+      await onSaveRuntimeSettings(draft);
+      setNotice("Settings saved for your next task.");
+    } catch {
+      setNotice("Settings could not be saved. Check the connection and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveKey(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const result = await onDispatch({ type: "credentials.set", apiKey });
+    if (!result.error) setApiKey("");
+  }
 
   return (
-    <details className="settings-section">
-      <summary>Settings and transport details</summary>
-      <div className="settings-content">
-        <section className="runtime-settings" aria-labelledby="runtime-settings-heading">
-          <div className="setting-heading">
-            <span id="runtime-settings-heading">Runtime settings</span>
-            {runtimeSettings && <span className="text-state">Connected</span>}
-          </div>
-          {!snapshot.protocolReady ? (
-            <p className="footnote">
-              Connect the runtime host to read and change settings.
-            </p>
-          ) : !runtimeSettings ? (
-            <p className="footnote">
-              {snapshot.settingsError ?? "Loading runtime settings…"}
-            </p>
-          ) : (
-            <>
-              <label htmlFor="runtime-effort">Default reasoning effort</label>
-              <select
-                id="runtime-effort"
-                value={runtimeDraft?.effort ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "effort",
-                    event.target.value as RuntimeSettingsUpdate["effort"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="none">None</option>
-                <option value="low">Low</option>
-              </select>
-
-              <label htmlFor="runtime-privacy">Privacy mode</label>
-              <select
-                id="runtime-privacy"
-                value={runtimeDraft?.privacyMode ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "privacyMode",
-                    event.target.value as RuntimeSettingsUpdate["privacyMode"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="standard">Standard</option>
-                <option value="privacy_first">Privacy first</option>
-                <option value="offline">Offline</option>
-              </select>
-
-              <label htmlFor="runtime-laya">Laya comparison</label>
-              <select
-                id="runtime-laya"
-                value={runtimeDraft?.layaMode ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "layaMode",
-                    event.target.value as RuntimeSettingsUpdate["layaMode"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="shadow">Shadow only</option>
-              </select>
-              <p className="footnote">Laya never selects or executes browser actions.</p>
-
-              <label htmlFor="runtime-trace-level">Trace detail</label>
-              <select
-                id="runtime-trace-level"
-                value={runtimeDraft?.traceLevel ?? ""}
-                onChange={(event) =>
-                  updateRuntimeSetting(
-                    "traceLevel",
-                    event.target.value as RuntimeSettingsUpdate["traceLevel"],
-                  )
-                }
-                disabled={runtimeSettingsDisabled}
-              >
-                <option value="standard">Normal</option>
-                <option value="detailed">Developer detail</option>
-              </select>
-
-              <div className="setting-heading runtime-readonly-setting">
-                <span>High-risk confirmation</span>
-                <span className="text-state text-state-on">
-                  {runtimeSettings.confirmHighRiskActions
-                    ? "Always required"
-                    : "Unavailable"}
-                </span>
-              </div>
-              <p className="footnote">
-                High-risk actions always require your confirmation and cannot be disabled
-                here.
-              </p>
-
-              <div className="setting-heading runtime-readonly-setting">
-                <span>Browser transport</span>
-                <span className="text-state">
-                  {runtimeSettings.extensionTransport === "native_host"
-                    ? "Attached browser through Chrome Native Messaging"
-                    : "Disabled in CLI configuration"}
-                </span>
-              </div>
-              <p className="footnote">
-                Change browser transport from the local CLI configuration.
-              </p>
-
-              <div className="button-row">
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={() => void saveRuntimeSettings()}
-                  disabled={runtimeSettingsDisabled || !runtimeSettingsChanged}
-                >
-                  Save runtime settings
-                </button>
-                {hasActiveTask && (
-                  <span className="footnote">
-                    Finish or stop the active task before changing runtime settings.
-                  </span>
-                )}
-              </div>
-              <p className="footnote">
-                Changes apply to the next task. Complexity checks may temporarily raise
-                effort when needed.
-              </p>
-            </>
-          )}
-          {snapshot.settingsError && (
-            <p className="inline-error" role="alert">
-              {snapshot.settingsError}
-            </p>
-          )}
-        </section>
-
-        <div className="credential-setting">
-          <div className="setting-heading">
-            <span>OpenAI API key</span>
-            <span className="text-state">
-              {snapshot.openAiKeyConfigured ? "Configured" : "Not configured"}
-            </span>
-          </div>
-          <form onSubmit={(event) => void saveApiKey(event)}>
-            <label htmlFor="openai-key">Configure key on this device</label>
-            <input
-              id="openai-key"
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              maxLength={4096}
-              placeholder="Paste an API key"
-              disabled={!snapshot.protocolReady || busy}
-            />
-            <div className="button-row">
-              <button
-                className="button button-primary"
-                type="submit"
-                disabled={!snapshot.protocolReady || busy || apiKey.length === 0}
-              >
-                Save securely
-              </button>
-              {snapshot.openAiKeyConfigured && (
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={() => void onDispatch({ type: "credentials.clear" })}
-                  disabled={busy || !snapshot.protocolReady}
-                >
-                  Remove key
-                </button>
-              )}
-            </div>
-          </form>
+    <div className="settings-content">
+      <section className="settings-group" aria-labelledby="engine-settings-heading">
+        <h2 id="engine-settings-heading">Engine and model</h2>
+        {!snapshot.protocolReady ? (
           <p className="footnote">
-            The key is sent only to the authenticated local runtime and stored in the
-            operating system keyring. It is never saved in extension storage or sent to page
-            scripts.
+            Connect the local runtime to read and change your agent settings.
           </p>
-          {snapshot.settingsError && (
-            <p className="inline-error" role="alert">
-              {snapshot.settingsError}
+        ) : !draft ? (
+          <p className="footnote">{snapshot.settingsError ?? "Loading settings…"}</p>
+        ) : (
+          <>
+            <EngineSettingsFields settings={draft} disabled={disabled} onChange={update} />
+            <label htmlFor="runtime-privacy">Privacy mode</label>
+            <select
+              id="runtime-privacy"
+              value={draft.privacyMode}
+              disabled={disabled}
+              onChange={(event) =>
+                update({
+                  privacyMode: event.target.value as RuntimeSettingsUpdate["privacyMode"],
+                })
+              }
+            >
+              <option value="standard">Standard</option>
+              <option value="privacy_first">Privacy first</option>
+              <option value="offline">Offline</option>
+            </select>
+            <p className="footnote">
+              General needs Standard mode to use OpenAI. Stricter modes keep hosted
+              inference unavailable.
             </p>
-          )}
+            <label htmlFor="runtime-trace-level">Debug capture</label>
+            <select
+              id="runtime-trace-level"
+              value={draft.traceLevel}
+              disabled={disabled}
+              onChange={(event) =>
+                update({
+                  traceLevel: event.target.value as RuntimeSettingsUpdate["traceLevel"],
+                })
+              }
+            >
+              <option value="standard">Off · standard events</option>
+              <option value="detailed">On · developer detail</option>
+            </select>
+            <p className="footnote">
+              Developer detail enables bounded diagnostic capture in the local runtime.
+            </p>
+            <div className="safety-note">
+              <Icon name="checkCircle" size={16} />
+              <p>
+                Risky actions <strong>always require your approval</strong>. This cannot be
+                disabled here.
+              </p>
+            </div>
+            {!valid && (
+              <p className="inline-error" role="alert">
+                Model, checkpoint and endpoint values must not be empty.
+              </p>
+            )}
+            <button
+              className="button button-primary settings-save"
+              disabled={disabled || !changed || !valid}
+              onClick={() => void save()}
+            >
+              {saving ? "Saving…" : "Save settings"}
+            </button>
+            {active && (
+              <p className="footnote">Finish or stop this task before changing settings.</p>
+            )}
+            {notice && (
+              <p className="footnote" role="status">
+                {notice}
+              </p>
+            )}
+          </>
+        )}
+      </section>
+      <section className="settings-group" aria-labelledby="credentials-heading">
+        <div className="setting-heading">
+          <h2 id="credentials-heading">OpenAI API key</h2>
+          <span className="text-state">
+            {snapshot.openAiKeyConfigured ? "Configured" : "Not configured"}
+          </span>
         </div>
+        <form onSubmit={(event) => void saveKey(event)}>
+          <label htmlFor="openai-key">
+            {snapshot.openAiKeyConfigured ? "Replace API key" : "API key"}
+          </label>
+          <input
+            id="openai-key"
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            maxLength={4096}
+            placeholder="Paste an API key"
+            disabled={!snapshot.protocolReady || busy}
+          />
+          <div className="button-row">
+            <button
+              className="button button-secondary"
+              type="submit"
+              disabled={!snapshot.protocolReady || busy || !apiKey.trim()}
+            >
+              Save securely
+            </button>
+            {snapshot.openAiKeyConfigured && (
+              <button
+                className="text-button"
+                type="button"
+                disabled={busy || !snapshot.protocolReady}
+                onClick={() => void onDispatch({ type: "credentials.clear" })}
+              >
+                Remove key
+              </button>
+            )}
+          </div>
+        </form>
+        <p className="footnote">
+          Stored by the local runtime in your operating system keyring. The extension never
+          saves or displays your key.
+        </p>
+      </section>
+      <section className="settings-group" aria-labelledby="connection-heading">
+        <div className="setting-heading">
+          <h2 id="connection-heading">Connection</h2>
+          <span className="text-state">
+            {snapshot.protocolReady ? "Connected" : "Disconnected"}
+          </span>
+        </div>
+        <p className="footnote">BROWSKI uses the local runtime on this computer.</p>
+        <button
+          className="button button-secondary"
+          disabled={busy || snapshot.host === "connecting"}
+          onClick={() =>
+            void onDispatch({
+              type: snapshot.host === "connected" ? "host.disconnect" : "host.connect",
+            })
+          }
+        >
+          {snapshot.host === "connected" ? "Disconnect runtime" : "Connect runtime"}
+        </button>
         <label className="setting-toggle">
           <input
             type="checkbox"
             checked={autoConnect}
             onChange={(event) => void onSaveAutoConnect(event.target.checked)}
           />
-          <span>Connect to the runtime host when this panel opens</span>
+          <span>Connect automatically when the panel opens</span>
         </label>
+        {snapshot.hostError && (
+          <p className="inline-error" role="alert">
+            {snapshot.hostError}
+          </p>
+        )}
+      </section>
+      <details className="settings-group advanced-settings">
+        <summary>Advanced</summary>
+        {draft && (
+          <>
+            <label htmlFor="advanced-engine">Compatibility engine</label>
+            <select
+              id="advanced-engine"
+              value={draft.engine ?? "legacy"}
+              disabled={disabled}
+              onChange={(event) =>
+                update({ engine: event.target.value as RuntimeSettingsUpdate["engine"] })
+              }
+            >
+              <option value="general">General</option>
+              <option value="fast">Fast</option>
+              <option value="legacy">Legacy · explicit attachment</option>
+            </select>
+            {draft.engine === "fast" && (
+              <>
+                <label htmlFor="runtime-fast-provider">Fast provider</label>
+                <select
+                  id="runtime-fast-provider"
+                  value={draft.fastProvider ?? "laya"}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    update({
+                      fastProvider: event.target
+                        .value as RuntimeSettingsUpdate["fastProvider"],
+                    })
+                  }
+                >
+                  <option value="laya">Laya · local</option>
+                  <option value="jev">Jev · hosted</option>
+                </select>
+              </>
+            )}
+            <label htmlFor="runtime-laya-checkpoint">Local Laya checkpoint</label>
+            <input
+              id="runtime-laya-checkpoint"
+              value={draft.layaCheckpoint ?? ""}
+              maxLength={1000}
+              disabled={disabled}
+              onChange={(event) => update({ layaCheckpoint: event.target.value })}
+            />
+            {draft.fastProvider === "jev" && (
+              <>
+                <label htmlFor="runtime-jev-endpoint">Jev endpoint</label>
+                <input
+                  id="runtime-jev-endpoint"
+                  type="url"
+                  value={draft.jevEndpoint ?? ""}
+                  maxLength={1000}
+                  disabled={disabled}
+                  onChange={(event) => update({ jevEndpoint: event.target.value })}
+                />
+                <p className="footnote">
+                  Jev needs paid usage permission and TYPESAFE_API_KEY configured in the
+                  runtime environment.
+                </p>
+              </>
+            )}
+            {(draft.engine ?? "legacy") === "legacy" && (
+              <>
+                <label htmlFor="runtime-effort">Default reasoning effort</label>
+                <select
+                  id="runtime-effort"
+                  value={draft.effort}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    update({
+                      effort: event.target.value as RuntimeSettingsUpdate["effort"],
+                    })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="low">Low</option>
+                </select>
+                <label htmlFor="runtime-laya">Laya comparison</label>
+                <select
+                  id="runtime-laya"
+                  value={draft.layaMode}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    update({
+                      layaMode: event.target.value as RuntimeSettingsUpdate["layaMode"],
+                    })
+                  }
+                >
+                  <option value="disabled">Disabled</option>
+                  <option value="shadow">Shadow only</option>
+                </select>
+              </>
+            )}
+          </>
+        )}
+        {(settings?.engine ?? "general") === "legacy" && (
+          <TabAttachment snapshot={snapshot} busy={busy} onDispatch={onDispatch} />
+        )}
+        <p className="footnote">
+          General uses your current tab and leaves your tabs open. Fast uses an isolated
+          task browser. Legacy uses an explicitly attached tab through Chrome’s debugger
+          bridge.
+        </p>
+      </details>
+      <section className="settings-group about-settings" aria-labelledby="about-heading">
+        <h2 id="about-heading">About BROWSKI</h2>
         <dl className="settings-list">
           <div>
-            <dt>Protocol</dt>
-            <dd>Version {PROTOCOL_VERSION}</dd>
+            <dt>Version</dt>
+            <dd>{chrome.runtime.getManifest().version}</dd>
           </div>
-          {snapshot.session && (
-            <div>
-              <dt>Session reference</dt>
-              <dd>
-                <code>{snapshot.session.sessionId}</code>
-              </dd>
-            </div>
-          )}
-          {snapshot.attachment && (
-            <div>
-              <dt>Attached Chrome tab</dt>
-              <dd>#{snapshot.attachment.tabId}</dd>
-            </div>
-          )}
           <div>
-            <dt>Native host</dt>
-            <dd>
-              <code>com.browski.runtime</code>
-            </dd>
+            <dt>Protocol</dt>
+            <dd>{PROTOCOL_VERSION}</dd>
           </div>
           <div>
             <dt>Transport</dt>
-            <dd>Chrome Native Messaging</dd>
-          </div>
-          <div>
-            <dt>Tab bridge</dt>
-            <dd>Active-tab, allowlisted debugger messages</dd>
+            <dd>Local Native Messaging</dd>
           </div>
         </dl>
-        <p className="footnote">
-          Browser control stays in the shared Rust runtime. Chrome shows a debugger
-          permission warning when you attach a tab.
+      </section>
+      {snapshot.settingsError && (
+        <p className="inline-error" role="alert">
+          {snapshot.settingsError}
         </p>
-      </div>
-    </details>
+      )}
+    </div>
   );
 }

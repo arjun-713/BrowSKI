@@ -18,7 +18,13 @@ from typing import Annotated, cast
 
 import typer
 
-from browser_agent.cli.config import BrowskiConfig, ConfigError, load_config
+from browser_agent.cli.config import (
+    BrowskiConfig,
+    ConfigError,
+    ExecutionEngine,
+    FastProviderName,
+    load_config,
+)
 
 
 class CheckStatus(StrEnum):
@@ -81,7 +87,12 @@ def _check_sqlite_temp_write() -> DoctorCheck:
 
 
 def _check_openai_key(config: BrowskiConfig) -> DoctorCheck:
-    if not config.reasoning.enabled or config.reasoning.provider != "openai":
+    needs_openai = (
+        config.agent.engine is ExecutionEngine.GENERAL
+        or config.agent.engine is ExecutionEngine.LEGACY
+        and config.reasoning.enabled
+    )
+    if not needs_openai or not config.agent.allow_paid_api:
         return DoctorCheck("OpenAI key", CheckStatus.INFO, "not needed by configured reasoning")
     from browser_agent.credentials import configured_openai_api_key
 
@@ -245,6 +256,45 @@ def _collect_doctor_checks(config: BrowskiConfig) -> list[DoctorCheck]:
         check_extension_package(config),
         check_native_host(config),
     ]
+    if config.agent.engine is not ExecutionEngine.LEGACY:
+        from browser_agent.engines.laya_worker import validate_checkpoint
+
+        if (
+            config.agent.engine is ExecutionEngine.FAST
+            and config.agent.fast_provider is FastProviderName.LAYA
+        ):
+            try:
+                validate_checkpoint(Path(config.agent.laya_checkpoint).expanduser())
+                checks.append(
+                    DoctorCheck(
+                        "Laya checkpoint",
+                        CheckStatus.PASS,
+                        "pinned files present; no inference performed",
+                    )
+                )
+            except (ValueError, OSError):
+                checks.append(
+                    DoctorCheck(
+                        "Laya checkpoint",
+                        CheckStatus.WARN,
+                        "not prepared; run browski prepare-laya and configure its absolute path",
+                    )
+                )
+        provider = (
+            config.agent.fast_provider.value
+            if config.agent.engine is ExecutionEngine.FAST
+            else config.agent.text_provider.value
+        )
+        paid = "permitted" if config.agent.allow_paid_api else "disabled"
+        checks.append(
+            DoctorCheck(
+                "Runtime policy",
+                CheckStatus.INFO,
+                f"{config.agent.engine.value} / {provider}; paid APIs {paid}; "
+                "no inference performed.",
+            )
+        )
+        return checks
     checks.append(asyncio.run(_check_laya_health(config)))
 
     reasoning_status = "active" if config.reasoning.enabled else "disabled"

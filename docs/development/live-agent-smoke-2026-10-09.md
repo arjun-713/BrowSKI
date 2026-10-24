@@ -1,5 +1,9 @@
 # Live headless agent smoke diagnosis — 2026-10-09
 
+Historical raw-evidence paths are references to ignored, owner-local artifacts.
+Some are no longer present in this checkout; they are not portable repository
+links or newly verified evidence.
+
 ## Scope and environment
 
 Four small tasks used real headless Chromium and the existing BROWSKI runtime
@@ -50,9 +54,12 @@ different for the intended candidate.
 
 Evidence:
 
-- [Click response and rejection](../../debug-logs/smoke-managed-click-70993427/events.jsonl), records 6–7.
-- [Scroll response and rejection](../../debug-logs/smoke-managed-scroll-aed20475/events.jsonl), records 10–11.
-- [Attached Continue click and rejection](../../debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl), records 146–147.
+- Click response and rejection
+  (`debug-logs/smoke-managed-click-70993427/events.jsonl`), records 6–7.
+- Scroll response and rejection
+  (`debug-logs/smoke-managed-scroll-aed20475/events.jsonl`), records 10–11.
+- Attached Continue click and rejection
+  (`debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl`), records 146–147.
 - [`_action_signature`](../../python/src/browser_agent/agent/luna.py) includes
   all non-null action fields, including defaults irrelevant to these actions.
 
@@ -72,7 +79,8 @@ The observation contained the State combobox and Karnataka option. The model
 received only scroll and escalation candidates, so it correctly asked for a
 selection action instead of inventing one.
 
-Evidence: [Select request and response](../../debug-logs/smoke-managed-select-81cb02cb/events.jsonl),
+Evidence: Select request and response
+(`debug-logs/smoke-managed-select-81cb02cb/events.jsonl`),
 records 5–6. [`CandidatePolicy`](../../python/src/browser_agent/decisions/candidates.py)
 has an empty default `select_values_by_ref`. The
 [task-value parser](../../python/src/browser_agent/decisions/task_values.py)
@@ -100,7 +108,8 @@ accessible names, but not form values. That sentence never appears as page
 text. Consequently, completed milestones stayed empty and the current
 subgoal remained the name-entry step.
 
-Evidence: [Attached log](../../debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl),
+Evidence: Attached log
+(`debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl`),
 records 7, 10–12, 19, 25–27, and later repetitions through record 145.
 
 Recommended repair: verify explicit user-authorized field assignments locally
@@ -131,7 +140,8 @@ The attached run performed nine Laya shadow requests: eight timed out near
 the active action, adding approximately 44.9 s of waiting across this run.
 The successful response yielded no parsed semantic choice for comparison.
 
-Evidence: [Attached log](../../debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl),
+Evidence: Attached log
+(`debug-logs/4b872a4a-9b4b-4d99-b319-e5604ae76ca5/events.jsonl`),
 records 13–14, 28–29, 43–44, and subsequent shadow pairs. No shadow output
 authorized an action or changed Luna's choice.
 

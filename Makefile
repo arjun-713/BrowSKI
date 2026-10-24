@@ -14,7 +14,7 @@ test:
 	cd python && uv run pytest
 
 test-extension-e2e:
-	cd python && BROWSKI_EXTENSION_E2E=1 uv run --extra dev pytest -m e2e tests/extension/test_browser_e2e.py
+	cd python && BROWSKI_EXTENSION_E2E=1 uv run --extra dev pytest -m e2e tests/extension/test_browser_e2e.py tests/extension/test_managed_e2e.py
 
 lint:
 	cargo fmt --all -- --check

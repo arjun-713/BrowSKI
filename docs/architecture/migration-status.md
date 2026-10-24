@@ -1,0 +1,313 @@
+# BROWSKI 2.0 migration checkpoint
+
+**Status: TARGET / IN MIGRATION.** Updated 2026-10-22.
+Canonical plan: root `ARCHITECTURE_PLAN.md`; workflow: root `AGENTS.md`.
+This checkpoint replaces the accumulated phase diary; detailed decisions and
+historical validation remain in ADR-022–030, the evaluation plan and Git history.
+
+## Repository and constraints
+
+Branch `migration/browski-v2`, starting base `6a80e9b`. Last committed migration
+phase: **`5b6113d` — verified owned-tab navigation (ADR-030)**. The separately
+validated Legacy reliability follow-up is recorded below; source-to-field
+migration work is not marked complete.
+
+Machine: i5-8350U, 8 logical CPUs, 15 GiB usable RAM, Fedora, Chrome and uv.
+**Only Laya may run locally; no local generative model or training.** An earlier
+interrupted Qwen download/runtime was removed before inference. The user
+explicitly permits small bounded OpenAI debugging after offline checks and
+confirmed reuse of the existing key. Four requests were used across the initial
+General and product gates; none in subsequent reliability slices. Routine paid
+inference stays off. No hosted fallback or live Jev request has been made.
+
+## Completed slices and remaining phases
+
+| Slice                   | Commit / state | Verified scope                                                                   |
+| ----------------------- | -------------- | -------------------------------------------------------------------------------- |
+| 0 Guidance              | `41fb40d`      | Branch, canonical plan, AGENTS, ADR-022                                          |
+| 1 General baseline      | `164c036`      | Official Browser Use, verified Wikipedia heading, bounded OpenAI                 |
+| 3 Fast contract         | `6b66bfa`      | Shared typed Laya/Jev contract and normalized responses                          |
+| 4 CPU Laya              | `848cd06`      | Browser-tuned local decisions, real navigation, bounded subprocess               |
+| 2 Product bridge        | `3d62ab2`      | Packaged extension, lifecycle, ownership and results                             |
+| 5 Jev/switching         | `84aac2a`      | Offline Jev validation; next-task settings switching; live Jev unverified        |
+| 6 Diagnostics           | `0ebefdb`      | Provider/action errors, metrics, bounded safe capture and saved-input comparison |
+| 7 Destination grounding | `4a52b9e`      | Complete private href freshness; Fast v2 with saved-v1 migration                 |
+| 7 General approvals     | `a5685be`      | Approved indexed click and quoted-literal ordinary text                          |
+| 7 Fast literals         | `99c702a`      | Approved text fields, fresh values and all-field proof                           |
+| 7 Native controls       | `d62b15a`      | Native dates/single-select, validity, option identity, replacement reread        |
+| 7 Stagnation            | `1085895`      | Unrelated body-text changes do not count as structural progress                  |
+| 7 Form workflow         | `526669b`      | One approved named transition, one invocation, exact fresh receipt               |
+| 7 Owned tabs            | `5b6113d`      | Native popup, full target identity, verified focus, bounded races                |
+| 7 Panel agent (ADR-032) | Uncommitted    | General in user tabs via CDP relay, risk approvals, judge, redesigned panel      |
+| 7 Broader workflows     | Pending        | Source-to-field provenance, richer goal checks, auth/session coverage            |
+| 8 Cleanup               | Pending        | Retain Legacy until replacement behavior and evaluation gates pass               |
+
+## Current implementation and limits
+
+- Product defaults: **Fast/Laya, text disabled, paid false**. Configuration and
+  sidebar settings apply to the next task; changes during a task are refused.
+  `engines/product.py` dispatches CLI/extension tasks without the Legacy graph
+  or Rust executor. General/Fast each own one isolated task browser; there is
+  no mid-task engine handoff, personal-cookie import or second controller.
+- General uses the official Browser Use Agent and separately configured OpenAI
+  inference, only with explicit paid/privacy/credential gates. Product budget:
+  four requests, five steps, 90 seconds; explicit General CLI defaults to three
+  requests. Navigation/read and verified owned-tab selection are available.
+  Indexed click and exact quoted-literal ordinary text require a sidebar approval.
+  Native date/select, arbitrary code, files and synthesized inputs are excluded.
+- Fast v2 offers same-host links, CLICK/role-tab candidates and approved exact
+  user literals for ordinary text, native ISO dates and single-select fields.
+  Values never come from provider prose. Unique labels, native constraints and
+  fresh post-write values/selected-option identity are required. One read can
+  reacquire a replaced control without repeating the write. Every observation
+  recomputes all field proof; arbitrary disappearance invalidates it.
+- One explicit quoted click/press may follow verified fields (ADR-029), with a
+  new approval and unmet caller outcome criteria. Only that invoked transition
+  preserves the completed field stage. It executes once, then only bounded
+  receipt reads occur. Query/fragment values compare exactly; plain path
+  trailing-slash tolerance remains. Custom controls/multiple named actions are
+  not enabled. CLI without approval support blocks unmet interactions.
+- Owned tabs use full SDK target IDs, actual actor-page evidence and independently
+  checked focus/destination. Fast refuses more than eight owned pages and
+  reuses exact already-open popup destinations. Closed, changed or not-ready
+  targets consume the existing recovery budget. General resolves displayed
+  short IDs only when unique among owned targets. Task cleanup closes all tabs.
+  This is tab navigation, not source-value memory, auth transfer or resumability.
+- Task lifecycle retains pause, cancel, approval IDs/expiry, history/replay and
+  progress. Stop invalidates pending approval and wins a simultaneous return.
+  Approval is bound to fresh page/target/native state. Managed checkpoints and
+  manual continuation are not implemented; Legacy remains explicit rollback.
+- Completion needs caller-owned URL/visible-H1 checks plus supported field and
+  transition obligations. DONE/prose alone is unverified. These checks are not
+  generic proof of every natural-language goal or server business state.
+- Doctor inspects configuration/local health without inference or hosted calls.
+  Debug capture is opt-in, bounded and owner-only. No secrets/screenshots/hidden
+  reasoning in durable metadata. Keep generated logs/profiles/weights ignored.
+
+## Pinned dependencies and model evidence
+
+Browser Use: upstream `aa093a843da5edbf323c0b4145c9b6a0db3ecde8`, version 0.13.13.
+The upstream SDK pin fix preserves compatibility with Legacy Luna; no SDK
+resolution override or downgrade. Optional extras are already installed here.
+
+Laya: `cklxx/laya-browser` revision
+`645cf366a2ae35f1086e8c20eff48f909bb49206`, root v19s checkpoint. Reviewed model-code
+SHA is checked before local-only loading. PyTorch CPU, float32, four inference
+threads, bounded warm subprocess per task; no MLX/CUDA/training. One earlier
+measured process peaked at 2,187.95 MiB RSS; overlapping validation means it is
+not an isolated machine-performance benchmark. The upstream tokenizer regex
+warning remains visible; the tokenizer/checkpoint were not silently modified.
+
+Both providers receive equivalent Fast semantic requests and typed questions.
+Jev's raw Score shape is normalized separately. Missing Jev credentials fail
+clearly and suggest local Laya; they never trigger a fallback. `compare-fast`
+requires explicit paid opt-in and credentials before loading saved input/model.
+Live Jev accuracy/latency and provider calibration remain unverified.
+
+## Measured task evidence
+
+- Initial General: verified Wikipedia URL/H1, two calls, one navigation,
+  26.05 s. Packaged General also passed offline and with a bounded two-request
+  live run. These are integration examples, not broad autonomous accuracy.
+- Frozen navigation first look on `0ebefdb`: **4/4 completed, 0/4 false success**,
+  13 decisions, nine clicks, four freshness reacquisitions, no generative calls
+  or provider errors. Mean engine time 16.25 s, median inference 809 ms. These
+  cases are now spent regressions, never unseen again. Manifest SHA-256:
+  `c2cb313ea04549a3562bc719d1f52645babde46b2a028f52551d7ffea3480da1`.
+- Native controls: first local date/select task completed in 15.77 s, two
+  decisions/actions, no generative calls/errors. Wrong replacement/removed-field
+  cases remain unverified; the latter previously reproduced false completion.
+- Approved Name/City/Save: before, partial after two inputs; CPU Laya completed
+  three actions/decisions in 14.42 s, zero hosted/generative calls/errors.
+  Packaged sidebar passed with three approvals. GET and actual POST/303/GET
+  regressions enforce exact receipt values and one submission invocation.
+- Tab task: the fixture baseline blocked after three repeated opener clicks
+  without selecting Reference; the new adapter completed in three actions with
+  the same fixture decisions. Separately, first CPU Laya completed three
+  actions/four decisions, one verified
+  source focus, exactly two tabs, two recoveries, 18.10 s, no generative calls or
+  provider errors. Packaged default-Fast tab task passed (25.89 s including
+  harness), without Legacy attachment or hosted credential lookup. This is
+  development evidence, not an unseen success-rate or speed claim.
+
+## Latest validation and unresolved gates
+
+- Previous committed phase: **741 Python passed, 103 opt-in skips**; isolated
+  focused engine/provider/workflow gate **137 passed**; packaged gate **24
+  passed, four spent-navigation skips**. Lint/strict typing passed.
+- Current phase full Python: **743 passed, 114 opt-in skips, 79.92 s**. Initial
+  focused browser/model run: **149 passed, one failed, 187.93 s**. The failure
+  was an exact total-recovery assertion after the wrong replacement date was
+  correctly rejected with one write; one extra pre-action freshness recovery
+  occurred. The test now requires exactly one TYPE_TEXT replacement reread,
+  one write/approval and total counter/event agreement. Its targeted rerun
+  passed. The final focused rerun passed **150 tests in 187.19 s**, including
+  real CPU Laya and General with offline inference. Full packaged gate:
+  **25 passed, four spent-navigation skips, 276.99 s**, with CPU Laya enabled.
+  `make lint` passes (Rust fmt/clippy, Ruff lint/format, strict Pyright 0 errors).
+  Extension `npm run check` passes: TypeScript, ESLint, Prettier, **74 software
+  tests** and build. The build ran after packaged execution, using unchanged
+  extension sources and version 0.2.3.
+- Owned-tab mechanical cases passed **9 tests** (one Laya opt-in deselected):
+  fixture navigation, closed/changed target, step bound, same-URL distinct IDs,
+  no-op SDK focus, General owned switch and missing ID. Shared provider contract
+  checks passed **60 tests**, including equivalent role-tab requests.
+- No Rust, dependencies or extension assets changed. Package/lock/built manifest
+  remain **0.2.3**. Never rebuild while packaged tests are using the manifest.
+- **Historical Rust stalls, not reproduced in the current run:** earlier `make test` stalled in unchanged
+  `stress_cross_tab_cycles_100`; a serialized 360-second retry also timed out.
+  The identical isolated 100-cycle case passed in 12.24 s. The current combined
+  run completed **146 Rust tests, one ignored**, including all 12 stress tests
+  in 24.34 s. Its 180-second outer cap then stopped Python at roughly 84%
+  (exit 124), with no reported Python failure. The standalone full Python rerun
+  then passed **743 tests, 114 opt-in skips, 79.92 s**. Both component gates
+  pass; do not call that bounded combined command a pass. The historical
+  stall's cause is still unknown; a passing rerun does not establish a fix.
+- An earlier overlapping model-heavy run timed out in native Laya before any
+  decision/action (104 passed, one failed). Recent memory pressure/full swap
+  was observed afterward; cause is unproven. Isolated focused gates then passed
+  136/136 and 137/137. Normal production timeouts remain unchanged. Serialize
+  model-heavy validation and retain this evidence; no hidden retries.
+
+## Reproduction
+
+From repository root, with existing prepared extras/model and Chrome:
+
+```sh
+BROWSKI_ENGINE_E2E=1 BROWSKI_LAYA_E2E=1 BROWSKI_GENERAL_LIVE_DEBUG=0 \
+  python/.venv/bin/pytest python/tests/test_engine_integration.py \
+  python/tests/test_fast_workflows.py python/tests/test_fast_engine.py \
+  python/tests/test_task_values.py python/tests/test_engine_cross_page.py
+PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" \
+  UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 BROWSKI_LAYA_E2E=1 \
+  BROWSKI_GENERAL_LIVE_DEBUG=0 make test-extension-e2e
+UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 make test
+UV_CACHE_DIR="$PWD/.cache/uv" UV_NO_SYNC=1 make lint
+```
+
+No dependency installation, model download or paid call is needed for these
+checks on this prepared checkout. Run the model-heavy commands sequentially.
+Extension software/build checks use `npm run check` in `extension/`, separately
+from packaged execution. General live debugging remains opt-in; no new paid run
+is needed for the tab gate.
+
+## Next exact action
+
+Implement one bounded source-to-field workflow using the SDK-owned tabs and
+explicit provenance, not a second controller or arbitrary provider text.
+Revalidate source/target across approval, reject ambiguous/hidden/sensitive or
+changed facts, and prove actual field/receipt outcomes through the packaged UI.
+Reuse the cross-page suite/HTTP fixture. Broader authentication/session state,
+generic goal coverage, fresh unseen evaluations and Legacy replacement remain
+open. Keep the overall migration goal active; do not claim production readiness.
+
+
+## Legacy reliability follow-up — 2026-10-22
+
+The previous committed migration phase is `5b6113d` (owned-tab navigation).
+The validated registry-lock repair is committed as `1d96423`.
+Pre-existing uncommitted source-transfer work remains separate and unclaimed.
+This follow-up repairs the retained Legacy path without changing the target
+architecture or marking broader workflow migration complete.
+
+- A deterministic navigation-race regression reproduced an observation retry
+  waiting on its own registry write guard. Release the completed binding guard
+  before further awaits. The same regression verifies one fresh retry, refusal
+  after a second race, and later observation usability.
+- The full Rust rerun passes 147 tests, one manual benchmark ignored, including
+  all twelve stress cases in 28.58 seconds. The first stalled run was terminated;
+  do not rewrite it as a pass or claim every historical stall is explained.
+- Two stale Native Messaging callback regressions reproduce handshake failure
+  and replacement-run corruption. Messages are now scoped to the active port.
+  Extension checks pass 76 tests and the 0.2.4 production build.
+- The rebuilt optimized binding passes the full default Python suite: 743 tests,
+  117 opt-in skips. Strict typing/lint/formatting pass. Two existing E501 errors
+  were cleared by wrapping literals without changing their values; those
+  source-transfer feature files remain uncommitted.
+- The unchanged Legacy native-popup differential still passes managed mode and
+  fails attached mode. New General/Fast managed-tab evidence is not an attached
+  personal-Chrome fix. Full popup ownership, cross-layer correlation, durable
+  extension continuation and a fresh 24-task extension evaluation remain open.
+- No new OpenAI/Jev call or local inference was made. See the
+  [validation ledger](../debugging/extension-e2e-validation-report.md) and
+  [root-cause report](../debugging/extension-e2e-root-cause-report.md).
+
+The source-to-field work listed above remains the migration next action; this
+bug-fix pass does not implement or claim that separate pending phase.
+
+Packaged revalidation for these repairs: **31 passed, one failed, ten opt-in
+skips, 461.01 seconds**. The unchanged native-popup differential is the failure;
+reload, restart, approval and controls pass. Native port repair: `67504fc`.
+The user's installed service is currently stopped according to the authenticated
+doctor probe; packaged fixture success is not installed-Chrome acceptance.
+
+
+## Side-panel agent in the user's tabs (ADR-032) — 2026-10-22, uncommitted
+
+User decisions: General/OpenAI is the panel default (paid calls per task),
+model-authored text is allowed, only risky actions need approval, the agent
+works in the user's own tabs, and a judge decides completion without caller
+checks. Diagnosis before the change, reproduced through `execute_managed_task`:
+Fast refused any page with more than 120 candidates (Wikipedia home failed
+before acting); General refused unquoted text and was capped at 4 calls/5 steps/
+90 s; nothing completed without URL/H1 checks; `browski serve` ignored `.env`.
+
+Implemented:
+
+- `extension/agent_relay.py` + `extension/src/agent-relay.ts`: loopback CDP relay.
+  Native Messaging only carries `relay.open/close`; CDP traffic uses a tokenised
+  loopback WebSocket from the service worker. Leased tabs only; OOPIF child
+  sessions; opener tabs join; starting tab never closed; cookie/storage/browser/
+  Fetch domains refused on both sides; Legacy attachment mutually exclusive.
+- General: 60 steps/150 calls/30 min/3 failures, Browser Use judge, `risk.py`
+  approvals with fresh-state rebinding, configurable search engine (Google by
+  default unless the task names one), operating brief, bounded panel labels,
+  watchdog shutdown on disconnect, executed-action counting.
+- Service/native host: relay lease per General task, browser-side cancel stops
+  the task, `browski serve` loads `.env`, the native host starts the service.
+- Panel 0.3.0: conversation thread, one line per action, inline approval card,
+  result card with verdict and stats, settings page, dark mode.
+
+Bugs found by live use and fixed: the final timeline line carried the whole
+summary (up to 2,000 chars) past the extension's 500-char bound, so the panel
+dropped the runtime at the end of longer tasks; the service closed idle
+extension connections after 300 s (would cancel any task over 5 minutes);
+approved password entry typed a literal placeholder; storage-state watchdog
+loops leaked in the service after every relay task; test runs inherited the
+real `.env` key through Browser Use's import-time `load_dotenv()`.
+
+Evidence (development tasks, not an unseen benchmark): packaged real-Chromium
+relay E2E without a model passes (state, OOPIF, type, Enter, click, popup,
+switch, screenshot, close, navigate, release). Live panel tasks through the
+packaged extension, relay and gpt-6-luna: Ada Lovelace birth date (3 calls,
+50 s), Eiffel Tower height/year (4 calls, 41 s), Hacker News top story (3 calls,
+26 s), httpbin form filled without submitting (7 calls, 32 s), all judge-
+verified with correct answers; 0 observed false successes. The user's own
+three-store price comparison exposed the disconnect and early give-up.
+
+Second live round on the fixed code: GitHub license/stars then PyPI version
+verified (4 calls, 37 s, no disconnect); httpbin order submit raised exactly one
+approval at "Submit order" ("Placing an order or payment") and verified after
+approval (6 calls, 29 s); the three-store comparison used Google, opened Apple,
+Flipkart and Amazon in separate tabs and returned an honestly unverified table
+after clicking Apple's storage heading five times. A deterministic stagnation
+guard now refuses a third identical action on an unchanged page fingerprint
+(`MAX_IDENTICAL_ACTIONS = 2`) and the task continues; real-Chrome regression
+covers it. Gates: 957 Python tests (engine E2E enabled), ruff, strict Pyright.
+
+Third round (2026-10-23), from the user's own runs: the agent detoured through a
+web search, showed a stale-target refusal as a red failure, clicked a memory
+option (32GB) while aiming for storage, and once reported Apple's "From ₹99,900"
+base price as the configured price, which the judge accepted (a false success;
+the configured MRP was ₹1,23,900). Changes: General reasoning effort is now
+configurable and defaults to `low` (was `none`); named sites open directly, one
+tab each, with their own search; stale targets are bounded recoveries ("Page
+changed — looking again"), not failures; Stop reports only cancellation; an
+agent-reported incomplete task with actions is `partially_completed` with a
+short verdict; the judge receives generic evidence criteria (`ground_truth`)
+rejecting "From"/base/different-variant values for a specific configuration.
+Re-run of the same task (US-locale test browser): direct store tabs, Flipkart
+and Amazon ₹1,23,900 found, Apple's configured price not obtained, reported
+honestly as not verified (11 calls, 93 s). Exact configurator pricing is still
+unreliable; no false success observed after the change. Gates: 961 Python tests
+(engine E2E enabled), ruff, strict Pyright.

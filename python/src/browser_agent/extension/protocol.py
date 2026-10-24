@@ -110,10 +110,12 @@ def _valid_payload(message_type: str, payload: object) -> bool:
         case "runtime.task.submit":
             task = fields.get("task")
             return (
-                _has_only_keys(fields, {"sessionId", "task"})
+                _has_only_keys(fields, {"sessionId", "task", "startUrl", "verification"})
                 and _text(fields.get("sessionId"), maximum=MAX_EVENT_ID_LENGTH)
                 and _text(task, maximum=MAX_TASK_LENGTH)
                 and task.strip() == task
+                and ("startUrl" not in fields or _valid_page_url(fields["startUrl"]))
+                and ("verification" not in fields or _valid_verification(fields["verification"]))
             )
         case "runtime.approval.respond":
             decision = fields.get("decision")
@@ -148,7 +150,22 @@ def _valid_payload(message_type: str, payload: object) -> bool:
             laya_mode = fields.get("layaMode")
             trace_level = fields.get("traceLevel")
             return (
-                _has_only_keys(fields, {"effort", "privacyMode", "layaMode", "traceLevel"})
+                _has_only_keys(
+                    fields,
+                    {
+                        "effort",
+                        "privacyMode",
+                        "layaMode",
+                        "traceLevel",
+                        "engine",
+                        "fastProvider",
+                        "textProvider",
+                        "allowPaidApi",
+                        "textModel",
+                        "layaCheckpoint",
+                        "jevEndpoint",
+                    },
+                )
                 and isinstance(effort, str)
                 and effort in {"none", "low"}
                 and isinstance(privacy_mode, str)
@@ -157,6 +174,32 @@ def _valid_payload(message_type: str, payload: object) -> bool:
                 and laya_mode in {"disabled", "shadow"}
                 and isinstance(trace_level, str)
                 and trace_level in {"standard", "detailed"}
+                and (
+                    "engine" not in fields
+                    or (
+                        isinstance(fields["engine"], str)
+                        and fields["engine"] in {"fast", "general", "legacy"}
+                    )
+                )
+                and (
+                    "fastProvider" not in fields
+                    or (
+                        isinstance(fields["fastProvider"], str)
+                        and fields["fastProvider"] in {"laya", "jev"}
+                    )
+                )
+                and (
+                    "textProvider" not in fields
+                    or (
+                        isinstance(fields["textProvider"], str)
+                        and fields["textProvider"] in {"disabled", "openai"}
+                    )
+                )
+                and ("allowPaidApi" not in fields or type(fields["allowPaidApi"]) is bool)
+                and all(
+                    key not in fields or _text(fields[key], maximum=1000)
+                    for key in ("textModel", "layaCheckpoint", "jevEndpoint")
+                )
             )
         case "browser.tab.attached":
             tab_id = fields.get("tabId")
@@ -277,3 +320,32 @@ class ExtensionMessageValidator:
         self._sequenced = sequenced
         self._hello_seen = self._hello_seen or message_type == "extension.hello"
         return message
+
+
+def _valid_page_url(value: object) -> bool:
+    from urllib.parse import urlsplit
+
+    if not _text(value, maximum=2048):
+        return False
+    if any(ord(character) <= 0x20 or ord(character) == 0x7F for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return bool(
+            parsed.scheme in {"http", "https"}
+            and parsed.hostname
+            and not parsed.username
+            and not parsed.password
+        )
+    except ValueError:
+        return False
+
+
+def _valid_verification(value: object) -> bool:
+    if not _is_record(value):
+        return False
+    return (
+        _has_only_keys(value, {"url", "heading"})
+        and _valid_page_url(value.get("url"))
+        and _text(value.get("heading"), maximum=200)
+    )

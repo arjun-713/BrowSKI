@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -15,16 +16,24 @@ from browser_agent.cli.config import (
     BrowskiConfig,
     ConfigError,
     DecisionMode,
+    ExecutionEngine,
     ExtensionTransportMode,
+    FastProviderName,
     load_config,
 )
 from browser_agent.cli.doctor import doctor
+from browser_agent.cli.engines import general
+from browser_agent.cli.fast import compare_fast, fast, prepare_laya
 from browser_agent.persistence import RunMetadataError, SQLiteRunMetadataStore
 from browser_agent.reasoning import ReasoningProvider
 from browser_agent.vision.contracts import VisionProvider
 
 app = typer.Typer(name="agent", help="BROWSKI browser runtime.")
 app.command()(doctor)
+app.command()(general)
+app.command()(fast)
+app.command()(compare_fast)
+app.command()(prepare_laya)
 runs_app = typer.Typer(name="runs", help="Inspect and clean local run metadata.")
 app.add_typer(runs_app, name="runs")
 ConfigPathOption = Annotated[
@@ -67,11 +76,19 @@ def serve(
     database: DatabasePathOption = Path("browski-checkpoints.sqlite"),
 ) -> None:
     """Serve the authenticated extension bridge and attached-browser runtime."""
+    from browser_agent.credentials import CredentialStoreError, load_local_env_credentials
     from browser_agent.extension.service import (
         BridgeServiceError,
         ExtensionBridgeService,
         default_socket_path,
     )
+
+    # Same owner-only loader as scripts/start-local.sh; existing environment wins.
+    local_env = Path(os.environ.pop("BROWSKI_LOCAL_ENV_FILE", "") or Path.cwd() / ".env")
+    try:
+        load_local_env_credentials(local_env)
+    except CredentialStoreError as exc:
+        typer.echo(f"Ignoring {local_env}: {exc}", err=True)
 
     config = load_config(config_path)
     if config.extension.transport_mode is ExtensionTransportMode.DISABLED:
@@ -87,10 +104,14 @@ def serve(
 
     async def _serve() -> None:
         await service.start()
-        typer.echo(
-            "BROWSKI extension runtime listening at "
-            f"{service.socket_path}. Attach a tab in the side panel to start a task."
+        next_step = {
+            ExecutionEngine.LEGACY: "Attach a tab in the side panel to start a legacy task.",
+            ExecutionEngine.GENERAL: "Send a task from the side panel; it works in your tab.",
+        }.get(
+            config.agent.engine,
+            "Send a task from the side panel; it opens an isolated task browser.",
         )
+        typer.echo(f"BROWSKI extension runtime listening at {service.socket_path}. {next_step}")
         await service.wait_closed()
 
     try:
@@ -124,6 +145,11 @@ def _resolve_provider(provider: str | None, config: BrowskiConfig) -> str | None
 def _create_luna_reasoning_provider(config: BrowskiConfig) -> ReasoningProvider | None:
     if not config.reasoning.enabled:
         return None
+    if not config.agent.allow_paid_api:
+        raise typer.BadParameter(
+            "Hosted inference is disabled. Explicitly set agent.allow_paid_api "
+            "or use the local Fast/Laya engine."
+        )
     if config.reasoning.provider != "openai":
         raise typer.BadParameter("only the OpenAI Luna reasoning adapter is supported")
 
@@ -145,6 +171,8 @@ def create_luna_reasoning_provider(config: BrowskiConfig) -> ReasoningProvider |
 def _create_luna_vision_provider(config: BrowskiConfig) -> VisionProvider | None:
     if not config.vision.enabled or not config.reasoning.enabled:
         return None
+    if not config.agent.allow_paid_api:
+        raise typer.BadParameter("Vision inference requires explicit paid API permission.")
 
     from browser_agent.credentials import configured_openai_api_key
     from browser_agent.providers.privacy import PrivacyMode as BoundaryPrivacyMode
@@ -175,11 +203,15 @@ def show_config(config_path: ConfigPathOption = None) -> None:
         else "disabled"
     )
     rprint("[bold]BROWSKI configuration[/bold]")
-    rprint("Browser modes: managed CLI and attached extension")
-    rprint(f"Reasoning: {config.reasoning.provider} / {config.reasoning.model}")
+    rprint(f"Engine: {config.agent.engine.value}")
+    rprint(f"Fast provider: {config.agent.fast_provider.value}")
+    rprint(f"Text provider: {config.agent.text_provider.value}")
+    rprint(f"Paid inference: {'permitted' if config.agent.allow_paid_api else 'disabled'}")
+    rprint("Browser modes: isolated managed tasks; Legacy supports attached extension tabs")
+    rprint(f"Legacy reasoning: {config.reasoning.provider} / {config.reasoning.model}")
     rprint(f"OpenAI key: {'configured' if key_configured else 'not configured'}")
-    rprint(f"Laya: {laya_status}")
-    rprint("Jev: disabled")
+    rprint(f"Legacy Laya: {laya_status}")
+    rprint("Legacy Jev: disabled")
     rprint(f"Privacy: {config.privacy.mode.value}")
     rprint(f"High-risk confirmation: {config.safety.confirm_high_risk_actions}")
     rprint(f"On-demand vision: {'enabled' if config.vision.enabled else 'disabled'}")
@@ -285,32 +317,27 @@ def run(
     headless: bool = typer.Option(True, help="Run Chromium headless."),
     provider: str | None = typer.Option(
         None,
-        help="Optional Laya shadow comparison override; Jev is disabled.",
+        help="Fast provider override (laya/jev); legacy uses Laya shadow only.",
     ),
     checkpoint_db: str = typer.Option(
         "browski-checkpoints.sqlite",
         help="SQLite checkpoint database for this task.",
     ),
     config_path: ConfigPathOption = None,
+    verify_url: Annotated[str | None, typer.Option(help="Expected final page URL.")] = None,
+    verify_heading: Annotated[str | None, typer.Option(help="Expected visible H1.")] = None,
 ) -> None:
-    """Run a browser task through the autonomous graph."""
-    if config_path is None:
-        task(
-            goal=goal,
-            url=start_url,
-            headless=headless,
-            provider=provider,
-            checkpoint_db=checkpoint_db,
-        )
-    else:
-        task(
-            goal=goal,
-            url=start_url,
-            headless=headless,
-            provider=provider,
-            checkpoint_db=checkpoint_db,
-            config_path=config_path,
-        )
+    """Run a browser task with the configured engine; Fast/Laya is the default."""
+    task(
+        goal=goal,
+        url=start_url,
+        headless=headless,
+        provider=provider,
+        checkpoint_db=checkpoint_db,
+        config_path=config_path,
+        verify_url=verify_url,
+        verify_heading=verify_heading,
+    )
 
 
 @app.command()
@@ -320,16 +347,70 @@ def task(
     headless: bool = typer.Option(True, help="Run Chromium headless."),
     provider: str | None = typer.Option(
         None,
-        help="Optional Laya shadow comparison override; Jev is disabled.",
+        help="Fast provider override (laya/jev); legacy uses Laya shadow only.",
     ),
     checkpoint_db: str = typer.Option(
         "browski-checkpoints.sqlite",
         help="SQLite checkpoint database for this task.",
     ),
     config_path: ConfigPathOption = None,
+    verify_url: Annotated[str | None, typer.Option(help="Expected final page URL.")] = None,
+    verify_heading: Annotated[str | None, typer.Option(help="Expected visible H1.")] = None,
 ) -> None:
-    """Run a task through Luna and the verified browser graph."""
+    """Run a task with explicit engine configuration and independent outcome checks."""
     config = _load_runtime_config(config_path)
+    if config.agent.engine is not ExecutionEngine.LEGACY:
+        from dataclasses import replace
+
+        from browser_agent.engines.contracts import CompletionCriteria, EngineEvent, EngineStatus
+        from browser_agent.engines.lifecycle import TaskControl
+        from browser_agent.engines.product import execute_managed_task
+
+        if provider is not None:
+            try:
+                selected = FastProviderName(provider)
+            except ValueError:
+                raise typer.BadParameter("Choose --provider laya or jev.") from None
+            config = replace(config, agent=replace(config.agent, fast_provider=selected))
+        if bool(verify_url) != bool(verify_heading):
+            raise typer.BadParameter("Supply both --verify-url and --verify-heading, or neither.")
+        criteria = (
+            CompletionCriteria(url=verify_url, heading=verify_heading)
+            if verify_url and verify_heading
+            else None
+        )
+
+        async def progress(event: EngineEvent) -> None:
+            typer.echo(
+                f"{event.engine} / {event.provider} · step {event.step} · {event.kind}", err=True
+            )
+
+        async def managed() -> None:
+            control = TaskControl(
+                config.agent.engine.value, config.agent.fast_provider.value, progress
+            )
+            result = await execute_managed_task(
+                goal,
+                config,
+                start_url=url,
+                criteria=criteria,
+                events=progress,
+                control=control,
+                headless=headless,
+            )
+            typer.echo(result.model_dump_json(indent=2))
+            if result.status is not EngineStatus.COMPLETED:
+                raise typer.Exit(130 if result.status is EngineStatus.CANCELLED else 2)
+
+        try:
+            asyncio.run(managed())
+        except KeyboardInterrupt:
+            typer.echo("Task cancelled; closing its owned resources.", err=True)
+            raise typer.Exit(130) from None
+        except (ValueError, RuntimeError) as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(1) from None
+        return
     selected_provider_name = _resolve_provider(provider, config)
 
     from browser_agent import BrowserSession
@@ -400,7 +481,7 @@ def resume(
     headless: bool = typer.Option(True, help="Run Chromium headless."),
     provider: str | None = typer.Option(
         None,
-        help="Optional Laya shadow comparison override; Jev is disabled.",
+        help="Optional legacy Laya shadow comparison override; Jev is disabled.",
     ),
     checkpoint_db: str = typer.Option(
         "browski-checkpoints.sqlite",

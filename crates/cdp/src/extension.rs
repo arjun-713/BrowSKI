@@ -49,6 +49,7 @@ pub struct ExtensionCdpTransport {
     session_id: CdpSessionId,
     next_request_id: Mutex<u64>,
     command_timeout: Duration,
+    owned_popups: bool,
     state: Arc<TransportState>,
     command_tx: mpsc::Sender<OutboundCommand>,
     event_tx: broadcast::Sender<CdpEvent>,
@@ -126,6 +127,10 @@ impl ExtensionCdpTransport {
             session_id,
             next_request_id: Mutex::new(1),
             command_timeout,
+            owned_popups: ready
+                .get("ownedPopups")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             state,
             command_tx,
             event_tx,
@@ -294,6 +299,54 @@ impl CdpTransport for ExtensionCdpTransport {
                 )
                 .await?;
             self.parse_owned_tab(result)
+        })
+    }
+
+    fn supports_owned_popups(&self) -> bool {
+        self.owned_popups
+    }
+
+    fn prepare_owned_popup<'a>(
+        &'a self,
+        opener: &'a CdpSessionId,
+        url: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            let result = self
+                .command_inner(
+                    None,
+                    "BROWSKI.tabs.preparePopup",
+                    json!({"openerSessionId": opener.as_str(), "url": url}),
+                    self.command_timeout,
+                )
+                .await?;
+            let id = result
+                .get("popupId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| CdpError::Unexpected("popup expectation has no identity".into()))?;
+            validate_identifier("popup identity", id)?;
+            Ok(id.to_owned())
+        })
+    }
+
+    fn finish_owned_popup<'a>(
+        &'a self,
+        popup_id: &'a str,
+        cancel: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<OwnedTab>, CdpError>> + Send + 'a>> {
+        Box::pin(async move {
+            let result = self
+                .command_inner(
+                    None,
+                    "BROWSKI.tabs.finishPopup",
+                    json!({"popupId": popup_id, "cancel": cancel}),
+                    self.command_timeout,
+                )
+                .await?;
+            if cancel {
+                return Ok(None);
+            }
+            self.parse_owned_tab(result).map(Some)
         })
     }
 
@@ -748,6 +801,7 @@ mod tests {
         let (command_tx, mut command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let transport = Arc::new(ExtensionCdpTransport {
+            owned_popups: false,
             attachment_id: "attachment-1".into(),
             session_id: CdpSessionId::from("session-1"),
             next_request_id: Mutex::new(1),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -52,9 +53,49 @@ class DecisionProviderName(StrEnum):
     ADAPTIVE = "adaptive"
 
 
+class ExecutionEngine(StrEnum):
+    FAST = "fast"
+    GENERAL = "general"
+    LEGACY = "legacy"
+
+
+class SearchEngine(StrEnum):
+    """Engine for General's search action; Google suits the user's own profile."""
+
+    GOOGLE = "google"
+    BING = "bing"
+    DUCKDUCKGO = "duckduckgo"
+
+
+class FastProviderName(StrEnum):
+    LAYA = "laya"
+    JEV = "jev"
+
+
+class TextProviderName(StrEnum):
+    DISABLED = "disabled"
+    OPENAI = "openai"
+
+
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
     orchestrator: str
+    engine: ExecutionEngine = ExecutionEngine.GENERAL
+    fast_provider: FastProviderName = FastProviderName.LAYA
+    text_provider: TextProviderName = TextProviderName.OPENAI
+    allow_paid_api: bool = True
+    text_model: str = "gpt-6-luna"
+    laya_checkpoint: str = ".browser-data/laya-browser-v19s"
+    jev_endpoint: str = "https://api.typesafe.ai/v1/systemone"
+
+    general_max_steps: int = 60
+    general_max_calls: int = 150
+    general_timeout_seconds: int = 1800
+    general_max_failures: int = 3
+    general_step_timeout: int = 180
+    general_search_engine: SearchEngine = SearchEngine.GOOGLE
+    # "none" made precise multi-step work (e.g. configurators) unreliable live.
+    general_reasoning_effort: ReasoningEffort = ReasoningEffort.LOW
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,10 +175,33 @@ class RuntimeSettings:
     trace_level: TraceLevel
     confirm_high_risk_actions: bool
     extension_transport: ExtensionTransportMode
+    engine: ExecutionEngine = ExecutionEngine.GENERAL
+    fast_provider: FastProviderName = FastProviderName.LAYA
+    text_provider: TextProviderName = TextProviderName.OPENAI
+    allow_paid_api: bool = True
+    text_model: str = "gpt-6-luna"
+    laya_checkpoint: str = ".browser-data/laya-browser-v19s"
+    jev_endpoint: str = "https://api.typesafe.ai/v1/systemone"
 
 
 _EXPECTED_KEYS: dict[str, set[str]] = {
-    "agent": {"orchestrator"},
+    "agent": {
+        "orchestrator",
+        "engine",
+        "fast_provider",
+        "text_provider",
+        "allow_paid_api",
+        "text_model",
+        "laya_checkpoint",
+        "jev_endpoint",
+        "general_max_steps",
+        "general_max_calls",
+        "general_timeout_seconds",
+        "general_max_failures",
+        "general_step_timeout",
+        "general_search_engine",
+        "general_reasoning_effort",
+    },
     "reasoning": {"provider", "model", "enabled", "effort"},
     "decision": {
         "provider",
@@ -204,6 +268,76 @@ def _optional_path(section: Mapping[str, object], key: str) -> Path | None:
     return Path(value).expanduser()
 
 
+def _engine_options(agent: Mapping[str, object]) -> AgentConfig:
+    """Honor explicit engine choices; missing keys use the ADR-032 product defaults."""
+    defaults = AgentConfig(orchestrator=_string(agent, "orchestrator"))
+
+    def text(key: str, default: str) -> str:
+        value = _string({key: agent.get(key, default)}, key)
+        if len(value) > 1_000:
+            raise ConfigError(f"'agent.{key}' exceeds the supported length.")
+        return value
+
+    def budget(key: str, default: int, minimum: int, maximum: int) -> int:
+        value = agent.get(key, default)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ConfigError(f"'agent.{key}' must be an integer between {minimum} and {maximum}.")
+        return value
+
+    endpoint = text("jev_endpoint", defaults.jev_endpoint)
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(endpoint)
+    except ValueError as error:
+        raise ConfigError("Invalid agent.jev_endpoint URL.") from error
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigError("'agent.jev_endpoint' must be HTTPS without embedded credentials.")
+    return AgentConfig(
+        orchestrator=defaults.orchestrator,
+        engine=_enum_value(ExecutionEngine, text("engine", defaults.engine), "agent.engine"),
+        fast_provider=_enum_value(
+            FastProviderName, text("fast_provider", defaults.fast_provider), "agent.fast_provider"
+        ),
+        text_provider=_enum_value(
+            TextProviderName, text("text_provider", defaults.text_provider), "agent.text_provider"
+        ),
+        allow_paid_api=_boolean(
+            {"allow_paid_api": agent.get("allow_paid_api", defaults.allow_paid_api)},
+            "allow_paid_api",
+        ),
+        text_model=text("text_model", defaults.text_model),
+        laya_checkpoint=text("laya_checkpoint", defaults.laya_checkpoint),
+        jev_endpoint=endpoint,
+        general_max_steps=budget("general_max_steps", defaults.general_max_steps, 1, 200),
+        general_max_calls=budget("general_max_calls", defaults.general_max_calls, 1, 500),
+        general_timeout_seconds=budget(
+            "general_timeout_seconds", defaults.general_timeout_seconds, 5, 7200
+        ),
+        general_max_failures=budget("general_max_failures", defaults.general_max_failures, 1, 10),
+        general_step_timeout=budget(
+            "general_step_timeout", defaults.general_step_timeout, 120, 600
+        ),
+        general_search_engine=_enum_value(
+            SearchEngine,
+            text("general_search_engine", defaults.general_search_engine),
+            "agent.general_search_engine",
+        ),
+        general_reasoning_effort=_enum_value(
+            ReasoningEffort,
+            text("general_reasoning_effort", defaults.general_reasoning_effort),
+            "agent.general_reasoning_effort",
+        ),
+    )
+
+
 def parse_config(document: Mapping[str, object]) -> BrowskiConfig:
     """Validate an untrusted TOML mapping and return its typed configuration."""
     extras = set(document) - set(_EXPECTED_KEYS)
@@ -265,7 +399,7 @@ def parse_config(document: Mapping[str, object]) -> BrowskiConfig:
         raise ConfigError("'reasoning.effort' must be 'none' or 'low'.")
 
     return BrowskiConfig(
-        agent=AgentConfig(orchestrator=_string(agent, "orchestrator")),
+        agent=_engine_options(agent),
         reasoning=ReasoningConfig(
             provider=_string(reasoning, "provider"),
             model=_string(reasoning, "model"),
@@ -384,6 +518,13 @@ def load_runtime_settings(path: Path | None = None) -> RuntimeSettings:
         trace_level=config.traces.level,
         confirm_high_risk_actions=config.safety.confirm_high_risk_actions,
         extension_transport=config.extension.transport_mode,
+        engine=config.agent.engine,
+        fast_provider=config.agent.fast_provider,
+        text_provider=config.agent.text_provider,
+        allow_paid_api=config.agent.allow_paid_api,
+        text_model=config.agent.text_model,
+        laya_checkpoint=config.agent.laya_checkpoint,
+        jev_endpoint=config.agent.jev_endpoint,
     )
 
 
@@ -392,7 +533,17 @@ def update_runtime_settings(
     path: Path | None = None,
 ) -> RuntimeSettings:
     """Validate and atomically persist editable runtime settings."""
-    if set(settings) != {"effort", "privacyMode", "layaMode", "traceLevel"}:
+    required = {"effort", "privacyMode", "layaMode", "traceLevel"}
+    optional = {
+        "engine",
+        "fastProvider",
+        "textProvider",
+        "allowPaidApi",
+        "textModel",
+        "layaCheckpoint",
+        "jevEndpoint",
+    }
+    if not required <= set(settings) or set(settings) - (required | optional):
         raise ConfigError("Runtime settings contain unsupported or missing fields.")
 
     effort = _enum_value(
@@ -432,7 +583,20 @@ def update_runtime_settings(
     # Validate the existing file before changing it, so unrelated invalid config
     # is not silently rewritten or hidden from the user.
     document = tomllib.loads(text)
-    parse_config(document)
+    config = parse_config(document)
+    agent_updates = {
+        "engine": settings.get("engine", config.agent.engine.value),
+        "fast_provider": settings.get("fastProvider", config.agent.fast_provider.value),
+        "text_provider": settings.get("textProvider", config.agent.text_provider.value),
+        "allow_paid_api": settings.get("allowPaidApi", config.agent.allow_paid_api),
+        "text_model": settings.get("textModel", config.agent.text_model),
+        "laya_checkpoint": settings.get("layaCheckpoint", config.agent.laya_checkpoint),
+        "jev_endpoint": settings.get("jevEndpoint", config.agent.jev_endpoint),
+    }
+    _engine_options({"orchestrator": config.agent.orchestrator, **agent_updates})
+    for key, value in agent_updates.items():
+        serialized = ("true" if value else "false") if isinstance(value, bool) else cast(str, value)
+        text = _set_toml_value(text, "agent", key, serialized)
     laya_shadow = laya_mode == RuntimeLayaMode.SHADOW
     updates = (
         ("reasoning", "effort", effort.value),
@@ -503,11 +667,13 @@ def _set_toml_value(text: str, section: str, key: str, value: str) -> str:
         content = line[: -len(newline)] if newline else line
         _, comment_separator, comment = content.partition("#")
         suffix = f"  #{comment}" if comment_separator else ""
-        encoded_value = value if value in {"true", "false"} else f'"{value}"'
+        encoded_value = (
+            value if value in {"true", "false"} else json.dumps(value, ensure_ascii=False)
+        )
         lines[index] = f"{match.group(1)}{encoded_value}{suffix}{newline}"
         return "".join(lines)
 
-    encoded_value = value if value in {"true", "false"} else f'"{value}"'
+    encoded_value = value if value in {"true", "false"} else json.dumps(value, ensure_ascii=False)
     lines.insert(section_end, f"{key} = {encoded_value}\n")
     return "".join(lines)
 

@@ -163,7 +163,9 @@ async def test_idle_diagnostic_separates_cdp_from_observation_without_models(
     checks = {item.name: item for item in response.checks}
     assert checks["CDP round-trip"].status == "PASS"
     assert checks["DOM observation"].status == "PASS"
-    assert checks["Agent graph"].status == "PASS"
+    assert checks["Agent configuration"].status == "PASS"
+    assert "Agent graph" not in checks
+    # ADR-032 default engine is General/OpenAI, so a missing key is a warning.
     assert checks["Runtime OpenAI configuration"].status == "WARN"
     assert not (tmp_path / "checkpoints.sqlite").exists()
 

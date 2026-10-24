@@ -3,18 +3,31 @@
 Before major work, read this file, [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md),
 and [CODE_QUALITY.md](CODE_QUALITY.md) completely. The architecture plan governs
 design and the roadmap, the quality guide governs implementation quality,
-and this file governs repository workflow. Non-trivial architecture changes
+and this file governs repository workflow. Read
+[the migration checkpoint](docs/architecture/migration-status.md) before resuming
+BROWSKI 2.0 work. Non-trivial architecture changes
 require an ADR (see “When to write an ADR”).
 
 ## 1. Project mission
 
-Build BROWSKI, an open-source browser agent runtime for reliable short and
-long-running browser tasks. Current runtime policy is GPT-6 Luna for all
-executable decisions, Laya as non-executing shadow only, and Jev disabled.
-GPT-6 Luna is the only generative reasoning model in the baseline. OpenAI
-credentials are needed to run model-backed tasks. Doctor must never perform
-model inference or make external provider requests. Local loopback health
-checks, including Laya availability, are permitted.
+Build BROWSKI, an open-source browser agent that completes real tasks with
+independently verified outcomes. **BROWSKI 2.0 is TARGET / IN MIGRATION**;
+see the canonical architecture plan and ADR-022. General and Fast navigation slices now run through the product bridge.
+The legacy Luna/LangGraph/Rust runtime remains an explicit rollback option;
+General form approval is a bounded migration slice; long sessions and broad
+reliability are not migrated yet.
+
+Target: official Browser Use for the General engine; a small Jev-ultrafast-style
+Fast loop with interchangeable typed Laya (local) / Jev (optional, hosted)
+providers. **Side-panel default (user decision 2026-10-22, ADR-032): General +
+OpenAI acting in the user's own Chrome tabs through the extension CDP relay;
+panel tasks may use paid OpenAI calls.** Fast/Laya stays selectable. The user
+permits only Laya as a local model (2026-10-18); no local generative model.
+Hosted inference still requires explicit provider selection, credentials and
+paid-API opt-in (now the shipped default for the panel).
+Never silently fall back to a paid model, including from legacy entry points.
+The model powering Codex is not a BROWSKI runtime inference endpoint.
+Doctor must not infer or call external providers; loopback health checks are OK.
 
 Primary metric: **end-to-end task completion**. Everything else (steps,
 tokens, latency, cost, recovery rate) is secondary but measured — see
@@ -36,24 +49,25 @@ tokens, latency, cost, recovery rate) is secondary but measured — see
 12. Long-running tasks require explicit working memory and task state.
 13. Raw historical context must not grow without bound.
 14. Prefer deterministic browser operations once intent is known.
-15. GPT-6 Luna selects bounded executable actions; Rust performs deterministic
-    browser mechanics and verification.
+15. Engines select bounded executable actions; code validates actions and
+    independently verifies outcomes. Rust owns these mechanics only in legacy mode.
 16. Decision and reasoning providers are replaceable through the shared
     `DecisionProvider` and `ReasoningProvider` domain interfaces.
 17. The browser core must not know which LLM provider is used.
-18. Browser infrastructure and reasoning stay separate (Rust ≠ Python).
+18. Browser infrastructure and reasoning stay separate; library adapters keep
+    Browser Use mechanics out of product orchestration.
 19. Benchmarks exist from the beginning.
 20. Do not claim an improvement without measuring it.
 
 ## 3. Language ownership
 
-| Language | Owns | Must never own |
-|---|---|---|
-| Rust (`crates/`) | CDP, browser events, DOM/AX state, element identity, diffing, action execution, verification primitives, low-level recovery, perf-sensitive infra | LLM calls, prompts, provider logic, planning, memory |
-| Python (`python/`) | Agent loop, planning, orchestration, memory, task state, high-level recovery, decision/reasoning adapters, eval/benchmarks | CDP transport, DOM collection internals, raw browser process management |
-| TypeScript (`extension/`, `web/`) | Extension, trace viewer, browser-facing UI/SDK | Agent internals, browser automation core |
-| Bun | Dev scripts/tooling where measurably faster | The browser core |
-| Go | Nothing yet; allowed later for isolated high-throughput services with benchmarks | Anything without a benchmark-backed justification |
+| Language                          | Owns                                                                                                                                                   | Must never own                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Rust (`crates/`)                  | Legacy CDP/browser core; retained for rollback until replacement gates pass                                                                            | LLM calls, prompts, provider logic                 |
+| Python (`python/`)                | Product lifecycle, engine/library adapters, Laya/Jev decisions, configured text generation, verification, evals; legacy orchestration during migration | Competing controllers for the same browser session |
+| TypeScript (`extension/`, `web/`) | Extension, trace viewer, browser-facing UI/SDK                                                                                                         | Agent internals, browser automation core           |
+| Bun                               | Dev scripts/tooling where measurably faster                                                                                                            | The browser core                                   |
+| Go                                | Nothing yet; allowed later for isolated high-throughput services with benchmarks                                                                       | Anything without a benchmark-backed justification  |
 
 Dependency direction: **Python may depend on Rust bindings. Rust must not
 depend on Python domain logic. Frontend communicates through public
@@ -73,12 +87,40 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `crates/browser-code/` — isolated, bounded semantic-data transforms; no live
   browser, network, filesystem, or shell capability.
 - `crates/python-bindings/` — PyO3 surface (`browser_agent._core`) only.
-- `python/src/browser_agent/agent|planning|memory|progress|recovery/` — runtime.
-- `python/src/browser_agent/decisions/` — bounded `DecisionProvider` contract, Laya/Jev adapters, calibration, and shadow comparison. Laya output must not authorize execution.
+- `python/src/browser_agent/agent|planning|memory|progress|recovery/` — legacy runtime.
+- `python/src/browser_agent/engines/` — new Browser Use General and bounded Fast
+  adapters, shared result/evidence contracts, local CPU Laya process and optional
+  Jev adapter. CLI migration entry points: `cli/engines.py`, `cli/fast.py`.
+  `engines/product.py` dispatches configured CLI/extension tasks; `lifecycle.py`
+  owns safe pause/cancel boundaries. Fast contracts are v2 with saved-v1 input
+  migration (ADR-024). Fast supports links and approved quoted-literal text,
+  native date and single-select fields (ADR-026/027). `task_literals.py` shares
+  only bounded user-value parsing
+  with Legacy. General offers navigation/read and
+  approved indexed click/quoted-literal text entry (ADR-025);
+  see checkpoint for current gates.
+  `native_fields.py` owns bounded live control reads, option resolution and one
+  safe post-write reread after replacement. Never repeat a write to verify it;
+  recompute all requested field proof from each fresh observation.
+  One explicit quoted click may follow verified fields (ADR-029). It requires
+  approval and unmet caller outcome checks, executes once, then only reads for
+  the receipt. Retain a field-stage checkpoint only across that approved action;
+  arbitrary field disappearance must still invalidate proof.
+  Fast uses full observations for freshness and separate structural state for
+  stagnation (ADR-028); arbitrary body-text changes alone are not progress.
+  `owned_tabs.py` reads full SDK target identities and verifies tab focus
+  (ADR-030). Fast exposes task-owned same-host tabs as CLICK candidates with
+  role `tab`; do not dispatch them as DOM nodes or resolve ambiguous short IDs.
+  Popup readiness and tab races consume the existing bounded recovery budget.
+- `python/src/browser_agent/decisions/` — legacy decision contract/adapters and shadow comparison; do not silently enable legacy shadow output as an executor.
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
 - `python/src/browser_agent/extension/` — authenticated local service, Native
-  Messaging framing, transport broker and product lifecycle.
+  Messaging framing, transport broker and product lifecycle. `agent_relay.py`
+  is the loopback CDP relay that lets General drive leased user tabs (ADR-032);
+  its extension half is `extension/src/agent-relay.ts`. Keep the relay policy
+  (no cookies/storage/browser/Fetch domains, starting tab never closed) mirrored
+  in both files. `engines/risk.py` decides which General actions need approval.
 - `python/src/browser_agent/providers/` — authoritative outbound privacy gates.
 - `python/src/browser_agent/persistence/` — encrypted checkpoints, safe run
   metadata, aggregate counters and retention.
@@ -104,15 +146,17 @@ Do not create directories with no expected ownership or purpose.
 
 - No language or major dependency without a written benefit (performance,
   reliability, ecosystem, integration, speed, deployment). Record in an ADR.
-- LangGraph is allowed in Python orchestration as specified by the active
-  BROWSKI architecture plan. Never add it to the Rust browser core. Do not add
-  LangChain or CrewAI without an architecture decision.
+- LangGraph remains a legacy dependency; do not require it in the new engine
+  lifecycle. Browser Use is authorized by ADR-022. Do not introduce another
+  orchestration framework or plugin platform.
 - Do NOT add Redis, Postgres, vector DBs, Kubernetes, Docker Compose,
   microservices, auth systems, or cloud infra without a benchmark-backed need.
 - Keep new dependencies minimal (“no 30 dependencies for later”).
-- Laya and TypeSafe SDK are optional provider extras; neither may become a
-  required dependency of the base browser runtime. Jev is disabled by current
-  runtime policy. Do not call Jev without a later explicit architecture change.
+- Keep inference dependencies optional for installation/doctor/offline tests.
+  Laya is the target default for Fast mode. Jev is optional, disabled by default,
+  and live execution remains unverified without credentials. No paid calls
+  during routine debugging. Pin released/browser-tuned checkpoints; no training
+  prerequisite. Do not adopt the Apple MLX port on Fedora/Linux.
 - Commit lockfiles: `Cargo.lock`, `python/uv.lock`, `extension/package-lock.json`.
 
 ### Extension versioning
@@ -200,6 +244,10 @@ architectural options. Read ADR-001 and ADR-002 first.
 - Do not add a new language without justification.
 - Do not touch the CDP socket outside `crates/cdp/src/transport.rs` — only
   the transport owns the socket; everything else uses typed commands/events.
+- Legacy observation must release the registry binding guard before a fresh
+  generation retry; the recursive retry must never reacquire its own lock.
+- Native Messaging callbacks belong to one port instance. Ignore callbacks
+  from an old port after disconnect/reconnect before parsing any frame.
 - Do not hold a lock guard across `.await`, and never `if let` directly on
   `tabs.read().await…` when the body locks again (scrutinee temporaries live
   through the body and self-deadlock). Resolve to an owned value first.
@@ -212,22 +260,54 @@ architectural options. Read ADR-001 and ADR-002 first.
   UI/bridge, on-demand vision, browser-code policy, privacy modes, and local
   service packaging; preserve the Rust/Python ownership boundaries.
 
-## 14. Current provider and product status
+## 14. BROWSKI 2.0 migration rules — TARGET / IN MIGRATION
 
-- GPT-6 Luna is the only provider allowed to select executable actions.
-- Laya comparisons are shadow telemetry only and never change Luna's choice.
-- Jev is disabled and is not required for development or runtime operation.
-- The extension is a UI, browser attachment layer, and permission broker. It
-  must not implement agent reasoning, semantic state, verification, recovery,
-  memory, or provider routing.
-- Mark product capabilities as implemented, partial, or planned based on
-  executable integration evidence. A provider contract or UI scaffold is not
-  an end-to-end feature.
-- User-authorized debug capture may persist sanitized task prompts, provider
-  requests/public responses, and browser diagnostics in ignored local run
-  files. Keep capture opt-in, bounded, owner-only, and separate from durable
-  checkpoints. Never persist credentials, screenshots, or hidden reasoning.
-  See `docs/user/debugging.md`.
+- General and Fast are separate engines, selected for the whole task initially.
+  One active controller per browser session. No unproven mid-task engine handoff.
+- Browser Use Agent is the General engine, with separately configured generative
+  inference (OpenAI). Local generative models are disabled on this machine.
+  Side-panel General tasks run in the user's own tabs via the relay; only risky
+  actions (purchase/payment, send/post, delete, account/security, password or
+  card entry) need approval; the judge or caller checks decide completion.
+- Fast uses versioned semantic state + typed questions + stable candidates.
+  Laya/Jev adapters normalize status, choice/score, probabilities, latency,
+  provider identity, failures and abstention. Browser actions, task state,
+  verification and benchmarks never branch on vendor-specific responses.
+- Text generation is separately configured; Laya/Jev are not arbitrary text
+  generators. Provider calibration differs; confidence is not outcome proof.
+- Provider switching applies to the next task; a safe decision-boundary switch
+  is optional. Never switch in the middle of an action. Missing Jev credentials
+  must give a clear error and identify Laya as the local alternative.
+- Preserve the React extension, local lifecycle/events, approval controls,
+  history, cancellation and tab ownership where useful. The supported Browser
+  Use attachment path is the ADR-032 relay; Legacy attachment and the relay
+  are mutually exclusive.
+- Completion needs independent evidence; DONE/final prose is only a proposal.
+  Target terminal statuses: completed, partially_completed, blocked, failed,
+  cancelled. Bound steps, time, recovery, history and model calls.
+- Keep legacy Luna/LangGraph/Rust execution available for rollback. Remove it
+  only after actual replacement behavior and regression gates pass. New
+  defaults must not accidentally invoke legacy hosted inference.
+- Use a handful of meaningful existing/parameterized suites. Real browser
+  tasks and unseen cases establish success; fixtures establish contracts only.
+  Record task/false-success rates, task/decision latency, actions, recoveries,
+  generative calls, provider errors and memory where meaningful. Keep weights,
+  profiles, screenshots, traces and generated logs out of Git.
+- Subagents are optional, sparse and independent (normally at most two).
+  Only use GPT-6.1 Sol with High effort, explicitly configured and verifiable;
+  otherwise work in the main session. Give disjoint file ownership. No agent
+  swarm or redundant review for tiny changes. Main agent owns guidance,
+  architecture, shared interfaces, validation and Git integration.
+- Work on a dedicated migration branch; preserve unrelated changes. The user
+  explicitly authorizes one meaningful commit per successful phase. Validate
+  its gate, review the diff, update status and stage only phase files. Never
+  commit failed experiments as completed phases; no empty commits or pushes.
+- Root AGENTS + ARCHITECTURE_PLAN + one migration checkpoint are the continuity
+  documents. Update after each successful phase. Record the previous phase's
+  commit in the next checkpoint update (a commit cannot contain its own hash).
+- Mark capabilities implemented/partial/planned from executable evidence.
+  Debug capture remains opt-in, bounded, owner-only and separate from durable
+  state. Never persist credentials, hidden reasoning or screenshots in it.
 
 ## 15. Definition of done (scaffold)
 

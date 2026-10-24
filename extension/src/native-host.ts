@@ -1,3 +1,4 @@
+import { isRelayHostMessage, type RelayHostMessage } from "./agent-relay";
 import { createNativeEnvelope } from "./native-envelope";
 import {
   ALLOWED_DEBUGGER_EVENTS,
@@ -7,6 +8,7 @@ import {
   MAX_HOST_TO_EXTENSION_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   isNativeHostMessage,
+  isRuntimeSession,
   isKnownRuntimeEventType,
   isPlainRecord,
   isTimelineEvent,
@@ -14,7 +16,6 @@ import {
   type ExtensionSnapshot,
   type NativeHostMessage,
   type PendingApproval,
-  type RuntimeSession,
   type TimelineEvent,
 } from "./protocol";
 
@@ -29,6 +30,7 @@ type NativeHostDependencies = {
   clearSelectedTab: () => Promise<void>;
   handleDebuggerCommand: (payload: unknown) => void;
   handleDetachRequest: (payload: Record<string, unknown>) => void;
+  handleRelayMessage: (message: RelayHostMessage) => void;
 };
 
 export class NativeHostController {
@@ -85,7 +87,12 @@ export class NativeHostController {
           "Local runtime did not complete its connection within 10 seconds. Retry connecting.",
         );
       }, HOST_HANDSHAKE_TIMEOUT_MS);
-      port.onMessage.addListener(this.onNativeMessage);
+      port.onMessage.addListener((message: unknown) => {
+        // A queued callback can outlive disconnect. It has no authority over
+        // the replacement port's handshake, session, or debugger commands.
+        if (this.nativePort !== port) return;
+        this.onNativeMessage(message);
+      });
       port.onDisconnect.addListener(() => {
         const lastError = chrome.runtime.lastError?.message;
         if (this.nativePort !== port) return;
@@ -160,6 +167,11 @@ export class NativeHostController {
     ) {
       this.setHostError("Native host message exceeded the 1 MiB application limit.");
       this.nativePort?.disconnect();
+      return;
+    }
+    if (isRelayHostMessage(value)) {
+      // Relay lifecycle only; CDP traffic uses the lease's loopback socket.
+      if (snapshot.protocolReady) this.dependencies.handleRelayMessage(value);
       return;
     }
     if (!isNativeHostMessage(value)) {
@@ -369,7 +381,14 @@ export class NativeHostController {
     const { snapshot, publishSnapshot } = this.dependencies;
     if (
       typeof payload.sessionId !== "string" ||
-      !["verified_success", "stopped", "failed"].includes(String(payload.outcome)) ||
+      ![
+        "verified_success",
+        "stopped",
+        "failed",
+        "partially_completed",
+        "blocked",
+        "cancelled",
+      ].includes(String(payload.outcome)) ||
       typeof payload.summary !== "string" ||
       typeof payload.finishedAt !== "string"
     ) {
@@ -378,21 +397,41 @@ export class NativeHostController {
     }
     if (snapshot.session?.sessionId !== payload.sessionId) return;
     if (payload.runId !== undefined && payload.runId !== this.activeRunId) return;
+    snapshot.lastResult = payload as Extract<
+      NativeHostMessage,
+      { type: "runtime.task.result" }
+    >["payload"];
+    const outcomes = {
+      verified_success: {
+        status: "completed",
+        type: "RunCompleted",
+        label: "Task verified",
+      },
+      failed: { status: "failed", type: "RunFailed", label: "Task failed" },
+      stopped: { status: "stopped", type: "RunStopped", label: "Task stopped by user" },
+      partially_completed: {
+        status: "partially_completed",
+        type: "RunPartiallyCompleted",
+        label: "Task incomplete",
+      },
+      blocked: { status: "blocked", type: "RunBlocked", label: "Task blocked" },
+      cancelled: { status: "cancelled", type: "RunCancelled", label: "Task cancelled" },
+    } as const;
+    const outcome = outcomes[payload.outcome as keyof typeof outcomes];
     const status: TimelineEvent["status"] =
-      payload.outcome === "verified_success" ? "completed" : "failed";
+      payload.outcome === "verified_success"
+        ? "completed"
+        : payload.outcome === "failed"
+          ? "failed"
+          : "info";
     if (snapshot.session?.sessionId === payload.sessionId) {
       snapshot.session = {
         ...snapshot.session,
-        status: payload.outcome === "stopped" ? "stopped" : status,
+        status: outcome.status,
         updatedAt: payload.finishedAt,
       };
     }
-    const terminalType =
-      payload.outcome === "verified_success"
-        ? "RunCompleted"
-        : payload.outcome === "stopped"
-          ? "RunStopped"
-          : "RunFailed";
+    const terminalType = outcome.type;
     const summary = payload.summary;
     const terminal = [...snapshot.events]
       .reverse()
@@ -411,47 +450,15 @@ export class NativeHostController {
         sequence: this.sequence + 1,
         createdAt: payload.finishedAt,
         type: terminalType,
-        label:
-          payload.outcome === "verified_success"
-            ? "Task verified"
-            : payload.outcome === "stopped"
-              ? "Task stopped by user"
-              : "Task failed",
+        label: outcome.label,
         detail: payload.summary,
-        status: payload.outcome === "stopped" ? "info" : status,
+        status,
       };
       snapshot.events = [...snapshot.events, event].slice(-MAX_TIMELINE_EVENTS);
       this.sequence += 1;
     }
     publishSnapshot();
   }
-}
-
-function isRuntimeSession(value: unknown): value is RuntimeSession {
-  if (!isPlainRecord(value)) return false;
-  return (
-    typeof value.sessionId === "string" &&
-    value.sessionId.length > 0 &&
-    value.sessionId.length <= 128 &&
-    typeof value.updatedAt === "string" &&
-    value.updatedAt.length <= 64 &&
-    Number.isFinite(Date.parse(value.updatedAt)) &&
-    [
-      "idle",
-      "running",
-      "paused",
-      "awaiting_approval",
-      "completed",
-      "stopped",
-      "failed",
-    ].includes(String(value.status)) &&
-    (value.taskLabel === undefined ||
-      (typeof value.taskLabel === "string" && value.taskLabel.length <= 200)) &&
-    (value.runId === undefined ||
-      (typeof value.runId === "string" &&
-        value.runId.length > 0 &&
-        value.runId.length <= 128))
-  );
 }
 
 function isPendingApproval(value: unknown): value is PendingApproval {

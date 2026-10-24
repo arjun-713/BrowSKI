@@ -1,0 +1,578 @@
+/* The tape: one continuous printed strip per task. */
+.tape {
+    position: relative;
+    margin: 0 4px;
+    padding: 18px 16px 20px;
+    border-radius: 0 0 3px 3px;
+    background: var(--tape);
+}
+.tape:empty {
+    display: none;
+}
+
+/* The order line at the top of the receipt. */
+.user-message {
+    padding-bottom: 14px;
+    border-bottom: 1px dashed var(--line-strong);
+}
+.user-message p {
+    font: 16.5px/1.45 var(--print);
+    overflow-wrap: anywhere;
+}
+
+/* Run heading */
+.run-block {
+    padding-top: 14px;
+}
+.run-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+}
+.run-heading p {
+    flex: 1;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+.run-block.is-live .run-heading p {
+    color: var(--ink);
+}
+.agent-avatar {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    color: var(--muted);
+    background: var(--soft);
+}
+.agent-avatar.is-working {
+    color: var(--accent-ink);
+    background: var(--accent);
+    box-shadow: 0 0 14px 0 var(--glow);
+    animation: led 2.2s ease-in-out infinite alternate;
+}
+.steps-toggle {
+    margin: 6px 0 0 34px;
+    font-size: 12px;
+}
+.run-starting {
+    margin: 12px 0 0 34px;
+    color: var(--muted);
+    font-size: 13px;
+}
+.run-meter {
+    margin-top: 10px;
+    color: var(--muted);
+    font: 11px var(--mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+/* Printed lines. Hierarchy is a ramp: the live line prints heaviest. */
+.timeline-list {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+}
+.timeline-item {
+    display: grid;
+    grid-template-columns: 22px 18px minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+    padding: 7px 0;
+    color: var(--muted);
+    animation: feed var(--feed) both;
+}
+.timeline-item + .timeline-item {
+    border-top: 1px dotted var(--line);
+}
+.step-number {
+    padding-top: 2px;
+    color: var(--line-strong);
+    font: 10.5px/1.6 var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+.timeline-icon {
+    display: grid;
+    place-items: center;
+    height: 20px;
+}
+.timeline-copy {
+    min-width: 0;
+}
+.step-label,
+.step-detail summary {
+    font: 13px/1.5 var(--print);
+    overflow-wrap: anywhere;
+}
+.step-detail summary {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    list-style: none;
+    cursor: pointer;
+}
+.step-detail summary::-webkit-details-marker {
+    display: none;
+}
+.step-detail summary svg {
+    align-self: center;
+    opacity: 0.55;
+    transition: transform 160ms ease;
+}
+.step-detail[open] summary svg {
+    transform: rotate(90deg);
+}
+.step-detail summary:hover span {
+    color: var(--ink);
+}
+.step-detail p {
+    margin-top: 6px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line-strong);
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+.timeline-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    margin-top: 2px;
+    color: var(--muted);
+    font: 10.5px/1.5 var(--mono);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
+}
+.step-host {
+    overflow-wrap: anywhere;
+}
+.timeline-item:last-child {
+    color: var(--ink);
+}
+.timeline-item.is-live {
+    color: var(--ink);
+}
+.timeline-item.is-live .step-number,
+.timeline-item.is-live .timeline-icon {
+    color: var(--accent);
+}
+.timeline-item.is-live .step-label,
+.timeline-item.is-live .step-detail summary {
+    font-size: 15px;
+}
+.timeline-item.is-live .step-detail summary span::after,
+.timeline-item.is-live .step-label::after {
+    content: "";
+    display: inline-block;
+    width: 7px;
+    height: 1.05em;
+    margin-left: 5px;
+    vertical-align: -2px;
+    border-radius: 1px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--glow);
+    animation: led 0.9s steps(2, jump-none) infinite;
+}
+.event-failed {
+    color: var(--danger);
+}
+.event-failed .timeline-icon {
+    color: var(--danger);
+}
+
+@keyframes feed {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+}
+
+/* Approval: the tape halts at a hold slip. */
+.approval-panel {
+    margin-top: 14px;
+    padding: 14px 14px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: var(--accent-soft);
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
+        0 12px 32px -16px var(--glow);
+}
+.approval-panel:focus {
+    outline: none;
+}
+.approval-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.approval-head > svg {
+    margin-top: 3px;
+    color: var(--accent);
+}
+.approval-countdown {
+    margin-left: auto;
+    padding-top: 3px;
+    color: var(--accent);
+    font: 11px var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+.approval-drain {
+    height: 2px;
+    margin: 10px 0 12px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.approval-drain span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: transform 1s linear;
+}
+.approval-panel h2 {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 620;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+.approval-panel > p {
+    margin-top: 4px;
+    font-size: 13.5px;
+    line-height: 1.5;
+}
+.approval-action {
+    font-weight: 560;
+}
+.approval-site {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font: 11.5px var(--mono);
+}
+.approval-reason {
+    color: var(--accent);
+    font-weight: 560;
+}
+.approval-actions {
+    margin: 14px 0 8px;
+}
+
+/* Result: a torn edge, the answer, the stamp, the receipt footer. */
+.result-card {
+    margin: 18px -16px -20px;
+    padding: 0 16px 16px;
+}
+.tear {
+    height: 9px;
+    margin: 0 -16px 16px;
+    background: var(--paper);
+    mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% /
+        12px 100%;
+}
+/* The answer is the receipt total: a full-width rule printed above it. */
+.answer-text {
+    padding-top: 12px;
+    border-top: 2px solid var(--ink);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+.answer-text > * + * {
+    margin-top: 10px;
+}
+.answer-text ul,
+.answer-text ol {
+    margin-bottom: 0;
+    padding-left: 20px;
+}
+.answer-text li + li {
+    margin-top: 4px;
+}
+.answer-table-wrap {
+    overflow-x: auto;
+}
+.answer-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.answer-table th {
+    padding: 0 8px 6px 0;
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+.answer-table td {
+    padding: 7px 8px 7px 0;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: manual;
+    border-bottom: 1px dashed var(--line);
+    vertical-align: top;
+}
+.answer-table tr:last-child td {
+    border-bottom: 0;
+}
+.answer-table th,
+.answer-table td {
+    text-align: left;
+}
+.answer-table .numeric {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+}
+.stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 8px;
+    border: 2px solid currentColor;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px currentColor;
+    font: 11px/1.4 var(--print);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transform: rotate(-2.5deg);
+    animation: stamp 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.verdict-verified .stamp {
+    color: var(--success);
+    background: var(--success-soft);
+}
+.verdict-unverified .stamp {
+    color: var(--muted);
+}
+.verdict-outcome {
+    color: var(--muted);
+    font-size: 12.5px;
+}
+.verdict-reason {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+@keyframes stamp {
+    from {
+        opacity: 0;
+        transform: rotate(-9deg) scale(1.35);
+    }
+}
+
+.receipt-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line-strong);
+}
+.result-stats {
+    color: var(--muted);
+    font: 11px var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+.result-actions {
+    display: flex;
+    gap: 14px;
+}
+
+.thread-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-control);
+    font-size: 13px;
+}
+
+/* Idle printer */
+.welcome {
+    padding: 22px 6px 8px;
+}
+.welcome h2 {
+    max-width: 16ch;
+    font: 22px/1.25 var(--print);
+    text-wrap: balance;
+}
+.welcome-lede {
+    max-width: 36ch;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+}
+.example-tasks {
+    margin: 22px 0 0;
+    padding: 0;
+    border-top: 1px dashed var(--line-strong);
+    list-style: none;
+}
+.example-tasks li {
+    border-bottom: 1px dashed var(--line);
+}
+.example-tasks button {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 4px;
+    border: 0;
+    color: var(--ink);
+    background: none;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: color 160ms ease;
+}
+.example-tasks button svg {
+    color: var(--muted);
+    transition: color 160ms ease;
+}
+.example-tasks button:hover {
+    color: var(--accent);
+}
+.example-tasks button:hover svg {
+    color: var(--accent);
+}
+.setup-notice {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 10px;
+    margin-top: 20px;
+    padding: 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-panel);
+    background: var(--tape);
+}
+.setup-notice > svg {
+    margin-top: 2px;
+    color: var(--accent);
+}
+.setup-notice h3 {
+    font-size: 14px;
+    font-weight: 620;
+}
+.setup-notice p {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+.setup-notice .text-button {
+    margin-top: 6px;
+}
+.technical-detail {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+.technical-detail summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    cursor: pointer;
+}
+.technical-detail summary::-webkit-details-marker {
+    display: none;
+}
+.technical-detail summary svg {
+    transition: transform 160ms ease;
+}
+.technical-detail[open] summary svg {
+    transform: rotate(90deg);
+}
+.technical-detail p {
+    margin-top: 4px;
+    font: 11px/1.5 var(--mono);
+    overflow-wrap: anywhere;
+}
+.welcome-consent {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+/* History: a stack of torn receipts. */
+.history-list {
+    padding: 4px 4px 0;
+}
+.history-list > .footnote {
+    margin-bottom: 12px;
+}
+.history-item {
+    display: grid;
+    grid-template-columns: 18px 1fr 14px;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 4px;
+    border: 0;
+    border-bottom: 1px dashed var(--line-strong);
+    color: var(--ink);
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+.history-item:hover {
+    color: var(--accent);
+}
+.history-item span {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+.history-item strong {
+    overflow: hidden;
+    font-size: 13.5px;
+    font-weight: 560;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.history-item small {
+    color: var(--muted);
+    font: 11px var(--mono);
+}
+.history-empty {
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+    padding: 24px 4px;
+    color: var(--muted);
+}
+.history-empty h3 {
+    color: var(--ink);
+    font-size: 15px;
+}

@@ -30,7 +30,7 @@ versioned surfaces:
 ## 3. Trace schema
 
 - Trace events are append-only JSON; old readers skip unknown `kind`
-  values. New `kind` strings need no version bump, but new *required*
+  values. New `kind` strings need no version bump, but new _required_
   fields do.
 
 ## Extension-runtime bridge
@@ -66,3 +66,37 @@ and attached-tab observation without mocking extension APIs.
   notes, and a minor version bump.
 - v1.x (future): binding API and schema v1 frozen; breaking changes ride
   major versions with a deprecation window.
+
+## BROWSKI 2.0 product envelopes (extension 0.2.0)
+
+[ADR-023](../decisions/ADR-023-product-engine-selection.md) coordinates extension
+0.2.0 with the matching host. Protocol-v1 framing, sequence/replay validation and
+Rust binding/snapshot schemas stay unchanged. This is a coordinated v0.x product
+upgrade; older hosts reject the new settings fields rather than authorizing them.
+
+Settings add `engine`, `fastProvider`, `textProvider`, `allowPaidApi`, `textModel`,
+`layaCheckpoint`, and `jevEndpoint`. Files without them get Fast/Laya, text disabled
+and paid permission false. Existing four-field settings updates preserve engine
+configuration. Changes are refused during active tasks and apply to the next run.
+
+Task submissions may add `startUrl` and caller-owned `verification: {url, heading}`.
+Managed sessions identify `engine`, `provider`, and `browserMode: "managed"`; they
+control an isolated profile, not the source tab or its authentication. Results add
+`partially_completed`, `blocked`, and `cancelled` alongside the legacy outcomes.
+Only a completed independently checked engine result maps to `verified_success`.
+Terminal timeline events are retained in the bounded service snapshot for replay.
+
+## Fast decision contract v2
+
+[ADR-024](../decisions/ADR-024-fast-candidate-destinations.md) versions the
+candidate-destination addition as `browski.fast.v2`. Old strict Candidate readers
+would reject the additional field, so writers explicitly emit v2 requests and
+normalized decisions. Current readers upgrade known v1 saved requests, filling
+missing destinations with empty strings; unknown versions are rejected. No
+model training, Native Messaging or Rust/PyO3 schema migration is required.
+
+`Candidate.href` is bounded destination context for both providers, with query
+and fragment removed. Freshness hashing additionally covers the complete resolved
+href privately, so an href-only change invalidates the old decision. Credentials
+and malformed/non-HTTP URLs never become navigation candidates. Saved v1 inputs
+remain useful for provider comparison but cannot reconstruct absent destinations.

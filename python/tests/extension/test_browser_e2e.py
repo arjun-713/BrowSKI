@@ -116,20 +116,25 @@ async def _wait_for_detached(service: ExtensionBridgeService) -> None:
 
 
 @dataclass(frozen=True)
-class AttachedHarness:
+class ProductHarness:
     service: ExtensionBridgeService
-    browser: BrowserSession
     demo: Page
     panel: Page
     credentials: FixtureCredentialStore
     config_path: Path
 
 
+@dataclass(frozen=True)
+class AttachedHarness(ProductHarness):
+    browser: BrowserSession
+
+
 @pytest.fixture
 async def attached_harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[AttachedHarness]:
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[ProductHarness]:
     root = Path(__file__).parents[3]
     extension_path = root / "extension" / ".output" / "chrome-mv3"
     host_executable = root / "python" / ".venv" / "bin" / "browski-native-host"
@@ -138,9 +143,20 @@ async def attached_harness(
     fixture_root = root / "examples" / "demo_site"
     default_config = root / "python" / "src" / "browser_agent" / "cli" / "default.toml"
     config_path = tmp_path / "browski.toml"
-    config_path.write_text(
-        default_config.read_text().replace('mode = "shadow"', 'mode = "disabled"')
-    )
+    starting_engine = getattr(request, "param", "legacy")
+    configuration = default_config.read_text().replace('mode = "shadow"', 'mode = "disabled"')
+    if starting_engine == "legacy":
+        configuration = configuration.replace('engine = "general"', 'engine = "legacy"')
+    else:
+        configuration = configuration.replace('engine = "general"', 'engine = "fast"')
+        import json
+
+        checkpoint = str(root / ".browser-data/laya-browser-v19s")
+        configuration = configuration.replace(
+            'laya_checkpoint = ".browser-data/laya-browser-v19s"',
+            f"laya_checkpoint = {json.dumps(checkpoint)}",
+        )
+    config_path.write_text(configuration)
 
     assert (extension_path / "manifest.json").is_file(), "build the extension first"
     assert host_executable.is_file(), "install the Python development extra first"
@@ -167,6 +183,7 @@ async def attached_harness(
         config_path=config_path,
         database_path=tmp_path / "checkpoints.sqlite",
         credential_store=credentials,
+        managed_headless=True,
     )
     try:
         await service.start()
@@ -214,6 +231,13 @@ async def attached_harness(
                 timeout=10_000
             )
 
+            if starting_engine == "fast":
+                try:
+                    yield ProductHarness(service, demo_page, panel_page, credentials, config_path)
+                finally:
+                    await context.close()
+                return
+
             demo_tab_id = await worker.evaluate(
                 """async (url) => {
                   const targets = await chrome.debugger.getTargets();
@@ -253,7 +277,7 @@ async def attached_harness(
 
             try:
                 yield AttachedHarness(
-                    service, attached_browser, demo_page, panel_page, credentials, config_path
+                    service, demo_page, panel_page, credentials, config_path, attached_browser
                 )
             finally:
                 await context.close()

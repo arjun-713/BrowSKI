@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import replace
 
 from browser_agent._types import AgentObservation
@@ -11,11 +10,11 @@ from browser_agent.decisions.candidates import CandidatePolicy
 from browser_agent.decisions.task_commands import user_commands
 from browser_agent.decisions.task_entities import candidate_policy_for_task_entities
 from browser_agent.decisions.task_search import task_search_values_by_ref
+from browser_agent.task_literals import MAX_BINDINGS as _MAX_BINDINGS
+from browser_agent.task_literals import normalize_field_label as _normalize
+from browser_agent.task_literals import quoted_field_values
 
 _MAX_TASK_CHARS = 8_000
-_MAX_BINDINGS = 8
-_MAX_LABEL_CHARS = 120
-_MAX_VALUE_CHARS = 256
 _SELECT_INTENT = re.compile(
     r"\b(?:select|choose)\s+(?P<value>[^\r\n,.;]{1,120}?)\s+"
     r"(?:in|from)\s+(?P<field>[^\r\n,.;]{1,120}?)"
@@ -43,22 +42,11 @@ def candidate_policy_for_task_literals(
     if len(task) > _MAX_TASK_CHARS:
         return policy
 
-    parsed = _parse_bindings(task)
+    by_label = quoted_field_values(task)
     select_intents = _parse_select_intents(task)
-    by_label: dict[str, str | None] = {}
-    for label, value in parsed:
-        normalized_label = _normalize(label)
-        if not normalized_label or not value.strip():
-            continue
-        if normalized_label in by_label and by_label[normalized_label] != value:
-            by_label[normalized_label] = None
-        else:
-            by_label[normalized_label] = value
 
     derived: dict[str, str] = {}
     for label, value in by_label.items():
-        if value is None:
-            continue
         matches = [
             element
             for element in observation.elements
@@ -184,40 +172,3 @@ def _derive_select_labels(
         derived.setdefault(ref, []).append(option_label)
 
     return {ref: tuple(dict.fromkeys(labels)) for ref, labels in derived.items()}
-
-
-def _parse_bindings(task: str) -> list[tuple[str, str]]:
-    bindings: list[tuple[str, str]] = []
-    for pattern in _patterns():
-        for match in pattern.finditer(task):
-            label = match.group("field").strip()
-            value = match.group("value")
-            if not label or not value.strip():
-                continue
-            bindings.append((label, value))
-            if len(bindings) > _MAX_BINDINGS:
-                return []
-    return bindings
-
-
-def _patterns() -> tuple[re.Pattern[str], ...]:
-    # Exclude the active quote from each capture using a lookahead, while
-    # allowing the other quote style inside a value such as "O'Reilly".
-    field = (
-        r'(?P<field_quote>["\'])(?P<field>'
-        rf"(?:(?!(?P=field_quote))[^\r\n]){{1,{_MAX_LABEL_CHARS}}}?)(?P=field_quote)"
-    )
-    value = (
-        r'(?P<value_quote>["\'])(?P<value>'
-        rf"(?:(?!(?P=value_quote))[^\r\n]){{1,{_MAX_VALUE_CHARS}}}?)(?P=value_quote)"
-    )
-    return (
-        re.compile(r"\bset\s+" + field + r"\s+to\s+" + value, re.IGNORECASE),
-        re.compile(r"\bfill\s+" + field + r"\s+with\s+" + value, re.IGNORECASE),
-        re.compile(r"\btype\s+" + value + r"\s+into\s+" + field, re.IGNORECASE),
-    )
-
-
-def _normalize(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(normalized.split())

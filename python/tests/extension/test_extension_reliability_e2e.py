@@ -6,6 +6,7 @@ import asyncio
 import os
 from importlib import import_module
 from typing import Any
+from urllib.parse import urljoin
 
 import pytest
 from playwright.async_api import expect
@@ -224,3 +225,64 @@ async def test_mode_c_runtime_restart_requires_fresh_attachment_without_replay(
         await expect(harness.demo.get_by_role("heading", name="1. Contact details")).to_be_visible()
     finally:
         await replacement.close()
+
+
+async def test_native_popup_href_drift_does_not_grant_ownership(
+    attached_harness: AttachedHarness,
+) -> None:
+    harness = attached_harness
+    await harness.demo.goto(urljoin(harness.demo.url, "extension-multitab.html"))
+    await harness.demo.get_by_role("link").evaluate(
+        "element => { element.onclick = () => { element.href = '/guide.html?unexpected=1'; }; }"
+    )
+    snapshot = await harness.browser.observe()
+    target = next(item for item in snapshot.elements if item.role == "link")
+
+    async with harness.demo.expect_popup() as popup_event:
+        outcome = await harness.browser.act(
+            BrowserAction(
+                type="click",
+                target=ElementRef(
+                    ref=target.ref, id=target.id, generation=snapshot.state_generation
+                ),
+            )
+        )
+    popup = await popup_event.value
+    await popup.wait_for_load_state()
+
+    assert outcome["verification"]["status"] != "SUCCESS"
+    assert len(await harness.browser.tabs()) == 1
+    assert not popup.is_closed(), "refusing ownership must not close a native user page"
+    assert "unexpected=1" in popup.url
+
+
+async def test_unsolicited_existing_popup_is_not_adopted_with_the_requested_link(
+    attached_harness: AttachedHarness,
+) -> None:
+    harness = attached_harness
+    await harness.demo.goto(urljoin(harness.demo.url, "extension-multitab.html"))
+    async with harness.demo.expect_popup() as unrelated_event:
+        await harness.demo.evaluate("window.open('/guide.html?unsolicited=1', '_blank')")
+    unrelated = await unrelated_event.value
+    await unrelated.wait_for_load_state()
+    snapshot = await harness.browser.observe()
+    assert len(snapshot.tabs) == 1
+    target = next(item for item in snapshot.elements if item.role == "link")
+
+    async with harness.demo.expect_popup() as requested_event:
+        outcome = await harness.browser.act(
+            BrowserAction(
+                type="click",
+                target=ElementRef(
+                    ref=target.ref, id=target.id, generation=snapshot.state_generation
+                ),
+            )
+        )
+    requested = await requested_event.value
+    await requested.wait_for_load_state()
+
+    assert outcome["verification"]["status"] == "SUCCESS", outcome
+    tabs = await harness.browser.tabs()
+    assert len(tabs) == 2
+    assert all("unsolicited=1" not in tab.url for tab in tabs)
+    assert not unrelated.is_closed()

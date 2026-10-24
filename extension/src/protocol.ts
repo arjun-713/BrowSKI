@@ -13,7 +13,16 @@ export type EventEnvelope<TType extends string, TPayload> = {
 };
 
 export type RuntimeStatus =
-  "idle" | "running" | "paused" | "awaiting_approval" | "completed" | "stopped" | "failed";
+  | "idle"
+  | "running"
+  | "paused"
+  | "awaiting_approval"
+  | "completed"
+  | "stopped"
+  | "failed"
+  | "partially_completed"
+  | "blocked"
+  | "cancelled";
 
 export type RuntimeSession = {
   sessionId: string;
@@ -21,6 +30,9 @@ export type RuntimeSession = {
   status: RuntimeStatus;
   taskLabel?: string;
   updatedAt: string;
+  engine?: "fast" | "general" | "legacy";
+  provider?: "laya" | "jev" | "openai" | "disabled";
+  browserMode?: "managed" | "attached";
 };
 
 export type TimelineEvent = {
@@ -34,6 +46,7 @@ export type TimelineEvent = {
   type?: string;
   label: string;
   detail?: string;
+  pageUrl?: string;
   browserCode?: BrowserCodeTraceMetadata;
   browserSessionId?: string;
   requestId?: string;
@@ -89,7 +102,45 @@ export type RuntimeSettingsUpdate = {
   privacyMode: "standard" | "privacy_first" | "offline";
   layaMode: "disabled" | "shadow";
   traceLevel: "standard" | "detailed";
+  engine?: "fast" | "general" | "legacy";
+  fastProvider?: "laya" | "jev";
+  textProvider?: "disabled" | "openai";
+  allowPaidApi?: boolean;
+  textModel?: string;
+  layaCheckpoint?: string;
+  jevEndpoint?: string;
 };
+
+export function editableRuntimeSettings(
+  settings: RuntimeSettingsUpdate,
+): RuntimeSettingsUpdate {
+  const {
+    effort,
+    privacyMode,
+    layaMode,
+    traceLevel,
+    engine,
+    fastProvider,
+    textProvider,
+    allowPaidApi,
+    textModel,
+    layaCheckpoint,
+    jevEndpoint,
+  } = settings;
+  return {
+    effort,
+    privacyMode,
+    layaMode,
+    traceLevel,
+    engine,
+    fastProvider,
+    textProvider,
+    allowPaidApi,
+    textModel,
+    layaCheckpoint,
+    jevEndpoint,
+  };
+}
 
 export type RuntimeSettingsSnapshot = RuntimeSettingsUpdate & {
   confirmHighRiskActions: true;
@@ -116,6 +167,9 @@ const RUNTIME_EVENT_TYPES = new Set<NonNullable<TimelineEvent["type"]>>([
   "RunStopped",
   "RunCompleted",
   "RunFailed",
+  "RunPartiallyCompleted",
+  "RunBlocked",
+  "RunCancelled",
 ]);
 
 export function isKnownRuntimeEventType(
@@ -156,6 +210,10 @@ export function isTimelineEvent(value: unknown): value is TimelineEvent {
     value.label.length <= 160 &&
     (value.detail === undefined ||
       (typeof value.detail === "string" && value.detail.length <= 500)) &&
+    (value.pageUrl === undefined ||
+      (typeof value.pageUrl === "string" &&
+        value.pageUrl.length <= 2048 &&
+        isOwnedTabUrl(value.pageUrl))) &&
     (value.browserCode === undefined ||
       ((value.type === "BrowserCodeStarted" || value.type === "BrowserCodeCompleted") &&
         isBrowserCodeTraceMetadata(value.browserCode))) &&
@@ -261,12 +319,15 @@ export type PendingApproval = {
   summary: string;
   risk: "low" | "medium" | "high";
   expiresAt?: string;
+  details?: Record<string, unknown>;
 };
 
 export type DebuggerMethod =
   | "BROWSKI.tabs.activate"
   | "BROWSKI.tabs.close"
   | "BROWSKI.tabs.create"
+  | "BROWSKI.tabs.preparePopup"
+  | "BROWSKI.tabs.finishPopup"
   | "BROWSKI.tabs.stop"
   | "Accessibility.getFullAXTree"
   | "CSS.enable"
@@ -354,17 +415,7 @@ export type NativeHostMessage =
       { openAiKeyConfigured: boolean; error?: string }
     >
   | EventEnvelope<"runtime.settings.status", RuntimeSettingsStatus>
-  | EventEnvelope<
-      "runtime.task.result",
-      {
-        sessionId: string;
-        runId?: string;
-        outcome: "verified_success" | "stopped" | "failed";
-        summary: string;
-        finishedAt: string;
-        failure?: SafeFailureMetadata;
-      }
-    >
+  | EventEnvelope<"runtime.task.result", TaskResult>
   | EventEnvelope<"debugger.command", DebuggerCommandRequest>
   | EventEnvelope<"debugger.detach", { attachmentId: string; reason: string }>;
 
@@ -372,13 +423,42 @@ export type ExtensionToHostMessage =
   | EventEnvelope<"runtime.settings.get", Record<string, never>>
   | EventEnvelope<"runtime.settings.update", RuntimeSettingsUpdate>;
 
-function isRuntimeSettingsUpdate(value: Record<string, unknown>): boolean {
+export function isRuntimeSettingsUpdate(value: Record<string, unknown>): boolean {
   return (
-    hasOnlyKeys(value, ["effort", "privacyMode", "layaMode", "traceLevel"]) &&
+    hasOnlyKeys(value, [
+      "effort",
+      "privacyMode",
+      "layaMode",
+      "traceLevel",
+      "engine",
+      "fastProvider",
+      "textProvider",
+      "allowPaidApi",
+      "textModel",
+      "layaCheckpoint",
+      "jevEndpoint",
+    ]) &&
     ["none", "low"].includes(String(value.effort)) &&
     ["standard", "privacy_first", "offline"].includes(String(value.privacyMode)) &&
     ["disabled", "shadow"].includes(String(value.layaMode)) &&
-    ["standard", "detailed"].includes(String(value.traceLevel))
+    ["standard", "detailed"].includes(String(value.traceLevel)) &&
+    (value.engine === undefined ||
+      (typeof value.engine === "string" &&
+        ["fast", "general", "legacy"].includes(value.engine))) &&
+    (value.fastProvider === undefined ||
+      (typeof value.fastProvider === "string" &&
+        ["laya", "jev"].includes(value.fastProvider))) &&
+    (value.textProvider === undefined ||
+      (typeof value.textProvider === "string" &&
+        ["disabled", "openai"].includes(value.textProvider))) &&
+    (value.allowPaidApi === undefined || typeof value.allowPaidApi === "boolean") &&
+    ["textModel", "layaCheckpoint", "jevEndpoint"].every(
+      (key) =>
+        value[key] === undefined ||
+        (typeof value[key] === "string" &&
+          value[key].length > 0 &&
+          value[key].length <= 1000),
+    )
   );
 }
 
@@ -391,21 +471,10 @@ function isRuntimeSettingsStatus(value: Record<string, unknown>): boolean {
   ) {
     return true;
   }
-  const settings: Record<string, unknown> = {
-    effort: value.effort,
-    privacyMode: value.privacyMode,
-    layaMode: value.layaMode,
-    traceLevel: value.traceLevel,
-  };
+  const settings: Record<string, unknown> = { ...value };
+  delete settings.confirmHighRiskActions;
+  delete settings.extensionTransport;
   return (
-    hasOnlyKeys(value, [
-      "effort",
-      "privacyMode",
-      "layaMode",
-      "traceLevel",
-      "confirmHighRiskActions",
-      "extensionTransport",
-    ]) &&
     isRuntimeSettingsUpdate(settings) &&
     value.confirmHighRiskActions === true &&
     ["native_host", "disabled"].includes(String(value.extensionTransport))
@@ -437,6 +506,24 @@ export function isExtensionToHostMessage(value: unknown): value is ExtensionToHo
   );
 }
 
+export type TaskResult = {
+  sessionId: string;
+  runId?: string;
+  outcome:
+    | "verified_success"
+    | "stopped"
+    | "failed"
+    | "partially_completed"
+    | "blocked"
+    | "cancelled";
+  summary: string;
+  finishedAt: string;
+  failure?: SafeFailureMetadata;
+  answer?: string;
+  verdict?: { verified: boolean; reason: string };
+  stats?: { steps: number; actions: number; modelCalls: number; durationMs: number };
+};
+
 export type ExtensionSnapshot = {
   host: "disconnected" | "connecting" | "connected" | "error";
   hostError: string | null;
@@ -444,6 +531,7 @@ export type ExtensionSnapshot = {
   session: RuntimeSession | null;
   events: TimelineEvent[];
   pendingApproval: PendingApproval | null;
+  lastResult?: TaskResult;
   openAiKeyConfigured: boolean;
   settingsError: string | null;
   runtimeSettings: RuntimeSettingsSnapshot | null;
@@ -596,6 +684,18 @@ const parameterValidators: Record<
     hasOnlyKeys(params, ["url"]) &&
     typeof params.url === "string" &&
     isOwnedTabUrl(params.url),
+  "BROWSKI.tabs.preparePopup": (params) =>
+    hasOnlyKeys(params, ["url", "openerSessionId"]) &&
+    typeof params.url === "string" &&
+    isOwnedTabUrl(params.url) &&
+    typeof params.openerSessionId === "string" &&
+    params.openerSessionId.length > 0 &&
+    params.openerSessionId.length <= 128,
+  "BROWSKI.tabs.finishPopup": (params) =>
+    hasOnlyKeys(params, ["popupId", "cancel"]) &&
+    typeof params.popupId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(params.popupId) &&
+    typeof params.cancel === "boolean",
   "BROWSKI.tabs.stop": (params) => Object.keys(params).length === 0,
   "Accessibility.getFullAXTree": (params) => Object.keys(params).length === 0,
   "CSS.enable": (params) => Object.keys(params).length === 0,
@@ -726,6 +826,21 @@ function isWebUrl(value: string): boolean {
   }
 }
 
+export function isTaskPageUrl(value: unknown): value is string {
+  return typeof value === "string" && isOwnedTabUrl(value);
+}
+
+export function isTaskVerification(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    hasOnlyKeys(value, ["url", "heading"]) &&
+    isTaskPageUrl(value.url) &&
+    typeof value.heading === "string" &&
+    value.heading.trim().length > 0 &&
+    value.heading.length <= 200
+  );
+}
+
 function isOwnedTabUrl(value: string): boolean {
   if (value.length === 0 || new TextEncoder().encode(value).byteLength > 2048) {
     return false;
@@ -809,11 +924,32 @@ export function isNativeHostMessage(value: unknown): value is NativeHostMessage 
       payload.sessionId.length > 0 &&
       payload.sessionId.length <= 128 &&
       (payload.runId === undefined || isOptionalBoundedId(payload.runId, 128)) &&
-      ["verified_success", "stopped", "failed"].includes(String(payload.outcome)) &&
+      [
+        "verified_success",
+        "stopped",
+        "failed",
+        "partially_completed",
+        "blocked",
+        "cancelled",
+      ].includes(String(payload.outcome)) &&
       typeof payload.summary === "string" &&
       payload.summary.length <= 2_000 &&
       typeof payload.finishedAt === "string" &&
       Number.isFinite(Date.parse(payload.finishedAt)) &&
+      (payload.answer === undefined ||
+        (typeof payload.answer === "string" && payload.answer.length <= 4000)) &&
+      (payload.verdict === undefined ||
+        (isPlainRecord(payload.verdict) &&
+          typeof payload.verdict.verified === "boolean" &&
+          typeof payload.verdict.reason === "string" &&
+          payload.verdict.reason.length <= 500)) &&
+      (payload.stats === undefined ||
+        (isPlainRecord(payload.stats) &&
+          ["steps", "actions", "modelCalls", "durationMs"].every(
+            (key) =>
+              Number.isSafeInteger((payload.stats as Record<string, unknown>)[key]) &&
+              Number((payload.stats as Record<string, unknown>)[key]) >= 0,
+          ))) &&
       (payload.failure === undefined ||
         (payload.outcome === "failed" && isSafeFailureMetadata(payload.failure)))
     );
@@ -845,7 +981,7 @@ export function isNativeHostMessage(value: unknown): value is NativeHostMessage 
   return true;
 }
 
-function isRuntimeSession(value: unknown): value is RuntimeSession {
+export function isRuntimeSession(value: unknown): value is RuntimeSession {
   return (
     isPlainRecord(value) &&
     typeof value.sessionId === "string" &&
@@ -860,9 +996,21 @@ function isRuntimeSession(value: unknown): value is RuntimeSession {
       "completed",
       "stopped",
       "failed",
+      "partially_completed",
+      "blocked",
+      "cancelled",
     ].includes(String(value.status)) &&
     (value.taskLabel === undefined ||
       (typeof value.taskLabel === "string" && value.taskLabel.length <= 200)) &&
+    (value.engine === undefined ||
+      (typeof value.engine === "string" &&
+        ["fast", "general", "legacy"].includes(value.engine))) &&
+    (value.provider === undefined ||
+      (typeof value.provider === "string" &&
+        ["laya", "jev", "openai", "disabled"].includes(value.provider))) &&
+    (value.browserMode === undefined ||
+      value.browserMode === "managed" ||
+      value.browserMode === "attached") &&
     typeof value.updatedAt === "string" &&
     value.updatedAt.length <= 64 &&
     Number.isFinite(Date.parse(value.updatedAt))

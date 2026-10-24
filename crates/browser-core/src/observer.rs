@@ -1581,6 +1581,9 @@ async fn observe_full_attempt(
         item.element.reference = alias;
         item.element.generation = generation;
     }
+    // A navigation retry re-enters registry binding. Release this attempt's
+    // guard before any further await, especially the recursive fresh read.
+    drop(registries);
 
     // 10. Assemble snapshot.
     let mut elements: Vec<SemanticElement> = built.into_iter().map(|b| b.element).collect();

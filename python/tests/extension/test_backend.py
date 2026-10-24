@@ -69,6 +69,36 @@ def test_owned_tab_commands_require_bounded_urls_and_owned_targets(tmp_path: Pat
 
     validate("session-1", "BROWSKI.tabs.create", {"url": "https://example.test/"})
     validate("session-1", "Page.enable", {})
+    validate(
+        "session-1",
+        "BROWSKI.tabs.preparePopup",
+        {
+            "url": "https://example.test/guide",
+            "openerSessionId": "session-1",
+        },
+    )
+    validate(
+        "session-1",
+        "BROWSKI.tabs.finishPopup",
+        {
+            "popupId": "123e4567-e89b-12d3-a456-426614174000",
+            "cancel": False,
+        },
+    )
+    popup_targets: list[dict[str, object]] = [
+        {"url": "https://example.test/", "openerSessionId": "unowned"},
+        {"url": "https://user:secret@example.test/", "openerSessionId": "session-1"},
+    ]
+    for params in popup_targets:
+        with pytest.raises(ExtensionBackendError, match="owned opener"):
+            validate("session-1", "BROWSKI.tabs.preparePopup", params)
+    finishes: list[dict[str, object]] = [
+        {"popupId": "invalid", "cancel": False},
+        {"popupId": "123e4567-e89b-12d3-a456-426614174000", "cancel": "false"},
+    ]
+    for params in finishes:
+        with pytest.raises(ExtensionBackendError, match="popup"):
+            validate("session-1", "BROWSKI.tabs.finishPopup", params)
     with pytest.raises(ExtensionBackendError, match="credential-free"):
         validate("session-1", "BROWSKI.tabs.create", {"url": "https://user:secret@example.test/"})
     with pytest.raises(ExtensionBackendError, match=r"credential-free HTTP\(S\)"):
@@ -80,15 +110,17 @@ def test_owned_tab_commands_require_bounded_urls_and_owned_targets(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["BROWSKI.tabs.create", "BROWSKI.tabs.finishPopup"])
 async def test_owned_tab_session_routes_only_after_valid_creation_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
 ) -> None:
     backend = ExtensionCdpBackend(tmp_path / "unused.sock", "token")
     backend.set_attachment(Attachment("attach-1", 7, "session-1"))
     monkeypatch.setattr(ExtensionCdpBackend, "is_connected", property(lambda _backend: True))
     backend._pending[1] = asyncio.get_running_loop().create_future()
-    backend._pending_methods[1] = "BROWSKI.tabs.create"
+    backend._pending_methods[1] = method
     backend._pending_sessions[1] = "session-1"
     handled = await backend.handle_extension_message(
         {
@@ -309,3 +341,45 @@ async def test_backend_authenticates_attachment_and_relays_command_response_and_
         await backend.close()
         extension_server.close()
         await extension_server.wait_closed()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_popup_result_cannot_invert_cancellation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cancelled: bool,
+) -> None:
+    backend = ExtensionCdpBackend(tmp_path / "unused.sock", "token")
+    backend.set_attachment(Attachment("attach-1", 7, "session-1"))
+    monkeypatch.setattr(ExtensionCdpBackend, "is_connected", property(lambda _backend: True))
+    backend._pending[1] = asyncio.get_running_loop().create_future()
+    backend._pending_methods[1] = "BROWSKI.tabs.finishPopup"
+    backend._pending_sessions[1] = "session-1"
+    if cancelled:
+        backend._pending_popup_cancellations.add(1)
+    result = (
+        {
+            "targetId": "browser-tab-123e4567-e89b-12d3-a456-426614174000",
+            "tabSessionId": "browser-session-123e4567-e89b-12d3-a456-426614174001",
+            "title": "Guide",
+            "url": "https://example.test/",
+        }
+        if cancelled
+        else {}
+    )
+    with pytest.raises(ExtensionBackendError, match="cancellation"):
+        await backend.handle_extension_message(
+            {
+                "type": "debugger.command.result",
+                "payload": {
+                    "attachmentId": "attach-1",
+                    "sessionId": "session-1",
+                    "commandId": "browski-1",
+                    "result": result,
+                },
+            }
+        )
+    assert len(backend._owned_sessions) == 1
+    backend._fail_pending()
+    assert not backend._pending_popup_cancellations

@@ -963,7 +963,7 @@ impl BrowserSession {
         let _ = self.event_tx.send(BrowserEvent::ConnectionLost);
     }
 
-    async fn adopt_owned_tab(
+    pub(crate) async fn adopt_owned_tab(
         &self,
         transport: Arc<dyn CdpTransport>,
         owned: OwnedTab,
@@ -1450,6 +1450,7 @@ mod tests {
         events: broadcast::Sender<CdpEvent>,
         commands: Mutex<Vec<String>>,
         detach_owned_tabs_calls: AtomicUsize,
+        observation_navigation: Mutex<Option<(Arc<AtomicU64>, usize)>>,
     }
 
     impl MockTransport {
@@ -1459,6 +1460,7 @@ mod tests {
                 events,
                 commands: Mutex::new(Vec::new()),
                 detach_owned_tabs_calls: AtomicUsize::new(0),
+                observation_navigation: Mutex::new(None),
             }
         }
     }
@@ -1467,14 +1469,34 @@ mod tests {
         fn command<'a>(
             &'a self,
             method: &'a str,
-            _params: Value,
+            params: Value,
         ) -> Pin<Box<dyn Future<Output = Result<Value, CdpError>> + Send + 'a>> {
             Box::pin(async move {
                 self.commands.lock().unwrap().push(method.to_string());
-                if method == "Page.getLayoutMetrics" {
-                    Ok(serde_json::json!({"layoutViewport": {}}))
-                } else {
-                    Ok(Value::Null)
+                match method {
+                    "Page.getLayoutMetrics" => Ok(serde_json::json!({"layoutViewport": {}})),
+                    "Accessibility.getFullAXTree" => Ok(serde_json::json!({"nodes": []})),
+                    "DOM.getDocument" => {
+                        // Simulate navigation being consumed while collection is in flight.
+                        if let Some((generation, remaining)) =
+                            self.observation_navigation.lock().unwrap().as_mut()
+                        {
+                            if *remaining > 0 {
+                                generation.fetch_add(1, Ordering::SeqCst);
+                                *remaining -= 1;
+                            }
+                        }
+                        Ok(serde_json::json!({"root": {"nodeType": 9, "children": []}}))
+                    }
+                    "Runtime.evaluate" => {
+                        let value = match params.get("expression").and_then(Value::as_str) {
+                            Some("window.location.href") => Value::from("https://example.test/"),
+                            Some("document.title") => Value::from("Navigation fixture"),
+                            _ => serde_json::json!({"x": 0, "y": 0}),
+                        };
+                        Ok(serde_json::json!({"result": {"value": value}}))
+                    }
+                    _ => Ok(Value::Null),
                 }
             })
         }
@@ -1577,6 +1599,57 @@ mod tests {
             .lock()
             .unwrap()
             .contains(&"Browser.close".to_string()));
+    }
+
+    #[tokio::test]
+    async fn observation_navigation_retry_releases_registry_lock() {
+        for navigation_count in [1, 2] {
+            let transport = Arc::new(MockTransport::new());
+            let session = BrowserSession::from_attached_transport(
+                transport.clone(),
+                TargetId::from("navigation-tab"),
+                CdpSessionId::from("navigation-session"),
+                None,
+                "Navigation fixture".into(),
+                "https://example.test/".into(),
+                LaunchOptions::default(),
+            )
+            .await
+            .unwrap();
+            *transport.observation_navigation.lock().unwrap() =
+                Some((Arc::clone(&session.generation), navigation_count));
+
+            let result = tokio::time::timeout(Duration::from_secs(1), session.observe())
+                .await
+                .expect("navigation retry must not deadlock on its previous registry guard");
+
+            if navigation_count == 1 {
+                assert_eq!(result.unwrap().state_generation, 1);
+            } else {
+                let error = result.unwrap_err();
+                assert!(matches!(
+                    error,
+                    BrowserRuntimeError::Cdp(CdpError::Unexpected(_))
+                ));
+            }
+            assert_eq!(
+                transport
+                    .commands
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|method| method.as_str() == "DOM.getDocument")
+                    .count(),
+                2,
+                "navigation collection must retry exactly once",
+            );
+            // A failed retry must leave the shared registry available too.
+            assert_eq!(
+                session.observe().await.unwrap().state_generation,
+                navigation_count as u64
+            );
+            session.close().await.unwrap();
+        }
     }
 
     #[tokio::test]

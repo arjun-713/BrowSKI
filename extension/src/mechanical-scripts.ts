@@ -1,4 +1,5 @@
 import hitTestContains from "../../crates/browser-core/src/mechanics/hit-test-contains.js?raw";
+import popupLink from "../../crates/browser-core/src/mechanics/popup-link.js?raw";
 import clickElement from "../../crates/browser-core/src/mechanics/click.js?raw";
 import elementTag from "../../crates/browser-core/src/mechanics/element-tag.js?raw";
 import readChecked from "../../crates/browser-core/src/mechanics/read-checked.js?raw";
@@ -13,6 +14,7 @@ import readExpressions from "../../crates/browser-core/src/mechanics/read-expres
 
 const noArgumentFunctions = new Set([
   clickElement,
+  popupLink,
   elementTag,
   readChecked,
   readHover,

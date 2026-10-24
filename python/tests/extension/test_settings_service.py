@@ -152,3 +152,34 @@ async def test_runtime_settings_errors_are_bounded(
     payload = cast(dict[str, object], captured[-1]["payload"])
     assert set(payload) == {"error"}
     assert len(cast(str, payload["error"])) == 200
+
+
+async def test_engine_provider_switch_persists_without_network_or_paid_fallback(
+    tmp_path: Path,
+) -> None:
+    from browser_agent.cli.config import load_config
+
+    frames: list[dict[str, object]] = []
+    service = _service(tmp_path, frames)
+    settings: dict[str, object] = {
+        "effort": "low",
+        "privacyMode": "standard",
+        "layaMode": "disabled",
+        "traceLevel": "detailed",
+        "engine": "fast",
+        "fastProvider": "jev",
+        "textProvider": "disabled",
+        "allowPaidApi": False,
+        "textModel": "gpt-6-luna",
+        "layaCheckpoint": '/tmp/a "quoted" path',
+        "jevEndpoint": "https://api.typesafe.ai/v1/systemone",
+    }
+    await service.handle_message(_writer(), "runtime.settings.update", settings, active_task=False)
+    configured = load_config(tmp_path / "config.toml")
+    assert configured.agent.fast_provider.value == "jev"
+    assert not configured.agent.allow_paid_api
+    assert configured.agent.laya_checkpoint == '/tmp/a "quoted" path'
+    settings["fastProvider"] = "laya"
+    await service.handle_message(_writer(), "runtime.settings.update", settings, active_task=False)
+    assert load_config(tmp_path / "config.toml").agent.fast_provider.value == "laya"
+    assert all(frame["type"] == "runtime.settings.status" for frame in frames)

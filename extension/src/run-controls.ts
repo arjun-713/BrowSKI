@@ -10,5 +10,13 @@ export function permittedRunControls(status: RuntimeStatus): RunControl[] {
 }
 
 export function canStartTask(status: RuntimeStatus): boolean {
-  return ["idle", "completed", "stopped", "failed"].includes(status);
+  return [
+    "idle",
+    "completed",
+    "stopped",
+    "failed",
+    "partially_completed",
+    "blocked",
+    "cancelled",
+  ].includes(status);
 }
