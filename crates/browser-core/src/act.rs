@@ -15,6 +15,7 @@
 
 mod cdp;
 mod input;
+mod popup;
 mod verification;
 
 use browser_agent_cdp::{CdpSessionId, TabId, TargetId};

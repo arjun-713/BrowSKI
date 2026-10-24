@@ -128,6 +128,72 @@ export class OwnedTabs {
     };
   }
 
+  /** Attach only a newly created page already correlated by OwnedPopups. */
+  async adoptPopup(
+    attachmentId: string,
+    ownerSessionId: string,
+    url: string,
+    tabId: number,
+    isCurrent: () => boolean,
+  ): Promise<CreatedOwnedTab> {
+    this.assertOwner(attachmentId, ownerSessionId);
+    const requested = parseOwnedTabUrl(url);
+    if (!isCurrent() || this.getByChromeTab(tabId) || this.size >= MAX_OWNED_TABS) {
+      throw new Error("The popup is no longer eligible for attachment.");
+    }
+    let attached = false;
+    try {
+      await this.api.attachDebugger(tabId);
+      attached = true;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        this.assertOwner(attachmentId, ownerSessionId);
+        if (!isCurrent() || this.getByChromeTab(tabId) || this.size >= MAX_OWNED_TABS) {
+          throw new Error("The popup attachment changed.");
+        }
+        const target = await this.api.getDebuggerTarget(tabId);
+        // Chrome creates the tab before its URL is committed.
+        if (!target?.url || target.url === "about:blank") {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          continue;
+        }
+        const actual = parseOwnedTabUrl(target.url);
+        if (actual.origin !== requested.origin) {
+          throw new Error("The popup redirected outside its requested origin.");
+        }
+        this.assertOwner(attachmentId, ownerSessionId);
+        if (!isCurrent() || this.getByChromeTab(tabId) || this.size >= MAX_OWNED_TABS) {
+          throw new Error("The popup attachment changed.");
+        }
+        const record: OwnedTabRecord = {
+          attachmentId,
+          ownerSessionId,
+          chromeTabId: tabId,
+          targetId: `browser-tab-${crypto.randomUUID()}`,
+          tabSessionId: `browser-session-${crypto.randomUUID()}`,
+          title: target.title?.slice(0, 512) ?? "",
+          url: actual.href,
+          origin: requested.origin,
+          initial: false,
+        };
+        this.insert(record);
+        return {
+          targetId: record.targetId,
+          tabSessionId: record.tabSessionId,
+          title: record.title,
+          url: record.url,
+          origin: record.origin,
+        };
+      }
+      throw new Error("Chrome did not report the popup URL.");
+    } catch (error) {
+      if (attached) {
+        await this.api.detachDebugger(tabId).catch(() => undefined);
+      }
+      // This tab was created by native input, not tabs.create; leave it open.
+      throw error;
+    }
+  }
+
   async activate(
     attachmentId: string,
     ownerSessionId: string,

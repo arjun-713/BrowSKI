@@ -105,6 +105,7 @@ function publishSnapshot(): void {
 }
 
 async function stopOwnedTabs(attachment: Attachment): Promise<void> {
+  debuggerProxy.cancelPendingPopup();
   await ownedTabs.detachAll(attachment.attachmentId, attachment.sessionId);
   await persistOwnedTabs();
   if (snapshot.attachment?.attachmentId === attachment.attachmentId) {
@@ -195,6 +196,7 @@ async function clearSelectedTab(): Promise<void> {
 }
 
 async function detachOwnedTab(reason: string, retainError = false): Promise<void> {
+  debuggerProxy.cancelPendingPopup();
   try {
     await startupGate.wait();
   } catch {
@@ -263,6 +265,10 @@ export default defineBackground(() => {
   chrome.debugger.onDetach.addListener((source, reason) =>
     debuggerProxy.onDetach(source, reason),
   );
+
+  chrome.tabs.onCreated.addListener((tab) => {
+    debuggerProxy.onTabCreated(tab);
+  });
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     if (snapshot.attachment?.tabId === tabId) {

@@ -56,6 +56,8 @@ _CDP_METHODS = frozenset(
         "Runtime.evaluate",
         "Runtime.callFunctionOn",
         "BROWSKI.tabs.create",
+        "BROWSKI.tabs.preparePopup",
+        "BROWSKI.tabs.finishPopup",
         "BROWSKI.tabs.activate",
         "BROWSKI.tabs.close",
         "BROWSKI.tabs.stop",
@@ -64,6 +66,8 @@ _CDP_METHODS = frozenset(
 _OWNED_TAB_METHODS = frozenset(
     {
         "BROWSKI.tabs.create",
+        "BROWSKI.tabs.preparePopup",
+        "BROWSKI.tabs.finishPopup",
         "BROWSKI.tabs.activate",
         "BROWSKI.tabs.close",
         "BROWSKI.tabs.stop",
@@ -163,6 +167,33 @@ def _validate_owned_tab_command(
             raise ExtensionBackendError("new-tab URL must be a bounded credential-free HTTP(S) URL")
         if len(owned_sessions) >= MAX_OWNED_TAB_COUNT:
             raise ExtensionBackendError("the attachment-owned tab limit has been reached")
+    elif method == "BROWSKI.tabs.preparePopup":
+        url = params.get("url")
+        opener = params.get("openerSessionId")
+        if (
+            set(params) != {"url", "openerSessionId"}
+            or not isinstance(url, str)
+            or not _valid_owned_tab_url(url)
+            or not isinstance(opener, str)
+            or opener not in owned_sessions
+            or len(owned_sessions) >= MAX_OWNED_TAB_COUNT
+        ):
+            raise ExtensionBackendError(
+                "popup expectation requires an owned opener and bounded URL"
+            )
+    elif method == "BROWSKI.tabs.finishPopup":
+        popup_id = params.get("popupId")
+        if (
+            set(params) != {"popupId", "cancel"}
+            or not isinstance(popup_id, str)
+            or type(params.get("cancel")) is not bool
+        ):
+            raise ExtensionBackendError("popup completion parameters are invalid")
+        try:
+            if str(uuid.UUID(popup_id)) != popup_id:
+                raise ValueError("non-canonical popup identity")
+        except ValueError as error:
+            raise ExtensionBackendError("popup identity is invalid") from error
     elif method in {"BROWSKI.tabs.activate", "BROWSKI.tabs.close"}:
         target_id = params.get("targetId")
         if (
@@ -200,6 +231,7 @@ class ExtensionCdpBackend:
         self._pending: dict[int, asyncio.Future[None]] = {}
         self._pending_methods: dict[int, str] = {}
         self._pending_sessions: dict[int, str] = {}
+        self._pending_popup_cancellations: set[int] = set()
         self._last_request_id = 0
         self._command_tasks: set[asyncio.Task[None]] = set()
         # The MV3 proxy accepts at most eight outstanding debugger commands.
@@ -306,7 +338,15 @@ class ExtensionCdpBackend:
                 if not isinstance(result_payload, dict):
                     raise ExtensionBackendError("debugger result must be an object")
                 result_fields = cast(dict[str, object], result_payload)
-                if self._pending_methods.get(request_id) == "BROWSKI.tabs.create":
+                if self._pending_methods.get(request_id) == "BROWSKI.tabs.finishPopup":
+                    cancelled = request_id in self._pending_popup_cancellations
+                    if bool(result_fields) == cancelled:
+                        raise ExtensionBackendError("popup result disagrees with its cancellation")
+                owned_result = self._pending_methods.get(request_id) == "BROWSKI.tabs.create" or (
+                    self._pending_methods.get(request_id) == "BROWSKI.tabs.finishPopup"
+                    and bool(result_fields)
+                )
+                if owned_result:
                     target_id = result_fields.get("targetId")
                     tab_session_id = result_fields.get("tabSessionId")
                     if (
@@ -315,6 +355,7 @@ class ExtensionCdpBackend:
                         or not isinstance(tab_session_id, str)
                         or not _valid_opaque_id(tab_session_id, "browser-session-")
                         or tab_session_id in self._owned_sessions
+                        or target_id in self._owned_sessions.values()
                         or len(self._owned_sessions) >= MAX_OWNED_TAB_COUNT
                     ):
                         raise ExtensionBackendError("owned-tab creation result is invalid")
@@ -451,6 +492,10 @@ class ExtensionCdpBackend:
                 {
                     "protocolVersion": PROTOCOL_VERSION,
                     "type": "backend.ready",
+                    "ownedPopups": {
+                        "BROWSKI.tabs.preparePopup",
+                        "BROWSKI.tabs.finishPopup",
+                    }.issubset(self._extension_methods),
                 },
             )
             while True:
@@ -589,6 +634,10 @@ class ExtensionCdpBackend:
         self._pending[request_id] = future
         self._pending_methods[request_id] = cast(str, payload["method"])
         self._pending_sessions[request_id] = cast(str, payload["sessionId"])
+        if payload["method"] == "BROWSKI.tabs.finishPopup":
+            params = cast(dict[str, object], payload["params"])
+            if params["cancel"] is True:
+                self._pending_popup_cancellations.add(request_id)
         command_id = f"browski-{request_id}"
         try:
             await self._send_extension(
@@ -619,6 +668,7 @@ class ExtensionCdpBackend:
             self._pending.pop(request_id, None)
             self._pending_methods.pop(request_id, None)
             self._pending_sessions.pop(request_id, None)
+            self._pending_popup_cancellations.discard(request_id)
 
     async def _send_extension(self, message: dict[str, object]) -> None:
         writer = self._extension_writer
@@ -640,3 +690,4 @@ class ExtensionCdpBackend:
                 future.set_result(None)
         self._pending_methods.clear()
         self._pending_sessions.clear()
+        self._pending_popup_cancellations.clear()

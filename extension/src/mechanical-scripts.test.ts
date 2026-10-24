@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import hitTestContains from "../../crates/browser-core/src/mechanics/hit-test-contains.js?raw";
+import popupLink from "../../crates/browser-core/src/mechanics/popup-link.js?raw";
 import readValue from "../../crates/browser-core/src/mechanics/read-value.js?raw";
 import selectMetadata from "../../crates/browser-core/src/mechanics/select-metadata.js?raw";
 import setValue from "../../crates/browser-core/src/mechanics/set-value.js?raw";
@@ -89,4 +90,23 @@ describe("Rust-owned browser mechanics", () => {
       }),
     ).toBe(false);
   });
+});
+
+it("permits only the exact fixed native-popup read with no arguments", () => {
+  const request = {
+    objectId: "resolved-native-link",
+    functionDeclaration: popupLink,
+    arguments: [],
+    returnByValue: true,
+  };
+  expect(isMechanicalFunctionCall(request)).toBe(true);
+  expect(
+    isMechanicalFunctionCall({ ...request, arguments: [{ value: "arbitrary-url" }] }),
+  ).toBe(false);
+  expect(
+    isMechanicalFunctionCall({
+      ...request,
+      functionDeclaration: popupLink + "this.click()",
+    }),
+  ).toBe(false);
 });

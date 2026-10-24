@@ -106,6 +106,37 @@ pub trait CdpTransport: Send + Sync {
         })
     }
 
+    /// Whether the paired extension negotiated native popup correlation.
+    fn supports_owned_popups(&self) -> bool {
+        false
+    }
+
+    /// Arm one expected native-link popup on an already owned opener.
+    fn prepare_owned_popup<'a>(
+        &'a self,
+        _opener: &'a CdpSessionId,
+        _url: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, CdpError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(CdpError::ExtensionBridge(
+                "owned popups are unavailable".into(),
+            ))
+        })
+    }
+
+    /// Consume the one-use expectation, or cancel it if trusted input failed.
+    fn finish_owned_popup<'a>(
+        &'a self,
+        _popup_id: &'a str,
+        _cancel: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<OwnedTab>, CdpError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(CdpError::ExtensionBridge(
+                "owned popups are unavailable".into(),
+            ))
+        })
+    }
+
     /// Activate a previously created page through an explicit ownership map.
     fn activate_owned_tab<'a>(
         &'a self,

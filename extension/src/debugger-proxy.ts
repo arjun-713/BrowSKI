@@ -1,3 +1,4 @@
+import { OwnedPopups } from "./owned-popups";
 import { allowedOrigin } from "./browser-origin";
 import { OwnedTabs, type OwnedTabRecord } from "./owned-tabs";
 import {
@@ -40,7 +41,19 @@ export class DebuggerProxy {
   private readonly commandHistory: string[] = [];
   private eventSequence = 0;
 
-  constructor(private readonly dependencies: DebuggerProxyDependencies) {}
+  private readonly popups: OwnedPopups;
+
+  constructor(private readonly dependencies: DebuggerProxyDependencies) {
+    this.popups = new OwnedPopups(dependencies.ownedTabs, dependencies.getAttachment);
+  }
+
+  onTabCreated(tab: Pick<chrome.tabs.Tab, "id" | "openerTabId">): void {
+    this.popups.tabCreated(tab);
+  }
+
+  cancelPendingPopup(): void {
+    this.popups.cancel();
+  }
 
   async handleCommand(value: unknown): Promise<void> {
     if (!isAllowedDebuggerCommand(value)) {
@@ -117,14 +130,24 @@ export class DebuggerProxy {
     if (
       !ownedTab ||
       ownedTab.attachmentId !== attachment.attachmentId ||
-      ("sessionId" in source && source.sessionId !== undefined) ||
-      !isAllowedDebuggerEvent(method) ||
-      !this.dependencies.getNegotiatedEvents().has(method)
+      ("sessionId" in source && source.sessionId !== undefined)
     ) {
       return;
     }
 
     const eventParams = (params ?? {}) as Record<string, unknown>;
+    // Browser-reported popup metadata is consumed only by the armed capability;
+    // it is never exposed as an additional generic debugger event.
+    if (method === "Page.windowOpen") {
+      this.popups.windowOpened(source.tabId, eventParams);
+      return;
+    }
+    if (
+      !isAllowedDebuggerEvent(method) ||
+      !this.dependencies.getNegotiatedEvents().has(method)
+    ) {
+      return;
+    }
     if (method === "Page.frameNavigated" && isTopFrame(eventParams.frame)) {
       let navigatedOrigin: string;
       try {
@@ -215,6 +238,25 @@ export class DebuggerProxy {
     attachment: Attachment,
   ): Promise<Record<string, unknown>> {
     switch (request.method) {
+      case "BROWSKI.tabs.preparePopup":
+        return {
+          popupId: this.popups.prepare(
+            attachment.attachmentId,
+            attachment.sessionId,
+            request.params.openerSessionId as string,
+            request.params.url as string,
+          ),
+        };
+      case "BROWSKI.tabs.finishPopup": {
+        const created = await this.popups.finish(
+          attachment.attachmentId,
+          attachment.sessionId,
+          request.params.popupId as string,
+          request.params.cancel as boolean,
+        );
+        if (created) await this.dependencies.persistOwnedTabs();
+        return created ?? {};
+      }
       case "BROWSKI.tabs.create": {
         const created = await this.dependencies.ownedTabs.create(
           attachment.attachmentId,

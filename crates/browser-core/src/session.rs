@@ -963,7 +963,7 @@ impl BrowserSession {
         let _ = self.event_tx.send(BrowserEvent::ConnectionLost);
     }
 
-    async fn adopt_owned_tab(
+    pub(crate) async fn adopt_owned_tab(
         &self,
         transport: Arc<dyn CdpTransport>,
         owned: OwnedTab,

@@ -320,6 +320,8 @@ export type DebuggerMethod =
   | "BROWSKI.tabs.activate"
   | "BROWSKI.tabs.close"
   | "BROWSKI.tabs.create"
+  | "BROWSKI.tabs.preparePopup"
+  | "BROWSKI.tabs.finishPopup"
   | "BROWSKI.tabs.stop"
   | "Accessibility.getFullAXTree"
   | "CSS.enable"
@@ -673,6 +675,18 @@ const parameterValidators: Record<
     hasOnlyKeys(params, ["url"]) &&
     typeof params.url === "string" &&
     isOwnedTabUrl(params.url),
+  "BROWSKI.tabs.preparePopup": (params) =>
+    hasOnlyKeys(params, ["url", "openerSessionId"]) &&
+    typeof params.url === "string" &&
+    isOwnedTabUrl(params.url) &&
+    typeof params.openerSessionId === "string" &&
+    params.openerSessionId.length > 0 &&
+    params.openerSessionId.length <= 128,
+  "BROWSKI.tabs.finishPopup": (params) =>
+    hasOnlyKeys(params, ["popupId", "cancel"]) &&
+    typeof params.popupId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(params.popupId) &&
+    typeof params.cancel === "boolean",
   "BROWSKI.tabs.stop": (params) => Object.keys(params).length === 0,
   "Accessibility.getFullAXTree": (params) => Object.keys(params).length === 0,
   "CSS.enable": (params) => Object.keys(params).length === 0,
