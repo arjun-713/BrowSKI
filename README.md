@@ -10,24 +10,27 @@ it is not yet a general production-ready replacement for the Legacy runtime.
   execution supports web links and approved quoted-literal text, native date and
   single-select fields and one approved named transition in the
   sidebar. Final page checks and every requested field stage must be verified.
-- **General** wraps the official **Browser Use Agent**, using a separately
-  configured OpenAI text model. The sidebar supports navigation/read and a
-  bounded approved click/text-entry slice; broader workflows remain in migration.
+- **General** (the side-panel default) wraps the official **Browser Use Agent**
+  with OpenAI and works **in your own current Chrome tab**, with your logins.
+  It navigates, searches, types, clicks, scrolls, reads and opens tabs on its
+  own; it pauses for your approval only before purchases/payments, sending or
+  posting, deleting, account/security changes and password or card entry. An
+  independent judge checks the final state before a task is marked Verified.
 - **Jev** is an optional hosted Fast provider behind the same versioned decision
   contract. Offline contracts and switching pass; live Jev is unverified because
   no credentials are available. No retraining is needed to change adapters.
-- The WXT/React extension remains the product UI. General/Fast open an isolated
-  task-owned Chrome profile; selected source tabs do not transfer authentication.
-  Fast can open supporting tabs through native links and select owned HTTP tabs
-  on the same host. General also has a verified owned-tab switch tool.
+- The WXT/React extension is the product UI. General acts in the tab you send
+  the task from (Chrome shows its debugging bar while it works; cancelling that
+  bar stops the task) plus tabs it or the page opens. Other tabs are never
+  visible to it. Fast still opens an isolated task-owned browser.
 - Rust/CDP, Luna and LangGraph remain available under an explicit **Legacy**
   configuration for rollback. Their broader forms/tabs/checkpoint capabilities
   have not all migrated and must not be attributed to the new engines.
 
-Paid inference is **off by default**. An API key alone cannot authorize it.
-Only Laya runs locally on the current development machine; local generative
-models are disabled. General/OpenAI or Jev requires explicit provider selection,
-credentials, compatible privacy mode and paid permission. There is no paid fallback.
+General uses **paid OpenAI calls for every panel task** (shipped default since
+ADR-032); each result shows its model-call count. Turn off "Allow paid API
+usage" or choose Fast/Laya in Settings to stay local. Only Laya runs locally on
+the current development machine. There is no fallback between providers.
 
 The actual first-look local navigation run completed **4/4** frozen tasks through
 the extension using CPU Laya, including a three-click workflow, with **0 false
@@ -66,15 +69,15 @@ Use the optional expected URL/heading checks for independently verified navigati
 without a supported outcome check, a model's DONE is reported as unverified.
 Pause/resume/stop and progress/results use the existing local bridge.
 
-General needs generative inference: select OpenAI and permit paid API calls in
-Settings before choosing it. Keys belong in the OS keyring or runtime environment,
-never task text, TOML or logs. The existing key UI remains available; storing a
-key does not enable paid access. In the sidebar, each General click or text entry
-requires approval. Text must appear quoted in the task, such as `Type "Ada" into
-Name`; a fresh field read verifies typing. Denial, Stop, expiry or a changed page
-blocks the pending action. CLI tools stay read-only without an approval sink.
-This controlled form integration has offline model fixtures, not live General
-form-accuracy evidence. Legacy's approval path remains intact.
+General needs an OpenAI key: add it in Settings (stored in the OS keyring), or
+put `OPENAI_API_KEY` in an owner-only (`chmod 600`) `.env` at the repository
+root, which `browski serve` loads. Keys never belong in task text, TOML or logs.
+Write tasks in plain language ("Find the Eiffel Tower's height on Wikipedia");
+no quoting is needed. Risky actions show an approval card with the reason;
+Decline (or letting the approval expire) refuses only that action and the agent
+tries another approach; Stop ends the task. Password/card values are typed only after
+approval and never appear in events or results. The CLI, having no approval
+sink, refuses risky actions. Legacy's approval path remains intact.
 
 Fast reuses the existing bounded field grammar, for example `set "Full name" to
 "Alex Demo"; fill "City" with "Pune"`. Quote both the observed field label and its

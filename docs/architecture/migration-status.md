@@ -38,6 +38,7 @@ inference stays off. No hosted fallback or live Jev request has been made.
 | 7 Stagnation            | `1085895`      | Unrelated body-text changes do not count as structural progress                  |
 | 7 Form workflow         | `526669b`      | One approved named transition, one invocation, exact fresh receipt               |
 | 7 Owned tabs            | `5b6113d`      | Native popup, full target identity, verified focus, bounded races                |
+| 7 Panel agent (ADR-032) | Uncommitted    | General in user tabs via CDP relay, risk approvals, judge, redesigned panel      |
 | 7 Broader workflows     | Pending        | Source-to-field provenance, richer goal checks, auth/session coverage            |
 | 8 Cleanup               | Pending        | Retain Legacy until replacement behavior and evaluation gates pass               |
 
@@ -239,3 +240,74 @@ skips, 461.01 seconds**. The unchanged native-popup differential is the failure;
 reload, restart, approval and controls pass. Native port repair: `67504fc`.
 The user's installed service is currently stopped according to the authenticated
 doctor probe; packaged fixture success is not installed-Chrome acceptance.
+
+
+## Side-panel agent in the user's tabs (ADR-032) — 2026-10-22, uncommitted
+
+User decisions: General/OpenAI is the panel default (paid calls per task),
+model-authored text is allowed, only risky actions need approval, the agent
+works in the user's own tabs, and a judge decides completion without caller
+checks. Diagnosis before the change, reproduced through `execute_managed_task`:
+Fast refused any page with more than 120 candidates (Wikipedia home failed
+before acting); General refused unquoted text and was capped at 4 calls/5 steps/
+90 s; nothing completed without URL/H1 checks; `browski serve` ignored `.env`.
+
+Implemented:
+
+- `extension/agent_relay.py` + `extension/src/agent-relay.ts`: loopback CDP relay.
+  Native Messaging only carries `relay.open/close`; CDP traffic uses a tokenised
+  loopback WebSocket from the service worker. Leased tabs only; OOPIF child
+  sessions; opener tabs join; starting tab never closed; cookie/storage/browser/
+  Fetch domains refused on both sides; Legacy attachment mutually exclusive.
+- General: 60 steps/150 calls/30 min/3 failures, Browser Use judge, `risk.py`
+  approvals with fresh-state rebinding, configurable search engine (Google by
+  default unless the task names one), operating brief, bounded panel labels,
+  watchdog shutdown on disconnect, executed-action counting.
+- Service/native host: relay lease per General task, browser-side cancel stops
+  the task, `browski serve` loads `.env`, the native host starts the service.
+- Panel 0.3.0: conversation thread, one line per action, inline approval card,
+  result card with verdict and stats, settings page, dark mode.
+
+Bugs found by live use and fixed: the final timeline line carried the whole
+summary (up to 2,000 chars) past the extension's 500-char bound, so the panel
+dropped the runtime at the end of longer tasks; the service closed idle
+extension connections after 300 s (would cancel any task over 5 minutes);
+approved password entry typed a literal placeholder; storage-state watchdog
+loops leaked in the service after every relay task; test runs inherited the
+real `.env` key through Browser Use's import-time `load_dotenv()`.
+
+Evidence (development tasks, not an unseen benchmark): packaged real-Chromium
+relay E2E without a model passes (state, OOPIF, type, Enter, click, popup,
+switch, screenshot, close, navigate, release). Live panel tasks through the
+packaged extension, relay and gpt-6-luna: Ada Lovelace birth date (3 calls,
+50 s), Eiffel Tower height/year (4 calls, 41 s), Hacker News top story (3 calls,
+26 s), httpbin form filled without submitting (7 calls, 32 s), all judge-
+verified with correct answers; 0 observed false successes. The user's own
+three-store price comparison exposed the disconnect and early give-up.
+
+Second live round on the fixed code: GitHub license/stars then PyPI version
+verified (4 calls, 37 s, no disconnect); httpbin order submit raised exactly one
+approval at "Submit order" ("Placing an order or payment") and verified after
+approval (6 calls, 29 s); the three-store comparison used Google, opened Apple,
+Flipkart and Amazon in separate tabs and returned an honestly unverified table
+after clicking Apple's storage heading five times. A deterministic stagnation
+guard now refuses a third identical action on an unchanged page fingerprint
+(`MAX_IDENTICAL_ACTIONS = 2`) and the task continues; real-Chrome regression
+covers it. Gates: 957 Python tests (engine E2E enabled), ruff, strict Pyright.
+
+Third round (2026-10-23), from the user's own runs: the agent detoured through a
+web search, showed a stale-target refusal as a red failure, clicked a memory
+option (32GB) while aiming for storage, and once reported Apple's "From ₹99,900"
+base price as the configured price, which the judge accepted (a false success;
+the configured MRP was ₹1,23,900). Changes: General reasoning effort is now
+configurable and defaults to `low` (was `none`); named sites open directly, one
+tab each, with their own search; stale targets are bounded recoveries ("Page
+changed — looking again"), not failures; Stop reports only cancellation; an
+agent-reported incomplete task with actions is `partially_completed` with a
+short verdict; the judge receives generic evidence criteria (`ground_truth`)
+rejecting "From"/base/different-variant values for a specific configuration.
+Re-run of the same task (US-locale test browser): direct store tabs, Flipkart
+and Amazon ₹1,23,900 found, Apple's configured price not obtained, reported
+honestly as not verified (11 calls, 93 s). Exact configurator pricing is still
+unreliable; no false success observed after the change. Gates: 961 Python tests
+(engine E2E enabled), ruff, strict Pyright.

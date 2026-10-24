@@ -18,11 +18,13 @@ General form approval is a bounded migration slice; long sessions and broad
 reliability are not migrated yet.
 
 Target: official Browser Use for the General engine; a small Jev-ultrafast-style
-Fast loop with interchangeable typed Laya (default, local) / Jev (optional,
-hosted) providers. Text generation is separate and disabled on this machine: the user permits
-only Laya as a local model (2026-10-18 correction). The user permits small bounded OpenAI debugging runs after offline validation,
-using the existing key (explicitly confirmed); routine paid inference stays off. Hosted
-inference requires explicit provider selection, credentials and paid-API opt-in.
+Fast loop with interchangeable typed Laya (local) / Jev (optional, hosted)
+providers. **Side-panel default (user decision 2026-10-22, ADR-032): General +
+OpenAI acting in the user's own Chrome tabs through the extension CDP relay;
+panel tasks may use paid OpenAI calls.** Fast/Laya stays selectable. The user
+permits only Laya as a local model (2026-10-18); no local generative model.
+Hosted inference still requires explicit provider selection, credentials and
+paid-API opt-in (now the shipped default for the panel).
 Never silently fall back to a paid model, including from legacy entry points.
 The model powering Codex is not a BROWSKI runtime inference endpoint.
 Doctor must not infer or call external providers; loopback health checks are OK.
@@ -114,7 +116,11 @@ APIs/events, never by linking agent internals.** Full rationale:
 - `python/src/browser_agent/reasoning/` — `ReasoningProvider` contract and the GPT-6 Luna adapter.
 - `python/src/browser_agent/tools/` — model-facing typed tools bridging to Rust.
 - `python/src/browser_agent/extension/` — authenticated local service, Native
-  Messaging framing, transport broker and product lifecycle.
+  Messaging framing, transport broker and product lifecycle. `agent_relay.py`
+  is the loopback CDP relay that lets General drive leased user tabs (ADR-032);
+  its extension half is `extension/src/agent-relay.ts`. Keep the relay policy
+  (no cookies/storage/browser/Fetch domains, starting tab never closed) mirrored
+  in both files. `engines/risk.py` decides which General actions need approval.
 - `python/src/browser_agent/providers/` — authoritative outbound privacy gates.
 - `python/src/browser_agent/persistence/` — encrypted checkpoints, safe run
   metadata, aggregate counters and retention.
@@ -259,8 +265,10 @@ architectural options. Read ADR-001 and ADR-002 first.
 - General and Fast are separate engines, selected for the whole task initially.
   One active controller per browser session. No unproven mid-task engine handoff.
 - Browser Use Agent is the General engine, with separately configured generative
-  inference. On this machine, local generative models are disabled; the user
-  authorizes only small explicit OpenAI debugging runs. Cloud browsers are not required.
+  inference (OpenAI). Local generative models are disabled on this machine.
+  Side-panel General tasks run in the user's own tabs via the relay; only risky
+  actions (purchase/payment, send/post, delete, account/security, password or
+  card entry) need approval; the judge or caller checks decide completion.
 - Fast uses versioned semantic state + typed questions + stable candidates.
   Laya/Jev adapters normalize status, choice/score, probabilities, latency,
   provider identity, failures and abstention. Browser actions, task state,
@@ -271,8 +279,9 @@ architectural options. Read ADR-001 and ADR-002 first.
   is optional. Never switch in the middle of an action. Missing Jev credentials
   must give a clear error and identify Laya as the local alternative.
 - Preserve the React extension, local lifecycle/events, approval controls,
-  history, cancellation and tab ownership where useful. Determine a supported
-  Browser Use attachment path before changing extension browser transport.
+  history, cancellation and tab ownership where useful. The supported Browser
+  Use attachment path is the ADR-032 relay; Legacy attachment and the relay
+  are mutually exclusive.
 - Completion needs independent evidence; DONE/final prose is only a proposal.
   Target terminal statuses: completed, partially_completed, blocked, failed,
   cancelled. Bound steps, time, recovery, history and model calls.

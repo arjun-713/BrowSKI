@@ -1,389 +1,395 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-15T19:00:16.734204+00:00",
-  "title": "Design System: BROWSKI sidebar",
+  "generatedAt": "2026-10-23T18:47:39.878445+00:00",
+  "title": "Design System: BROWSKI side panel",
   "extensions": {
     "colorMeta": {
-      "accent": {
+      "ember": {
         "role": "primary",
-        "displayName": "Accent",
+        "displayName": "Ember",
         "tonalRamp": [
-          "oklch(15% 0.1523 43.50)",
-          "oklch(26% 0.1523 43.50)",
-          "oklch(38% 0.1523 43.50)",
-          "oklch(49% 0.1523 43.50)",
-          "oklch(61% 0.1523 43.50)",
-          "oklch(72% 0.1523 43.50)",
-          "oklch(84% 0.1523 43.50)",
-          "oklch(95% 0.1523 43.50)"
+          "oklch(15% 0.17 52)",
+          "oklch(26% 0.17 52)",
+          "oklch(38% 0.17 52)",
+          "oklch(49% 0.17 52)",
+          "oklch(61% 0.17 52)",
+          "oklch(72% 0.17 52)",
+          "oklch(84% 0.17 52)",
+          "oklch(95% 0.17 52)"
         ]
       },
-      "accent-dark": {
+      "ember-light": {
         "role": "primary",
-        "displayName": "Accent Dark",
+        "displayName": "Ember (light scheme)",
         "tonalRamp": [
-          "oklch(15% 0.1332 42.27)",
-          "oklch(26% 0.1332 42.27)",
-          "oklch(38% 0.1332 42.27)",
-          "oklch(49% 0.1332 42.27)",
-          "oklch(61% 0.1332 42.27)",
-          "oklch(72% 0.1332 42.27)",
-          "oklch(84% 0.1332 42.27)",
-          "oklch(95% 0.1332 42.27)"
+          "oklch(15% 0.17 52)",
+          "oklch(26% 0.17 52)",
+          "oklch(38% 0.17 52)",
+          "oklch(49% 0.17 52)",
+          "oklch(61% 0.17 52)",
+          "oklch(72% 0.17 52)",
+          "oklch(84% 0.17 52)",
+          "oklch(95% 0.17 52)"
         ]
       },
-      "accent-soft": {
-        "role": "primary",
-        "displayName": "Accent Soft",
+      "verified-green": {
+        "role": "secondary",
+        "displayName": "Verified Green",
         "tonalRamp": [
-          "oklch(15% 0.0219 58.79)",
-          "oklch(26% 0.0219 58.79)",
-          "oklch(38% 0.0219 58.79)",
-          "oklch(49% 0.0219 58.79)",
-          "oklch(61% 0.0219 58.79)",
-          "oklch(72% 0.0219 58.79)",
-          "oklch(84% 0.0219 58.79)",
-          "oklch(95% 0.0219 58.79)"
+          "oklch(15% 0.11 155)",
+          "oklch(26% 0.11 155)",
+          "oklch(38% 0.11 155)",
+          "oklch(49% 0.11 155)",
+          "oklch(61% 0.11 155)",
+          "oklch(72% 0.11 155)",
+          "oklch(84% 0.11 155)",
+          "oklch(95% 0.11 155)"
         ]
       },
-      "paper": {
+      "fault-red": {
+        "role": "tertiary",
+        "displayName": "Fault Red",
+        "tonalRamp": [
+          "oklch(15% 0.13 28)",
+          "oklch(26% 0.13 28)",
+          "oklch(38% 0.13 28)",
+          "oklch(49% 0.13 28)",
+          "oklch(61% 0.13 28)",
+          "oklch(72% 0.13 28)",
+          "oklch(84% 0.13 28)",
+          "oklch(95% 0.13 28)"
+        ]
+      },
+      "housing": {
         "role": "neutral",
-        "displayName": "Paper",
+        "displayName": "Matte Housing",
         "tonalRamp": [
-          "oklch(15% 0.0029 84.56)",
-          "oklch(26% 0.0029 84.56)",
-          "oklch(38% 0.0029 84.56)",
-          "oklch(49% 0.0029 84.56)",
-          "oklch(61% 0.0029 84.56)",
-          "oklch(72% 0.0029 84.56)",
-          "oklch(84% 0.0029 84.56)",
-          "oklch(95% 0.0029 84.56)"
+          "oklch(15% 0.008 60)",
+          "oklch(26% 0.008 60)",
+          "oklch(38% 0.008 60)",
+          "oklch(49% 0.008 60)",
+          "oklch(61% 0.008 60)",
+          "oklch(72% 0.008 60)",
+          "oklch(84% 0.008 60)",
+          "oklch(95% 0.008 60)"
         ]
       },
-      "surface": {
+      "tape": {
         "role": "neutral",
-        "displayName": "Surface",
+        "displayName": "Night Tape",
         "tonalRamp": [
-          "oklch(15% 0.0000 89.88)",
-          "oklch(26% 0.0000 89.88)",
-          "oklch(38% 0.0000 89.88)",
-          "oklch(49% 0.0000 89.88)",
-          "oklch(61% 0.0000 89.88)",
-          "oklch(72% 0.0000 89.88)",
-          "oklch(84% 0.0000 89.88)",
-          "oklch(95% 0.0000 89.88)"
+          "oklch(15% 0.01 70)",
+          "oklch(26% 0.01 70)",
+          "oklch(38% 0.01 70)",
+          "oklch(49% 0.01 70)",
+          "oklch(61% 0.01 70)",
+          "oklch(72% 0.01 70)",
+          "oklch(84% 0.01 70)",
+          "oklch(95% 0.01 70)"
         ]
       },
-      "soft": {
+      "bone-ink": {
         "role": "neutral",
-        "displayName": "Soft",
+        "displayName": "Bone Ink",
         "tonalRamp": [
-          "oklch(15% 0.0046 78.30)",
-          "oklch(26% 0.0046 78.30)",
-          "oklch(38% 0.0046 78.30)",
-          "oklch(49% 0.0046 78.30)",
-          "oklch(61% 0.0046 78.30)",
-          "oklch(72% 0.0046 78.30)",
-          "oklch(84% 0.0046 78.30)",
-          "oklch(95% 0.0046 78.30)"
+          "oklch(15% 0.02 80)",
+          "oklch(26% 0.02 80)",
+          "oklch(38% 0.02 80)",
+          "oklch(49% 0.02 80)",
+          "oklch(61% 0.02 80)",
+          "oklch(72% 0.02 80)",
+          "oklch(84% 0.02 80)",
+          "oklch(95% 0.02 80)"
         ]
       },
-      "ink": {
+      "faded-ink": {
         "role": "neutral",
-        "displayName": "Ink",
+        "displayName": "Faded Ink",
         "tonalRamp": [
-          "oklch(15% 0.0078 84.59)",
-          "oklch(26% 0.0078 84.59)",
-          "oklch(38% 0.0078 84.59)",
-          "oklch(49% 0.0078 84.59)",
-          "oklch(61% 0.0078 84.59)",
-          "oklch(72% 0.0078 84.59)",
-          "oklch(84% 0.0078 84.59)",
-          "oklch(95% 0.0078 84.59)"
+          "oklch(15% 0.02 75)",
+          "oklch(26% 0.02 75)",
+          "oklch(38% 0.02 75)",
+          "oklch(49% 0.02 75)",
+          "oklch(61% 0.02 75)",
+          "oklch(72% 0.02 75)",
+          "oklch(84% 0.02 75)",
+          "oklch(95% 0.02 75)"
         ]
       },
-      "muted": {
+      "rule-strong": {
         "role": "neutral",
-        "displayName": "Muted",
+        "displayName": "Perforation",
         "tonalRamp": [
-          "oklch(15% 0.0139 79.73)",
-          "oklch(26% 0.0139 79.73)",
-          "oklch(38% 0.0139 79.73)",
-          "oklch(49% 0.0139 79.73)",
-          "oklch(61% 0.0139 79.73)",
-          "oklch(72% 0.0139 79.73)",
-          "oklch(84% 0.0139 79.73)",
-          "oklch(95% 0.0139 79.73)"
-        ]
-      },
-      "line": {
-        "role": "neutral",
-        "displayName": "Line",
-        "tonalRamp": [
-          "oklch(15% 0.0092 78.28)",
-          "oklch(26% 0.0092 78.28)",
-          "oklch(38% 0.0092 78.28)",
-          "oklch(49% 0.0092 78.28)",
-          "oklch(61% 0.0092 78.28)",
-          "oklch(72% 0.0092 78.28)",
-          "oklch(84% 0.0092 78.28)",
-          "oklch(95% 0.0092 78.28)"
-        ]
-      },
-      "line-strong": {
-        "role": "neutral",
-        "displayName": "Line Strong",
-        "tonalRamp": [
-          "oklch(15% 0.0159 77.05)",
-          "oklch(26% 0.0159 77.05)",
-          "oklch(38% 0.0159 77.05)",
-          "oklch(49% 0.0159 77.05)",
-          "oklch(61% 0.0159 77.05)",
-          "oklch(72% 0.0159 77.05)",
-          "oklch(84% 0.0159 77.05)",
-          "oklch(95% 0.0159 77.05)"
-        ]
-      },
-      "success": {
-        "role": "status",
-        "displayName": "Success",
-        "tonalRamp": [
-          "oklch(15% 0.0794 158.59)",
-          "oklch(26% 0.0794 158.59)",
-          "oklch(38% 0.0794 158.59)",
-          "oklch(49% 0.0794 158.59)",
-          "oklch(61% 0.0794 158.59)",
-          "oklch(72% 0.0794 158.59)",
-          "oklch(84% 0.0794 158.59)",
-          "oklch(95% 0.0794 158.59)"
-        ]
-      },
-      "success-soft": {
-        "role": "status",
-        "displayName": "Success Soft",
-        "tonalRamp": [
-          "oklch(15% 0.0125 149.25)",
-          "oklch(26% 0.0125 149.25)",
-          "oklch(38% 0.0125 149.25)",
-          "oklch(49% 0.0125 149.25)",
-          "oklch(61% 0.0125 149.25)",
-          "oklch(72% 0.0125 149.25)",
-          "oklch(84% 0.0125 149.25)",
-          "oklch(95% 0.0125 149.25)"
-        ]
-      },
-      "danger": {
-        "role": "status",
-        "displayName": "Danger",
-        "tonalRamp": [
-          "oklch(15% 0.1441 29.35)",
-          "oklch(26% 0.1441 29.35)",
-          "oklch(38% 0.1441 29.35)",
-          "oklch(49% 0.1441 29.35)",
-          "oklch(61% 0.1441 29.35)",
-          "oklch(72% 0.1441 29.35)",
-          "oklch(84% 0.1441 29.35)",
-          "oklch(95% 0.1441 29.35)"
-        ]
-      },
-      "danger-soft": {
-        "role": "status",
-        "displayName": "Danger Soft",
-        "tonalRamp": [
-          "oklch(15% 0.0165 26.65)",
-          "oklch(26% 0.0165 26.65)",
-          "oklch(38% 0.0165 26.65)",
-          "oklch(49% 0.0165 26.65)",
-          "oklch(61% 0.0165 26.65)",
-          "oklch(72% 0.0165 26.65)",
-          "oklch(84% 0.0165 26.65)",
-          "oklch(95% 0.0165 26.65)"
-        ]
-      },
-      "page-activity": {
-        "role": "primary",
-        "displayName": "Page Activity",
-        "tonalRamp": [
-          "oklch(15% 0.1689 47.29)",
-          "oklch(26% 0.1689 47.29)",
-          "oklch(38% 0.1689 47.29)",
-          "oklch(49% 0.1689 47.29)",
-          "oklch(61% 0.1689 47.29)",
-          "oklch(72% 0.1689 47.29)",
-          "oklch(84% 0.1689 47.29)",
-          "oklch(95% 0.1689 47.29)"
-        ]
-      },
-      "page-badge": {
-        "role": "neutral",
-        "displayName": "Page Badge",
-        "tonalRamp": [
-          "oklch(15% 0.0317 47.59)",
-          "oklch(26% 0.0317 47.59)",
-          "oklch(38% 0.0317 47.59)",
-          "oklch(49% 0.0317 47.59)",
-          "oklch(61% 0.0317 47.59)",
-          "oklch(72% 0.0317 47.59)",
-          "oklch(84% 0.0317 47.59)",
-          "oklch(95% 0.0317 47.59)"
+          "oklch(15% 0.015 70)",
+          "oklch(26% 0.015 70)",
+          "oklch(38% 0.015 70)",
+          "oklch(49% 0.015 70)",
+          "oklch(61% 0.015 70)",
+          "oklch(72% 0.015 70)",
+          "oklch(84% 0.015 70)",
+          "oklch(95% 0.015 70)"
         ]
       }
     },
     "typographyMeta": {
-      "headline": {
-        "displayName": "Empty-state invitation",
-        "purpose": "The quiet entry point before task activity."
+      "display": {
+        "displayName": "Display",
+        "purpose": "Idle printer headline only."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "BROWSKI in the header."
+      },
+      "order-line": {
+        "displayName": "Order line",
+        "purpose": "The user's task printed at the top of the tape."
+      },
+      "print-line-live": {
+        "displayName": "Live print line",
+        "purpose": "The current step, with ember cursor."
+      },
+      "print-line": {
+        "displayName": "Print line",
+        "purpose": "Completed step lines."
+      },
+      "stamp": {
+        "displayName": "Stamp",
+        "purpose": "Verified / Not verified rubber stamp."
       },
       "data": {
-        "displayName": "Data and keyboard hints",
-        "purpose": "Technical values and key labels only."
+        "displayName": "Data",
+        "purpose": "Step numbers, hosts, times, counts, countdown, stats."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Hold slip question and page headings."
+      },
+      "answer": {
+        "displayName": "Answer",
+        "purpose": "The receipt total: answer prose, lists, tables."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Run heading, notices, composer text, step detail."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Footnotes, hints, chips."
       }
     },
     "shadows": [
       {
-        "name": "command-menu",
-        "value": "0 8px 32px rgb(41 39 35 / 16%)",
-        "purpose": "Lift the command menu above the bottom composer."
+        "name": "print-slot-recess",
+        "value": "inset 0 2px 3px rgb(0 0 0 / 70%), 0 1px 0 var(--line)",
+        "purpose": "Header print-head slot cut into the housing."
       },
       {
-        "name": "page-badge",
-        "value": "0 4px 12px rgb(0 0 0 / 12%)",
-        "purpose": "Keep the activity badge readable over websites."
+        "name": "print-head-beam",
+        "value": "0 0 10px 1px var(--glow), 0 2px 16px 2px var(--glow)",
+        "purpose": "Sweeping beam while a task runs."
+      },
+      {
+        "name": "led-glow",
+        "value": "0 0 14px 0 var(--glow)",
+        "purpose": "Working agent mark, active status dot, Stop key."
+      },
+      {
+        "name": "hold-slip",
+        "value": "0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent), 0 12px 32px -16px var(--glow)",
+        "purpose": "Approval card halting the tape."
+      },
+      {
+        "name": "focus-halo",
+        "value": "0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)",
+        "purpose": "Composer and inputs on focus."
+      },
+      {
+        "name": "menu-drop",
+        "value": "0 12px 36px -8px rgb(0 0 0 / 55%)",
+        "purpose": "Slash command menu."
+      },
+      {
+        "name": "glow-dark",
+        "value": "rgb(255 122 26 / 55%)",
+        "purpose": "--glow, dark scheme."
+      },
+      {
+        "name": "glow-light",
+        "value": "rgb(214 96 20 / 35%)",
+        "purpose": "--glow, light scheme."
       }
     ],
     "motion": [
       {
-        "name": "control-feedback",
-        "value": "160ms ease",
-        "purpose": "Background, color, border, pressed translation, and disclosure feedback; removed under reduced motion."
+        "name": "feed",
+        "value": "360ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Lines feed up 6px into place; print-head fades."
       },
       {
-        "name": "page-activity",
-        "value": "1.8s ease-in-out infinite alternate; opacity 0.72 to 1",
-        "purpose": "Running page frame; steady under reduced motion."
+        "name": "print-head-sweep",
+        "value": "2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate",
+        "purpose": "Beam across the slot while running."
+      },
+      {
+        "name": "led",
+        "value": "opacity 0.55 to 1, ease-in-out alternate (2.2s agent mark, 1.6s status, 1.1s approval, 0.9s steps cursor)",
+        "purpose": "Breathing indicators."
+      },
+      {
+        "name": "stamp",
+        "value": "420ms cubic-bezier(0.16, 1, 0.3, 1), from rotate(-9deg) scale(1.35)",
+        "purpose": "Verdict stamp landing."
+      },
+      {
+        "name": "state-change",
+        "value": "160ms ease",
+        "purpose": "Hover colours, chevrons, borders."
+      },
+      {
+        "name": "page-glow",
+        "value": "breathe 2.6s; sweep 4.8s linear; approval deep 2.4s",
+        "purpose": "In-page presence overlay."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all animation and transition disabled",
+        "purpose": "prefers-reduced-motion: reduce."
       }
     ],
     "breakpoints": [
       {
-        "name": "narrow-panel",
-        "value": "(max-width: 340px)"
+        "name": "panel-narrow",
+        "value": "340px"
       },
       {
-        "name": "short-panel",
-        "value": "(max-height: 600px)"
+        "name": "panel-default",
+        "value": "400px"
+      },
+      {
+        "name": "scheme-light",
+        "value": "prefers-color-scheme: light"
       }
     ]
   },
   "components": [
     {
-      "name": "Approve button",
+      "name": "Primary Button",
       "kind": "button",
-      "description": "Compact runtime action.",
-      "html": "<button class=\"ds-button-primary\">Approve</button>",
-      "css": ".ds-button-primary{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--accent,#b94e16);border-radius:6px;color:white;background:var(--accent,#b94e16);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-primary:hover:not(:disabled){background:var(--accent-dark,#963b0e);}.ds-button-primary:active:not(:disabled){transform:translateY(1px);}.ds-button-primary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-primary:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-primary{transition:none;}}"
+      "refersTo": "button-primary",
+      "description": "Approve action and primary settings actions.",
+      "html": "<button class=\"ds-btn-primary\">Approve action</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border:1px solid var(--accent,#ff7a1a);border-radius:8px;color:var(--accent-ink,#1b0d03);background:var(--accent,#ff7a1a);font:600 13px ui-sans-serif,system-ui,sans-serif;cursor:pointer;transition:background-color 160ms ease,border-color 160ms ease}.ds-btn-primary:hover{background:var(--accent-dark,#ff9a4d);border-color:var(--accent-dark,#ff9a4d)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#ff7a1a);outline-offset:3px}"
     },
     {
-      "name": "Attach tab button",
+      "name": "Secondary Button",
       "kind": "button",
-      "description": "Compact runtime action.",
-      "html": "<button class=\"ds-button-secondary\">Attach tab</button>",
-      "css": ".ds-button-secondary{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--line-strong,#c8c1b7);border-radius:6px;color:var(--ink,#292723);background:var(--surface,#ffffff);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-secondary:hover:not(:disabled){background:var(--soft,#f1efec);}.ds-button-secondary:active:not(:disabled){transform:translateY(1px);}.ds-button-secondary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-secondary:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-secondary{transition:none;}}",
-      "refersTo": "button-secondary"
+      "refersTo": "button-secondary",
+      "description": "Decline and neutral actions.",
+      "html": "<button class=\"ds-btn-secondary\">Decline</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border:1px solid var(--line-strong,#4b453d);border-radius:8px;color:var(--ink,#efe9dd);background:transparent;font:600 13px ui-sans-serif,system-ui,sans-serif;cursor:pointer;transition:background-color 160ms ease}.ds-btn-secondary:hover{background:var(--soft,#24211d)}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent,#ff7a1a);outline-offset:3px}"
     },
     {
-      "name": "Stop button",
+      "name": "Send Key",
       "kind": "button",
-      "description": "Compact runtime action.",
-      "html": "<button class=\"ds-button-danger\">Stop</button>",
-      "css": ".ds-button-danger{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:1px solid var(--line,#e4e0da);border-radius:6px;color:var(--danger,#9d3227);background:var(--surface,#ffffff);font-size:12px;font-weight:550;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-button-danger:hover:not(:disabled){background:var(--danger-soft,#fff0ee);}.ds-button-danger:active:not(:disabled){transform:translateY(1px);}.ds-button-danger:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-button-danger:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-button-danger{transition:none;}}",
-      "refersTo": "button-danger"
+      "refersTo": "send-button",
+      "description": "Composer Send; becomes Stop with glow while running.",
+      "html": "<button class=\"ds-send\" aria-label=\"Send\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 19V5m-6 6 6-6 6 6\"/></svg></button>",
+      "css": ".ds-send{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:9px;color:var(--accent-ink,#1b0d03);background:var(--accent,#ff7a1a);cursor:pointer;transition:background 160ms ease,transform 160ms ease}.ds-send:hover{background:var(--accent-dark,#ff9a4d)}.ds-send:active{transform:scale(.96)}.ds-send:focus-visible{outline:2px solid var(--accent,#ff7a1a);outline-offset:3px}"
     },
     {
-      "name": "Send",
-      "kind": "button",
-      "description": "The primary composer action.",
-      "html": "<button class=\"ds-send\" aria-label=\"Send task\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M12 19V5m-6 6 6-6 6 6\"/></svg></button>",
-      "css": ".ds-send{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:var(--accent,#b94e16);color:white;cursor:pointer;transition:background 160ms ease,transform 160ms ease;}.ds-send:hover:not(:disabled){background:var(--accent-dark,#963b0e);}.ds-send:active:not(:disabled){transform:translateY(1px);}.ds-send:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-send:disabled{color:var(--muted,#6c675f);background:var(--soft,#f1efec);cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-send{transition:none;}}",
-      "refersTo": "send-button"
-    },
-    {
-      "name": "Icon tool",
-      "kind": "button",
-      "description": "Neutral composer tool.",
-      "html": "<button class=\"ds-tool\" aria-label=\"Add context\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg></button>",
-      "css": ".ds-tool{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted,#6c675f);cursor:pointer;transition:color 160ms ease,background 160ms ease;}.ds-tool:hover:not(:disabled){color:var(--ink,#292723);background:var(--soft,#f1efec);}.ds-tool:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-tool:disabled{opacity:.5;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-tool{transition:none;}}"
-    },
-    {
-      "name": "Task composer",
+      "name": "Text Input",
       "kind": "input",
-      "description": "Multiline drafting surface; the border carries focus.",
-      "html": "<div class=\"ds-composer\"><label class=\"ds-composer-label\" for=\"ds-task\">Task</label><textarea id=\"ds-task\" class=\"ds-task\" placeholder=\"What would you like to do?\"></textarea></div>",
-      "css": ".ds-composer{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;padding:12px;border:1px solid var(--line-strong,#c8c1b7);border-radius:12px;background:var(--surface,#ffffff);transition:border-color 160ms ease;}.ds-composer:focus-within{border-color:var(--accent,#b94e16);}.ds-composer-label{display:block;margin-bottom:8px;color:var(--ink,#292723);font-size:12px;font-weight:550;}.ds-task{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:block;width:100%;min-height:72px;max-height:180px;padding:0;border:0;border-radius:0;outline:none;resize:vertical;color:var(--ink,#292723);background:transparent;font-size:14px;line-height:1.6;caret-color:var(--accent,#b94e16);}.ds-task::placeholder{color:var(--muted,#6c675f);}.ds-task:focus-visible{outline:none;}@media(prefers-reduced-motion:reduce){.ds-composer{transition:none;}}",
-      "refersTo": "composer"
+      "refersTo": "input",
+      "description": "Settings fields.",
+      "html": "<input class=\"ds-input\" placeholder=\"Model\" />",
+      "css": ".ds-input{width:100%;min-height:40px;padding:8px 12px;border:1px solid var(--line-strong,#4b453d);border-radius:8px;color:var(--ink,#efe9dd);background:var(--surface,#171513);font:14px ui-sans-serif,system-ui,sans-serif;caret-color:var(--accent,#ff7a1a)}.ds-input:focus-visible{border-color:var(--accent,#ff7a1a);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#ff7a1a) 16%,transparent)}"
     },
     {
-      "name": "Reference chip",
-      "kind": "chip",
-      "description": "Removable context reference; this does not attach a tab.",
-      "html": "<span class=\"ds-chip\"><span class=\"ds-chip-label\">Project notes.md</span><button aria-label=\"Remove Project notes.md\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"m6 6 12 12M6 18 18 6\"/></svg></button></span>",
-      "css": ".ds-chip{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;max-width:100%;min-height:28px;padding:3px 4px 3px 8px;gap:6px;border-radius:8px;color:var(--ink,#292723);background:var(--soft,#f1efec);font-size:11px;}.ds-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-chip button{display:grid;flex:none;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;}.ds-chip button:hover{background:var(--line,#e4e0da);}.ds-chip button:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}",
-      "refersTo": "reference-chip"
-    },
-    {
-      "name": "Command menu",
+      "name": "Printed Step Lines",
       "kind": "custom",
-      "description": "A raised, scrollable listbox above the composer.",
-      "html": "<div class=\"ds-menu\"><div class=\"ds-menu-heading\">Shortcuts</div><div role=\"listbox\" aria-label=\"Shortcuts\"><button class=\"ds-option\" role=\"option\" aria-selected=\"true\"><span><strong>Summarize</strong><span>Summarize this page</span></span></button><button class=\"ds-option\" role=\"option\" aria-selected=\"false\"><span><strong>Find</strong><span>Find information on this page</span></span></button></div></div>",
-      "css": ".ds-menu{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;max-height:min(360px,45dvh);padding:6px;overflow-y:auto;border-radius:12px;background:var(--surface,#ffffff);box-shadow:0 8px 32px rgb(41 39 35 / 16%);}.ds-menu-heading{padding:6px 8px 10px;color:var(--muted,#6c675f);font-size:11px;font-weight:550;}.ds-option{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:flex;align-items:center;width:100%;min-height:52px;padding:8px;border:0;border-radius:6px;color:var(--ink,#292723);background:transparent;text-align:left;cursor:pointer;}.ds-option[aria-selected=\"true\"]{background:var(--soft,#f1efec);}.ds-option>span{display:grid;min-width:0;gap:2px;}.ds-option strong{font-size:12px;font-weight:550;}.ds-option span span{color:var(--muted,#6c675f);font-size:11px;}.ds-option:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}",
-      "refersTo": "command-option-selected"
+      "refersTo": "print-line",
+      "description": "Numbered tape lines; the live line prints largest with an ember cursor.",
+      "html": "<ol class=\"ds-lines\"><li><span class=\"n\">05</span><span>Clicked “16GB”<small>www.apple.com 12:13 AM</small></span></li><li class=\"live\"><span class=\"n\">06</span><span>Clicked “512GB”<small>www.apple.com 12:14 AM</small></span></li></ol>",
+      "css": ".ds-lines{margin:0;padding:16px;list-style:none;background:var(--tape,#1a1815);color:var(--muted,#a39b8e);font:13px/1.5 'Departure Mono',ui-monospace,monospace}.ds-lines li{display:grid;grid-template-columns:22px 1fr;gap:6px;padding:7px 0}.ds-lines li+li{border-top:1px dotted var(--line,#2d2924)}.ds-lines .n{color:var(--line-strong,#4b453d);font-size:10.5px}.ds-lines small{display:block;font-size:10.5px;opacity:.85}.ds-lines .live{color:var(--ink,#efe9dd);font-size:15px}.ds-lines .live .n{color:var(--accent,#ff7a1a)}.ds-lines .live>span:last-child::after{content:'';display:inline-block;width:7px;height:1.05em;margin-left:5px;background:var(--accent,#ff7a1a);box-shadow:0 0 8px rgb(255 122 26/55%)}"
     },
     {
-      "name": "Public decision summary",
+      "name": "Hold Slip",
       "kind": "card",
-      "description": "A disclosure for a safe public summary, separate from actions and verification.",
-      "html": "<details class=\"ds-decision\"><summary>Decision summary<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6\"/></svg></summary><p>Review the available information before continuing.</p></details>",
-      "css": ".ds-decision{font-family:ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;padding:10px 12px;border-radius:8px;background:var(--soft,#f1efec);color:var(--ink,#292723);}.ds-decision summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:14px;list-style:none;}.ds-decision summary::-webkit-details-marker{display:none;}.ds-decision summary:focus-visible{outline:2px solid var(--accent,#b94e16);outline-offset:3px;}.ds-decision summary svg{transition:transform 160ms ease;}.ds-decision[open] summary svg{transform:rotate(90deg);}.ds-decision p{margin:6px 0 0;color:var(--muted,#6c675f);font-size:13px;line-height:1.6;}@media(prefers-reduced-motion:reduce){.ds-decision summary svg{transition:none;}}",
-      "refersTo": "decision-summary"
+      "refersTo": "hold-slip",
+      "description": "Approval card that halts the tape before a risky action.",
+      "html": "<section class=\"ds-slip\"><div class=\"h\"><strong>Place order?</strong><span class=\"t\">42s</span></div><div class=\"drain\"><span></span></div><p class=\"r\">Purchase requires approval.</p></section>",
+      "css": ".ds-slip{padding:14px 14px 12px;border:1px solid var(--accent,#ff7a1a);border-radius:10px;background:var(--accent-soft,#2b1a0e);color:var(--ink,#efe9dd);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#ff7a1a) 12%,transparent),0 12px 32px -16px rgb(255 122 26/55%);font:13.5px/1.5 ui-sans-serif,system-ui,sans-serif}.ds-slip .h{display:flex;justify-content:space-between;font-size:16px;font-weight:620}.ds-slip .t{color:var(--accent,#ff7a1a);font:11px 'Departure Mono',monospace}.ds-slip .drain{height:2px;margin:10px 0 12px;background:color-mix(in srgb,var(--accent,#ff7a1a) 24%,transparent)}.ds-slip .drain span{display:block;width:70%;height:100%;background:var(--accent,#ff7a1a)}.ds-slip .r{margin:0;color:var(--accent,#ff7a1a);font-weight:560}"
     },
     {
-      "name": "Page activity badge",
+      "name": "Verdict Stamp",
       "kind": "custom",
-      "description": "Presentation-only feedback on an owned, actively running page.",
-      "html": "<div class=\"ds-page-preview\"><span class=\"ds-page-badge\">BROWSKI is working</span></div>",
-      "css": ".ds-page-preview{position:relative;height:88px;border:3px solid #f47b35;border-radius:5px;pointer-events:none;animation:ds-working 1.8s ease-in-out infinite alternate;}.ds-page-badge{position:absolute;top:12px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:#38261d;color:#fff0e5;font:500 12px/1.4 system-ui,sans-serif;box-shadow:0 4px 12px rgb(0 0 0 / 12%);white-space:nowrap;}@keyframes ds-working{from{opacity:.72;}to{opacity:1;}}@media(prefers-reduced-motion:reduce){.ds-page-preview{animation:none;}}"
+      "refersTo": "stamp-verified",
+      "description": "Verified only on an independent runtime verdict; otherwise Not verified in faded ink.",
+      "html": "<span class=\"ds-stamp ok\">Verified</span> <span class=\"ds-stamp\">Not verified</span>",
+      "css": ".ds-stamp{display:inline-flex;padding:5px 10px 5px 8px;border:2px solid currentColor;border-radius:4px;box-shadow:inset 0 0 0 1px currentColor;color:var(--muted,#a39b8e);font:11px/1.4 'Departure Mono',ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;transform:rotate(-2.5deg)}.ds-stamp.ok{color:var(--success,#7fd39a);background:var(--success-soft,#142319)}"
+    },
+    {
+      "name": "Context Chip",
+      "kind": "chip",
+      "refersTo": "context-chip",
+      "description": "Tab, link or file reference attached to a task.",
+      "html": "<span class=\"ds-chip\">apple.com/shop</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;min-height:28px;padding:3px 8px;border-radius:8px;color:var(--ink,#efe9dd);background:var(--soft,#24211d);font:11px ui-sans-serif,system-ui,sans-serif}"
     }
   ],
   "narrative": {
-    "northStar": "A quiet browser workspace",
-    "overview": "A quiet browser workspace following the user's Comet reference. White and warm offwhite surfaces keep the page primary; compact controls frame an open activity feed and a bottom-anchored composer. System type, fine separators, and small corners make the interface feel familiar and precise.\n\nOrange identifies sending and agent activity, with restrained supporting use for focus, attachment cues, and approval emphasis. Green and red retain their existing connection, verification, and failure meanings. Public decision summaries, actions, and verification stay visibly distinct.",
+    "northStar": "Night Receipt",
+    "overview": "**Creative North Star: \"Night Receipt\"**\n\nThe panel is a matte black printer housing and every task is a strip of dark thermal tape it prints. The header is the printer mouth: a recessed print-head slot runs across its bottom edge and lights ember orange while the agent works. The user's request prints first as the order line, each public step prints as a numbered line, a risky action halts the tape at a hold slip, and the answer arrives below a torn edge as the receipt total, with a rubber stamp that reads Verified or Not verified and a dashed footer of counts. The direction refuses the chat-bubble AI sidebar: there are no message bubbles, no avatars facing each other, no typing dots.\n\nThe system is dark first. A light variant follows `prefers-color-scheme` and re-inks the same objects (warm grey housing, near-white tape, burnt ember) without changing any shape or behaviour. Density is close to a developer tool: 13px printed lines, 11px data, generous dashed and dotted rules between items instead of cards. Motion is mechanical and short: lines feed up 6px into place, the print head sweeps, the stamp lands with a rotation, LEDs breathe. Everything stops under `prefers-reduced-motion`.\n\nThe stamp is a truth display, not decoration. It reads Verified only when the runtime's independent verdict says so; every other outcome prints a muted Not verified stamp beside the plain outcome label. Synthetic preview fixtures render the same stamp and must never be presented as evidence of live-model success.",
     "keyCharacteristics": [
-      "Warm neutral surfaces with ink text and muted supporting copy.",
-      "Open chronological activity rather than a stack of decorative cards.",
-      "A persistent multiline composer with removable reference chips.",
-      "Small, purposeful motion with a steady reduced-motion alternative."
+      "Matte housing, dark thermal tape, bone ink, one ember orange.",
+      "Departure Mono for everything the printer prints; system sans for prose and controls.",
+      "Hierarchy by ink weight: the live line prints largest and brightest, history fades.",
+      "Perforations (dashed), dotted line separators, a zig-zag torn edge and a rotated stamp carry the receipt metaphor.",
+      "Depth is light, not shadow: the print head and live elements glow."
     ],
     "rules": [
       {
-        "name": "The Activity Accent Rule",
-        "body": "Reserve strong orange emphasis for sending, running activity, and approval attention; use neutral surfaces for ordinary controls and references.",
+        "name": "The One Ember Rule",
+        "body": "Ember marks what is live, what needs the user, and what the user can act on. A resting surface is never filled with ember just to be branded.",
         "section": "colors"
       },
       {
-        "name": "The Flat Workspace Rule",
-        "body": "Use surface tone and fine separators for structure. Lift only the command menu and page activity badge.",
+        "name": "The Honest Stamp Rule",
+        "body": "Green is reserved for the Verified stamp. An unverified, partial, blocked, failed or stopped result stamps in faded ink, never green and never ember.",
+        "section": "colors"
+      },
+      {
+        "name": "The Printed Matter Rule",
+        "body": "If the printer would print it (wordmark, task, step, stamp, counts, timings, hosts), it is set in Departure Mono. If a person explains something (answer prose, reasons, settings, notices, buttons), it is system sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ink Ramp Rule",
+        "body": "Step hierarchy is a ramp, not a set of badges: past lines in faded ink at 13px, the last line in bone ink, the live line at 15px with ember number and cursor.",
+        "section": "typography"
+      },
+      {
+        "name": "The Glow Means Live Rule",
+        "body": "A glow says the agent is doing something or waiting on the user. When the task is idle, nothing glows.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do keep public decisions, actions, and verification distinguishable in the activity feed.",
-      "Do keep the composer at the bottom while the activity region scrolls independently.",
-      "Do preserve visible keyboard focus, selected-option visibility, readable wrapping, and reduced-motion behavior.",
-      "Do keep reference selection visually distinct from explicit tab attachment and control."
+      "**Do** print every machine-produced string (task, steps, counts, timings, hosts, stamp) in Departure Mono and every explanation in system sans.",
+      "**Do** keep the live step the largest, brightest line on the tape, with ember number and the blinking block cursor.",
+      "**Do** separate receipt items with dashed perforations and dotted line rules instead of cards or bubbles.",
+      "**Do** stamp Verified in green only on an independent runtime verdict; everything else stamps Not verified in faded ink with a plain outcome label.",
+      "**Do** give every new live or waiting state a glow, and remove it the moment the state ends.",
+      "**Do** re-ink, not reshape, for the light scheme: change token values under `prefers-color-scheme: light`, keep geometry and motion identical.",
+      "**Do** keep every animation behind the global `prefers-reduced-motion` cut-off."
     ],
     "donts": [
-      "Don't turn ordinary controls or reference chips into orange calls to action.",
-      "Don't add decorative cards, gradients, display fonts, or entrance choreography to this quiet workspace.",
-      "Don't present a public decision summary as hidden reasoning or the page indicator as browser observation or control."
+      "**Don't** render messages as chat bubbles, facing avatars or typing indicators; the thread is a receipt.",
+      "**Don't** fill a resting surface with ember, or use ember for success; ember is live, waiting or actionable.",
+      "**Don't** use green for anything except the Verified stamp and the safety note.",
+      "**Don't** add drop shadows to lift ordinary surfaces; depth is recess and glow.",
+      "**Don't** show hidden reasoning, or present synthetic preview fixtures as proof that a live task succeeded.",
+      "**Don't** introduce a second display face or a bold weight of Departure Mono; it ships one regular weight."
     ]
   }
 }

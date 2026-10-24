@@ -70,3 +70,8 @@ Thumbs.db
 # uv
 .cache/uv/
 .uv/
+
+# Impeccable visual review captures (screenshots stay out of Git)
+.impeccable/review/
+# Local tooling scratch (live-run harnesses, previews, results)
+.cache/

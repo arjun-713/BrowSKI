@@ -94,8 +94,19 @@ active Native Messaging port. These fixes preserve the existing ownership
 contracts; they do not add popup adoption or migrate attached control to
 General/Fast. See the [root-cause report](docs/debugging/extension-e2e-root-cause-report.md).
 
-These are legacy capabilities and a narrow new engine slice, not proof that
-the whole target is implemented.
+Side-panel General tasks (ADR-032) run in the user's own Chrome tabs. The
+service leases the active tab through `extension/agent_relay.py` and
+`extension/src/agent-relay.ts`: a loopback CDP WebSocket that emulates the
+browser-level Target/Browser surface Browser Use needs over leased tabs only,
+forwards per-tab commands through `chrome.debugger` (including OOPIF child
+sessions), adopts tabs the page opens and releases the debugger without closing
+tabs. General budgets are 60 steps, 150 calls and 30 minutes. `engines/risk.py`
+gates purchase/payment, send/post, delete, account/security and password/card
+entry behind approval. The Browser Use judge decides completion when the caller
+gives no URL/heading checks. The native host starts `browski serve` when needed.
+
+These are legacy capabilities and new engine slices, not proof that the whole
+target is implemented.
 See the checkpoint for the latest verified phase.
 
 ## Target responsibilities
@@ -135,12 +146,11 @@ Chrome is the first vertical slice; do not expose unrestricted personal tabs.
 
 ## Inference and outbound policy
 
-Target defaults: Fast + local Laya, text generation disabled, `allow_paid_api=false`.
-The user clarified that this machine may run only Laya locally. Text generation
-is therefore disabled, not downloaded or inferred on CPU. The user subsequently authorized small bounded OpenAI debugging and reuse of
-the existing key. Use explicit paid opt-in for those smoke runs only; routine
-inference and all fallbacks remain local-only/disabled. No General success is
-claimed before real verification. Installation,
+Shipped defaults (user decision 2026-10-22, ADR-032): General + OpenAI with
+`allow_paid_api=true` for side-panel tasks; Fast + local Laya stays selectable.
+This machine may run only Laya locally; no local generative model is downloaded
+or inferred on CPU. There is still no fallback between providers, and
+installation, doctor and offline tests never call a hosted provider. Installation,
 doctor and offline tests must not require Jev or any hosted credentials.
 Hosted inference needs explicit provider selection, endpoint, credentials and
 paid-API permission; no silent fallback, telemetry inference or cloud browser.

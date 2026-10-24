@@ -1,8 +1,7 @@
 # BROWSKI browser extension
 
 This Manifest V3 extension provides a Chrome side panel, runtime-session UI,
-explicit approval controls, and a narrowly scoped active-tab debugger message
-bridge. It contains no task planning, provider calls, browser observation
+risk-based approval controls, and browser transport bridges. It contains no task planning, provider calls, browser observation
 semantics, action policy, verification, recovery, or memory logic.
 
 ## Development
@@ -23,6 +22,34 @@ The toolbar action opens the side panel. The panel connects to the Native
 Messaging host `com.browski.runtime` when requested by the user, or when the
 non-sensitive auto-connect preference is enabled.
 
+## Agent panel
+
+General/OpenAI is the default for side-panel tasks under
+[ADR-032](../docs/decisions/ADR-032-panel-agent-in-user-tabs.md). Pressing Send
+starts in the current user tab with existing logins; General has no attachment
+step. Fast/Laya remains selectable with a managed task browser. Legacy explicit
+attachment lives under Settings → Advanced. Engine and provider changes apply
+to the next task.
+
+The panel shows the task, public action labels and expandable step goals,
+HTTP(S) page hosts, risky-action approvals with reason and expiry, and a final
+answer. A separate verdict shows Verified or Not verified with its reason.
+Steps, actions, model calls and duration come from the runtime. Older runtimes
+fall back to their summary. This display never independently invents a verdict.
+
+Settings includes model, credentials, paid usage, privacy, debug capture,
+connection and About. General uses OpenAI API credits and sends page content
+and, when needed, screenshots to OpenAI. Disabling paid usage prevents hosted
+calls; providers never silently switch. Password/card entry, purchases, sending,
+deletion and account/security changes require approval. Runtime policy owns
+the classification and freshness checks.
+
+History holds at most twelve result receipts for the open panel session.
+Closing the panel clears this list. Run again restores the full submitted task
+as a draft for review and Send; optional URL/heading checks must be reviewed
+again. Results render text, simple lists and safe HTTP(S) links without HTML
+injection. The panel follows the system light/dark theme and reduced motion.
+
 ## Protocol and host status
 
 The extension protocol is currently v1. Messages use a protocol version,
@@ -42,7 +69,7 @@ Three bounded live Luna smoke runs also completed through the real side panel;
 broader live task reliability remains unverified. See the
 [validation ledger](../docs/debugging/extension-e2e-validation-report.md).
 
-The debugger bridge requires the user to capture the active tab, review its
+The Legacy debugger bridge requires the user to capture the active tab, review its
 origin, then separately select **Confirm and attach** while Native Messaging
 is connected. It records the selected tab and at most seven explicitly created
 supporting tabs with opaque identities. It does not transfer ownership on
@@ -88,7 +115,8 @@ commands to supporting tabs.
 - Type `@` or choose **Mention a tab or link** to search HTTP(S) tabs in the
   current window. Type `@https://example.org/path` to add a link directly.
   Mentions include only the selected title and URL on send; they do not read
-  the other tab's contents or grant control of it. The attach flow still applies.
+  the other tab's contents or grant control of it. General starts from the active
+  tab when Send is pressed; Legacy retains explicit attachment.
 - Attach or drop `.txt`, `.md`, `.csv`, or `.json` files for text context.
   References are removable. Up to five references fit within the existing
   4,000-character total task limit; individual files must be at most 32 KB.
@@ -107,16 +135,17 @@ commands to supporting tabs.
 
 After reloading the extension, refresh any already-open task page once so its
 activity script is loaded. Chrome's protected pages do not support the frame.
-The generated manifest version is displayed in the panel footer.
+The generated manifest version is displayed under Settings → About.
 
 ### Validation scope
 
 The relevant measurement plan is
 [`docs/benchmarks/evaluation-plan.md`](../docs/benchmarks/evaluation-plan.md).
-This presentation change is evaluated through composer contract tests and
-packaged Chromium lifecycle tests, including reference selection and removal,
-file context, real runtime event streaming, and orange-frame clearing on
-pause/stop/completion. It does not alter provider routing or establish a change
+This presentation change is evaluated through panel component/contract tests
+and fixture-driven browser previews, including reference selection and removal,
+file context, send/stop, public details, approval expiry, result/verdict rendering,
+light/dark themes, and narrow-panel overflow. Packaged Chromium lifecycle tests
+remain a separate integration gate; previews do not establish live relay behavior. It does not alter provider routing or establish a change
 in task success, token usage, model cost, or agent latency. Those claims require
 a separate frozen task-mix evaluation under that plan.
 
