@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EngineStatus(StrEnum):
@@ -54,6 +54,18 @@ class EngineEvent(BaseModel):
     verified: bool | None = None
     latency_ms: float | None = None
     error: str | None = None
+    label: str | None = Field(default=None, max_length=160)
+    detail: str | None = Field(default=None, max_length=500)
+    page_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("page_url")
+    @classmethod
+    def web_page_only(cls, value: str | None) -> str | None:
+        from browser_agent.engines.browser_use_runtime import is_http_url
+
+        if value is not None and not is_http_url(value):
+            raise ValueError("Event page URL must use HTTP(S) without credentials.")
+        return value
 
     async def publish(self, sink: EventSink | None) -> None:
         from browser_agent.telemetry.debug_log import record_debug
@@ -72,7 +84,8 @@ class EngineResult(BaseModel):
     engine: str = "fast"
     provider: str
     model: str
-    answer: str | None = None
+    answer: str | None = Field(default=None, max_length=4000)
+    verdict_reason: str | None = Field(default=None, max_length=500)
     evidence: PageEvidence | None = None
     verified: bool = False
     steps: int = 0

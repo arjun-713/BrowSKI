@@ -73,6 +73,22 @@ describe("page activity ownership and lifecycle", () => {
     }
   });
 
+  it("keeps a relay-leased tab lit through approval and pause, then clears it", () => {
+    const at = (status: "running" | "awaiting_approval" | "paused" | "completed") =>
+      pageActivity(
+        {
+          ...running,
+          session: { sessionId: "session-1", status, updatedAt: "2026-10-16T00:00:00Z" },
+        },
+        undefined,
+        true,
+      );
+    expect(at("running")).toMatchObject({ active: true, state: "working" });
+    expect(at("awaiting_approval")).toMatchObject({ active: true, state: "approval" });
+    expect(at("paused")).toMatchObject({ active: true, state: "paused" });
+    expect(at("completed")).toMatchObject({ active: false, state: "idle" });
+  });
+
   it("sends a final clear message to removed tabs and contains presentation failures", async () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const publish = createActivityPublisher(send);
@@ -81,10 +97,12 @@ describe("page activity ownership and lifecycle", () => {
     expect(send).toHaveBeenNthCalledWith(1, 7, {
       type: "browski.page-activity",
       active: true,
+      state: "working",
     });
     expect(send).toHaveBeenNthCalledWith(2, 7, {
       type: "browski.page-activity",
       active: false,
+      state: "idle",
     });
     send.mockRejectedValue(new Error("No content script on this protected page"));
     publish(running, [owned]);

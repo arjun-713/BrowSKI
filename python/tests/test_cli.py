@@ -340,8 +340,9 @@ def test_doctor_reports_policy_and_never_displays_openai_key(
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 0, result.output
-    assert "OpenAI key: not needed by configured reasoning" in result.stdout
-    assert "fast / laya; paid APIs disabled; no inference performed" in result.stdout
+    # ADR-032 default: General/OpenAI. Doctor reports the key without showing it.
+    assert "OpenAI key: present; value is not displayed" in result.stdout
+    assert "general / openai; paid APIs permitted; no inference performed" in result.stdout
     assert "Laya service:" not in result.stdout
     assert "secret-test-value" not in result.stdout
 

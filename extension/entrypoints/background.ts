@@ -1,3 +1,4 @@
+import { AgentRelay, type RelaySocket } from "../src/agent-relay";
 import { allowedOrigin, getTabOrigin } from "../src/browser-origin";
 import { DebuggerProxy } from "../src/debugger-proxy";
 import { NativeHostController } from "../src/native-host";
@@ -6,6 +7,7 @@ import { isTrustedPanelSender } from "../src/panel-sender";
 import { OwnedTabs } from "../src/owned-tabs";
 import { StartupGate, withStartupTimeout } from "../src/startup-gate";
 import { createActivityPublisher, pageActivity } from "../src/page-activity";
+import { canStartTask } from "../src/run-controls";
 import type { ExtensionSnapshot } from "../src/protocol";
 
 const ATTACHMENT_STORAGE_KEY = "browserAttachment";
@@ -63,6 +65,29 @@ const nativeHost = new NativeHostController({
     void debuggerProxy.handleCommand(payload);
   },
   handleDetachRequest: handleHostDetachRequest,
+  handleRelayMessage: (message) => agentRelay.handleHostMessage(message),
+});
+
+const agentRelay = new AgentRelay({
+  activeTab: async () => {
+    const window = await chrome.windows.getLastFocused({
+      populate: true,
+      windowTypes: ["normal"],
+    });
+    return window.tabs?.find((tab) => tab.active);
+  },
+  createTab: (properties) => chrome.tabs.create(properties),
+  removeTab: (tabId) => chrome.tabs.remove(tabId),
+  activateTab: async (tabId) => {
+    await chrome.tabs.update(tabId, { active: true });
+  },
+  attach: (tabId) => chrome.debugger.attach({ tabId }, "1.3"),
+  detach: (tabId) => chrome.debugger.detach({ tabId }),
+  sendCommand: (target, method, params) =>
+    chrome.debugger.sendCommand(target, method, params),
+  openSocket: (url) => new WebSocket(url) as unknown as RelaySocket,
+  legacyAttached: () => snapshot.attachment !== null,
+  onLeaseChanged: publishSnapshot,
 });
 
 const debuggerProxy = new DebuggerProxy({
@@ -101,7 +126,7 @@ function sendToPanel(): void {
 
 function publishSnapshot(): void {
   sendToPanel();
-  publishActivity(snapshot, ownedTabs.snapshot());
+  publishActivity(snapshot, ownedTabs.snapshot(), agentRelay.leasedTabs());
 }
 
 async function stopOwnedTabs(attachment: Attachment): Promise<void> {
@@ -144,6 +169,9 @@ async function attachSelectedTab(): Promise<void> {
   }
   if (snapshot.attachment) {
     throw new Error("A tab is already attached. Clear it before choosing another.");
+  }
+  if (agentRelay.active) {
+    throw new Error("Wait for the current task to finish before attaching a Legacy tab.");
   }
   const selectedTab = snapshot.selectedTab;
   if (!selectedTab) {
@@ -241,7 +269,35 @@ function handleHostDetachRequest(payload: Record<string, unknown>): void {
   );
 }
 
+/** The in-page Stop: honoured only from a tab the active task holds. */
+function stopFromPage(tabId: number): void {
+  const session = snapshot.session;
+  const held =
+    agentRelay.isLeasedTab(tabId) || ownedTabs.getByChromeTab(tabId) !== undefined;
+  if (!held || !session || !snapshot.protocolReady || canStartTask(session.status)) {
+    return;
+  }
+  const runId =
+    session.runId ?? [...snapshot.events].reverse().find((event) => event.runId)?.runId;
+  if (!runId) return;
+  nativeHost.sendNative("runtime.task.control", {
+    sessionId: session.sessionId,
+    runId,
+    control: "stop",
+  });
+}
+
 export default defineBackground(() => {
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (
+      message?.type === "activity.stop" &&
+      sender.id === chrome.runtime.id &&
+      typeof sender.tab?.id === "number"
+    ) {
+      stopFromPage(sender.tab.id);
+    }
+    return false;
+  });
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (
       message?.type !== "activity.read" ||
@@ -250,7 +306,13 @@ export default defineBackground(() => {
     ) {
       return false;
     }
-    respond(pageActivity(snapshot, ownedTabs.getByChromeTab(sender.tab.id)));
+    respond(
+      pageActivity(
+        snapshot,
+        ownedTabs.getByChromeTab(sender.tab.id),
+        agentRelay.isLeasedTab(sender.tab.id),
+      ),
+    );
     return false;
   });
   chrome.action.onClicked.addListener(async (tab) => {
@@ -259,18 +321,30 @@ export default defineBackground(() => {
     }
   });
 
-  chrome.debugger.onEvent.addListener((source, method, params) =>
-    debuggerProxy.onEvent(source, method, params),
-  );
-  chrome.debugger.onDetach.addListener((source, reason) =>
-    debuggerProxy.onDetach(source, reason),
-  );
+  chrome.debugger.onEvent.addListener((source, method, params) => {
+    if (!agentRelay.onDebuggerEvent(source, method, params)) {
+      debuggerProxy.onEvent(source, method, params);
+    }
+  });
+  chrome.debugger.onDetach.addListener((source, reason) => {
+    if (!agentRelay.onDebuggerDetach(source, reason)) {
+      debuggerProxy.onDetach(source, reason);
+    }
+  });
 
   chrome.tabs.onCreated.addListener((tab) => {
+    agentRelay.onTabCreated(tab);
     debuggerProxy.onTabCreated(tab);
   });
 
+  chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    if (change.url !== undefined || change.title !== undefined) {
+      agentRelay.onTabUpdated(tabId, tab);
+    }
+  });
+
   chrome.tabs.onRemoved.addListener((tabId) => {
+    agentRelay.onTabRemoved(tabId);
     if (snapshot.attachment?.tabId === tabId) {
       void detachOwnedTab("The attached tab was closed.");
     } else {

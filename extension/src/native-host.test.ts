@@ -28,6 +28,7 @@ function controllerHarness() {
     clearSelectedTab: vi.fn(async () => undefined),
     handleDebuggerCommand: vi.fn(),
     handleDetachRequest: vi.fn(),
+    handleRelayMessage: vi.fn(),
   });
   vi.stubGlobal("chrome", {
     runtime: {

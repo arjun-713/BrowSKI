@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -75,11 +76,19 @@ def serve(
     database: DatabasePathOption = Path("browski-checkpoints.sqlite"),
 ) -> None:
     """Serve the authenticated extension bridge and attached-browser runtime."""
+    from browser_agent.credentials import CredentialStoreError, load_local_env_credentials
     from browser_agent.extension.service import (
         BridgeServiceError,
         ExtensionBridgeService,
         default_socket_path,
     )
+
+    # Same owner-only loader as scripts/start-local.sh; existing environment wins.
+    local_env = Path(os.environ.pop("BROWSKI_LOCAL_ENV_FILE", "") or Path.cwd() / ".env")
+    try:
+        load_local_env_credentials(local_env)
+    except CredentialStoreError as exc:
+        typer.echo(f"Ignoring {local_env}: {exc}", err=True)
 
     config = load_config(config_path)
     if config.extension.transport_mode is ExtensionTransportMode.DISABLED:
@@ -95,10 +104,12 @@ def serve(
 
     async def _serve() -> None:
         await service.start()
-        next_step = (
-            "Attach a tab in the side panel to start a legacy task."
-            if config.agent.engine is ExecutionEngine.LEGACY
-            else "Send a task from the side panel; it opens an isolated task browser."
+        next_step = {
+            ExecutionEngine.LEGACY: "Attach a tab in the side panel to start a legacy task.",
+            ExecutionEngine.GENERAL: "Send a task from the side panel; it works in your tab.",
+        }.get(
+            config.agent.engine,
+            "Send a task from the side panel; it opens an isolated task browser.",
         )
         typer.echo(f"BROWSKI extension runtime listening at {service.socket_path}. {next_step}")
         await service.wait_closed()

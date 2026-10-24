@@ -279,7 +279,7 @@ async def test_product_provider_selection_keeps_the_same_fast_execution_contract
 ) -> None:
     from dataclasses import replace
 
-    from browser_agent.cli.config import FastProviderName, load_config
+    from browser_agent.cli.config import ExecutionEngine, FastProviderName, load_config
     from browser_agent.engines import fast, fast_providers, laya_worker, product
     from browser_agent.engines.contracts import EngineEvent, EngineResult, EngineStatus
     from browser_agent.engines.fast_contract import FastDecisionProvider
@@ -290,6 +290,7 @@ async def test_product_provider_selection_keeps_the_same_fast_execution_contract
         config,
         agent=replace(
             config.agent,
+            engine=ExecutionEngine.FAST,
             fast_provider=FastProviderName(name),
             laya_checkpoint=str(tmp_path),
             allow_paid_api=name == "jev",
@@ -349,14 +350,20 @@ async def test_selected_jev_without_credentials_is_blocked_without_local_fallbac
 ) -> None:
     from dataclasses import replace
 
-    from browser_agent.cli.config import FastProviderName, load_config
+    from browser_agent.cli.config import ExecutionEngine, FastProviderName, load_config
     from browser_agent.engines.contracts import EngineEvent
     from browser_agent.engines.lifecycle import TaskControl
     from browser_agent.engines.product import EngineConfigurationError, execute_managed_task
 
     config = load_config()
     config = replace(
-        config, agent=replace(config.agent, fast_provider=FastProviderName.JEV, allow_paid_api=True)
+        config,
+        agent=replace(
+            config.agent,
+            engine=ExecutionEngine.FAST,
+            fast_provider=FastProviderName.JEV,
+            allow_paid_api=True,
+        ),
     )
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
 

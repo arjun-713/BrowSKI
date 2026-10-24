@@ -46,6 +46,7 @@ export type TimelineEvent = {
   type?: string;
   label: string;
   detail?: string;
+  pageUrl?: string;
   browserCode?: BrowserCodeTraceMetadata;
   browserSessionId?: string;
   requestId?: string;
@@ -209,6 +210,10 @@ export function isTimelineEvent(value: unknown): value is TimelineEvent {
     value.label.length <= 160 &&
     (value.detail === undefined ||
       (typeof value.detail === "string" && value.detail.length <= 500)) &&
+    (value.pageUrl === undefined ||
+      (typeof value.pageUrl === "string" &&
+        value.pageUrl.length <= 2048 &&
+        isOwnedTabUrl(value.pageUrl))) &&
     (value.browserCode === undefined ||
       ((value.type === "BrowserCodeStarted" || value.type === "BrowserCodeCompleted") &&
         isBrowserCodeTraceMetadata(value.browserCode))) &&
@@ -314,6 +319,7 @@ export type PendingApproval = {
   summary: string;
   risk: "low" | "medium" | "high";
   expiresAt?: string;
+  details?: Record<string, unknown>;
 };
 
 export type DebuggerMethod =
@@ -409,23 +415,7 @@ export type NativeHostMessage =
       { openAiKeyConfigured: boolean; error?: string }
     >
   | EventEnvelope<"runtime.settings.status", RuntimeSettingsStatus>
-  | EventEnvelope<
-      "runtime.task.result",
-      {
-        sessionId: string;
-        runId?: string;
-        outcome:
-          | "verified_success"
-          | "stopped"
-          | "failed"
-          | "partially_completed"
-          | "blocked"
-          | "cancelled";
-        summary: string;
-        finishedAt: string;
-        failure?: SafeFailureMetadata;
-      }
-    >
+  | EventEnvelope<"runtime.task.result", TaskResult>
   | EventEnvelope<"debugger.command", DebuggerCommandRequest>
   | EventEnvelope<"debugger.detach", { attachmentId: string; reason: string }>;
 
@@ -516,6 +506,24 @@ export function isExtensionToHostMessage(value: unknown): value is ExtensionToHo
   );
 }
 
+export type TaskResult = {
+  sessionId: string;
+  runId?: string;
+  outcome:
+    | "verified_success"
+    | "stopped"
+    | "failed"
+    | "partially_completed"
+    | "blocked"
+    | "cancelled";
+  summary: string;
+  finishedAt: string;
+  failure?: SafeFailureMetadata;
+  answer?: string;
+  verdict?: { verified: boolean; reason: string };
+  stats?: { steps: number; actions: number; modelCalls: number; durationMs: number };
+};
+
 export type ExtensionSnapshot = {
   host: "disconnected" | "connecting" | "connected" | "error";
   hostError: string | null;
@@ -523,6 +531,7 @@ export type ExtensionSnapshot = {
   session: RuntimeSession | null;
   events: TimelineEvent[];
   pendingApproval: PendingApproval | null;
+  lastResult?: TaskResult;
   openAiKeyConfigured: boolean;
   settingsError: string | null;
   runtimeSettings: RuntimeSettingsSnapshot | null;
@@ -927,6 +936,20 @@ export function isNativeHostMessage(value: unknown): value is NativeHostMessage 
       payload.summary.length <= 2_000 &&
       typeof payload.finishedAt === "string" &&
       Number.isFinite(Date.parse(payload.finishedAt)) &&
+      (payload.answer === undefined ||
+        (typeof payload.answer === "string" && payload.answer.length <= 4000)) &&
+      (payload.verdict === undefined ||
+        (isPlainRecord(payload.verdict) &&
+          typeof payload.verdict.verified === "boolean" &&
+          typeof payload.verdict.reason === "string" &&
+          payload.verdict.reason.length <= 500)) &&
+      (payload.stats === undefined ||
+        (isPlainRecord(payload.stats) &&
+          ["steps", "actions", "modelCalls", "durationMs"].every(
+            (key) =>
+              Number.isSafeInteger((payload.stats as Record<string, unknown>)[key]) &&
+              Number((payload.stats as Record<string, unknown>)[key]) >= 0,
+          ))) &&
       (payload.failure === undefined ||
         (payload.outcome === "failed" && isSafeFailureMetadata(payload.failure)))
     );

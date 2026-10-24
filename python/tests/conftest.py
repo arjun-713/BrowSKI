@@ -8,10 +8,35 @@ from pathlib import Path
 
 import pytest
 
+_KEY_VARIABLES = ("OPENAI_API_KEY", "BROWSKI_OPENAI_API_KEY")
+
+
+def _load_browser_use_once() -> None:
+    """Browser Use runs load_dotenv() on first import and finds the repository's
+    .env. Trigger that once, with telemetry disabled, before any test runs, so
+    the per-test fixture below can keep the real key out of every test."""
+    try:
+        from browser_agent.engines.browser_use_runtime import configure_browser_use
+
+        configure_browser_use()
+        import browser_use  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    except ImportError:
+        return
+
+
+_load_browser_use_once()
+
 
 @pytest.fixture(autouse=True)
 def isolated_application_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "application-data"))
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A local developer key must never reach a test; tests set fixture keys."""
+    for name in _KEY_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

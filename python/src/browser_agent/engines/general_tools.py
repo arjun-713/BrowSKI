@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+import re
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from browser_agent.engines.browser_use_runtime import is_http_url, read_page_evidence
@@ -16,6 +18,7 @@ from browser_agent.engines.native_fields import (
     validate_native_date,
 )
 from browser_agent.engines.owned_tabs import OwnedTab, TabStateChanged, focus_owned_tab
+from browser_agent.engines.risk import RISK_TARGET_SCRIPT, RiskTarget, classify_risk
 from browser_agent.engines.source_transfer import SourceTransfer
 from browser_agent.task_literals import TaskLiteralError, normalize_field_label
 
@@ -35,7 +38,7 @@ _APPROVAL_STATE = """() => {
     const state = JSON.stringify({
         url: doc.location.href, documentEpoch: doc.defaultView.performance.timeOrigin, html,
         values: Array.from(doc.querySelectorAll('input,textarea,select')).map(e =>
-            [e.type === 'password' ? null : e.value, e.checked, e.selectedIndex]),
+            [e.value, e.checked, e.selectedIndex]),
         target: [this.isConnected, this.matches(':disabled'), this.readOnly, this.tagName,
                  this.type, rect.x, rect.y, rect.width, rect.height]
     });
@@ -52,6 +55,42 @@ class InteractionPolicy:
     native_fields: bool = False
     values_by_label: dict[str, str] | None = None
     source: SourceTransfer | None = None
+    model_authored: bool = False
+    public_goal: str = ""
+    notify: Callable[[str, str, str, str | None, bool | None], Awaitable[None]] | None = None
+    secrets: set[str] = field(default_factory=set[str])
+    search_engine: str = "google"
+    last_action: str | None = None
+    identical_actions: int = 0
+
+    def repeats_without_progress(self, signature: str) -> bool:
+        """Stagnation guard: the same action on the same unchanged page (principle 9)."""
+        if signature == self.last_action:
+            self.identical_actions += 1
+        else:
+            self.last_action, self.identical_actions = signature, 1
+        return self.identical_actions > MAX_IDENTICAL_ACTIONS
+
+    def redact(self, text: str) -> str:
+        for secret in sorted(self.secrets, key=len, reverse=True):
+            if secret:
+                from urllib.parse import quote, quote_plus
+
+                for encoded in {secret, quote(secret, safe=""), quote_plus(secret, safe="")}:
+                    text = text.replace(encoded, "••••")
+        return text
+
+    async def event(
+        self, kind: str, operation: str, label: str, url: str | None, verified: bool | None = None
+    ) -> None:
+        if self.notify is not None:
+            await self.notify(
+                kind,
+                operation,
+                self.redact(label)[:160],
+                self.redact(url) if url else None,
+                verified,
+            )
 
 
 @dataclass(frozen=True)
@@ -106,6 +145,45 @@ async def _target_state(
     )
 
 
+# Cheap, in-page progress fingerprint for the stagnation guard. Hashing happens
+# in the page, so a few bytes cross the relay instead of the whole document.
+_PAGE_FINGERPRINT = """() => {
+    const doc = this.ownerDocument;
+    const values = Array.from(doc.querySelectorAll('input,textarea,select'), e =>
+        e.type === 'password' ? '' : `${e.value}|${e.checked}|${e.selectedIndex}`).join(',');
+    const text = [doc.location.href, doc.body ? doc.body.innerText : '', values,
+                  this.outerHTML, this.isConnected].join('\\u0001');
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return `${text.length}:${(hash >>> 0).toString(16)}`;
+}"""
+
+# A second identical try is allowed (some controls need it); a third is refused.
+MAX_IDENTICAL_ACTIONS = 2
+
+_SEARCH_ENGINE_NAMES = {"google": "Google", "bing": "Bing", "duckduckgo": "DuckDuckGo"}
+_MAX_LABEL_CHARS = 160  # EngineEvent.label bound, shared with the panel protocol.
+
+
+def _bounded_label(text: str) -> str:
+    if len(text) <= _MAX_LABEL_CHARS:
+        return text
+    return text[: _MAX_LABEL_CHARS - 1].rstrip() + "…"
+
+
+def search_engine_for(policy: InteractionPolicy) -> str:
+    """The engine the user named in the task, otherwise the configured one."""
+    named = [
+        engine
+        for engine in ("google", "bing", "duckduckgo")
+        if re.search(rf"\b{engine}\b", policy.goal, re.IGNORECASE)
+    ]
+    return named[0] if len(named) == 1 else policy.search_engine
+
+
 def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
     """Use the official executor; no arbitrary code, keyboard, file or coordinate actions."""
     from browser_use import Tools
@@ -115,6 +193,8 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
 
     class ApprovedTools(Tools[Any]):
         async def act(self, action: Any, browser_session: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_policy.model_authored:
+                return await self.act_general(action, browser_session, *args, **kwargs)
             payload = action.model_dump(exclude_unset=True, exclude_none=True)
             if len(payload) != 1:
                 return self.refuse("Exactly one action may be proposed at a time.")
@@ -123,41 +203,8 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                 return ActionResult(
                     error="Only HTTP(S) navigation without credentials is permitted."
                 )
-            switch = cast(dict[str, object] | None, payload.get("switch"))
-            if isinstance(switch, dict):
-                tab_id = switch.get("tab_id")
-                matches = [
-                    target
-                    for target in browser_session.get_page_targets()
-                    if isinstance(tab_id, str)
-                    and 1 <= len(tab_id) <= 100
-                    and str(target.target_id).endswith(tab_id)
-                ]
-                if len(matches) != 1:
-                    return ActionResult(
-                        error="The owned tab target is unavailable or ambiguous.",
-                        metadata={"browski_executed": False},
-                    )
-                from browser_use.actor.page import Page
-
-                target_id = str(matches[0].target_id)
-                evidence = await read_page_evidence(Page(browser_session, target_id))
-                if not is_http_url(evidence.url):
-                    return ActionResult(
-                        error="Only owned HTTP(S) task tabs may be selected.",
-                        metadata={"browski_executed": False},
-                    )
-                try:
-                    await focus_owned_tab(browser_session, OwnedTab(target_id, evidence))
-                except TabStateChanged as changed:
-                    return ActionResult(
-                        error="The owned tab focus was not verified.",
-                        metadata={"browski_executed": changed.invoked},
-                    )
-                return ActionResult(
-                    extracted_content=f"Selected owned tab {target_id[-4:]}.",
-                    metadata={"browski_executed": True, "browski_verified": True},
-                )
+            if "switch" in payload:
+                return await self.switch_owned(payload, browser_session)
             for operation in ("click", "input", "select_dropdown"):
                 if operation not in payload:
                     continue
@@ -334,19 +381,323 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                 return result
             return await cast(Any, super()).act(action, browser_session, *args, **kwargs)
 
+        async def switch_owned(self, payload: dict[str, Any], browser_session: Any) -> Any:
+            switch = cast(dict[str, object] | None, payload.get("switch"))
+            if isinstance(switch, dict):
+                tab_id = switch.get("tab_id")
+                matches = [
+                    target
+                    for target in browser_session.get_page_targets()
+                    if isinstance(tab_id, str)
+                    and 1 <= len(tab_id) <= 100
+                    and str(target.target_id).endswith(tab_id)
+                ]
+                if len(matches) != 1:
+                    return ActionResult(
+                        error="The owned tab target is unavailable or ambiguous.",
+                        metadata={"browski_executed": False},
+                    )
+                from browser_use.actor.page import Page
+
+                target_id = str(matches[0].target_id)
+                evidence = await read_page_evidence(Page(browser_session, target_id))
+                if not is_http_url(evidence.url):
+                    return ActionResult(
+                        error="Only owned HTTP(S) task tabs may be selected.",
+                        metadata={"browski_executed": False},
+                    )
+                try:
+                    await focus_owned_tab(browser_session, OwnedTab(target_id, evidence))
+                except TabStateChanged as changed:
+                    return ActionResult(
+                        error="The owned tab focus was not verified.",
+                        metadata={"browski_executed": changed.invoked},
+                    )
+                return ActionResult(
+                    extracted_content=f"Selected owned tab {target_id[-4:]}.",
+                    metadata={"browski_executed": True, "browski_verified": True},
+                )
+
+        async def act_general(self, action: Any, browser: Any, *args: Any, **kwargs: Any) -> Any:
+            """Rebind every mutation; reserve approval for consequential actions."""
+            payload = action.model_dump(exclude_unset=True, exclude_none=True)
+            if len(payload) != 1:
+                return self.refuse("Exactly one action may be proposed at a time.")
+            operation, params = next(iter(payload.items()))
+            if operation == "search":
+                # Upstream prefers DuckDuckGo to dodge captchas in throwaway
+                # browsers; in the user's own profile the configured engine fits.
+                params = {**params, "engine": search_engine_for(active_policy)}
+                action = cast(Any, type(action)).model_validate({"search": params})
+            if operation in {"evaluate", "upload_file"}:
+                return self.refuse("This action is unavailable under the browser policy.")
+            if operation == "navigate" and not is_http_url(params.get("url")):
+                return self.refuse("Only HTTP(S) navigation without credentials is permitted.")
+            target: RiskTarget | None = None
+            before: _ApprovalTarget | None = None
+            index = params.get("index")
+            if operation in {"click", "input", "select_dropdown", "send_keys"}:
+                if operation == "send_keys":
+                    index = await self.focused_index(browser)
+                if type(index) is not int:
+                    return self.refuse(
+                        "A fresh indexed target is required; observe the page again.",
+                        phase="freshness",
+                    )
+                # Classify on the element the agent observed. The expensive fresh
+                # capture and page binding are reserved for risky actions below.
+                proposed = await browser.get_element_by_index(index)
+                page = await browser.get_current_page()
+                if proposed is None or page is None:
+                    return self.refuse(
+                        "The proposed target changed; observe the page again.", phase="freshness"
+                    )
+                identity = (proposed.backend_node_id, str(proposed.target_id), proposed.frame_id)
+                await browser.cdp_client.send.DOM.getDocument(session_id=await page.session_id)
+                try:
+                    element = await page.get_element(proposed.backend_node_id)
+                    target = RiskTarget.model_validate_json(
+                        await element.evaluate(RISK_TARGET_SCRIPT)
+                    )
+                    fingerprint = str(await element.evaluate(_PAGE_FINGERPRINT))
+                except Exception:
+                    return self.refuse(
+                        "The proposed target changed; observe the page again.", phase="freshness"
+                    )
+                if (target.href and not is_http_url(target.href)) or (
+                    target.form_action
+                    and not is_http_url(target.form_action)
+                    and (operation == "send_keys" or target.input_type == "submit")
+                ):
+                    return self.refuse("Only HTTP(S) navigation without credentials is permitted.")
+                # The fingerprint covers the URL, page text, form values and target,
+                # so an identical signature means nothing changed since the last try.
+                signature = json.dumps([operation, identity, fingerprint, params.get("text")])
+                if active_policy.repeats_without_progress(signature):
+                    return self.refuse(
+                        f"“{target.label}” was already tried {MAX_IDENTICAL_ACTIONS} times "
+                        "without changing the page. Choose a different element (for example "
+                        "the option itself rather than its heading), scroll, or read the page.",
+                        phase="stagnation",
+                    )
+                if operation == "send_keys" and target.sensitive:
+                    keys = str(params.get("keys", ""))
+                    safe_keys = {
+                        "Enter",
+                        "Return",
+                        "Tab",
+                        "Shift+Tab",
+                        "Backspace",
+                        "Delete",
+                        "Control+a",
+                        "Control+A",
+                        "Ctrl+A",
+                    }
+                    if keys not in safe_keys:
+                        active_policy.secrets.add(keys)
+                        return self.refuse("Use the input action for sensitive text entry.")
+                if operation == "input" and target.sensitive:
+                    text = params.get("text", "")
+                    active_policy.secrets.add(text)
+                    # Upstream marks substituted secrets sensitive and omits their
+                    # values from action results and typing logs.
+                    safe_payload = {
+                        "input": {**params, "text": "<secret>browski_sensitive</secret>"}
+                    }
+                    action = cast(Any, type(action)).model_validate(safe_payload)
+                    kwargs["sensitive_data"] = {"browski_sensitive": text}
+                risk = classify_risk(operation, target, keys=params.get("keys", ""))
+                if risk is not None:
+                    # Bind the approval to the exact live node and page state.
+                    before = await _target_state(browser, index, text_input=False)
+                    if before is None or before.identity != identity:
+                        return self.refuse(
+                            "The proposed target changed; observe the page again.",
+                            phase="freshness",
+                        )
+                    reason = risk[1]
+                    if active_policy.approve is None:
+                        return self.refuse(
+                            f"Approval is required: {reason}; choose another approach or finish."
+                        )
+                    approved = await active_policy.approve(
+                        ActionApproval(action=operation, target=target.label, reason=reason)
+                    )
+                    if not approved:
+                        return self.refuse(
+                            f"The user declined: {reason}; choose another approach or finish"
+                        )
+                    after = await _target_state(browser, index, text_input=False)
+                    if (
+                        after is None
+                        or after.identity != before.identity
+                        or after.fingerprint != before.fingerprint
+                    ):
+                        return self.refuse(
+                            "The page or target changed during approval; observe the page again.",
+                            phase="freshness",
+                        )
+                    if operation == "send_keys" and await self.focused_index(browser) != index:
+                        return self.refuse(
+                            "The focused field changed during approval; observe the page again.",
+                            phase="freshness",
+                        )
+            page = await browser.get_current_page()
+            url = (
+                target.page_url
+                if target is not None
+                else str(params["url"])
+                if operation == "navigate"
+                else (await read_page_evidence(page)).url
+                if page
+                else None
+            )
+            label = self.action_label(operation, params, target)
+            if operation == "switch":
+                matches = [
+                    t
+                    for t in browser.get_page_targets()
+                    if str(t.target_id).endswith(str(params.get("tab_id", "")))
+                ]
+                if len(matches) == 1:
+                    label = _bounded_label(f"Switched to tab “{matches[0].title}”")
+            await active_policy.event("action_started", operation, label, url)
+            result: Any
+            if operation == "switch":
+                result = await self.switch_owned(payload, browser)
+            elif operation == "navigate":
+                result = await self.navigate_fast(params, browser)
+            else:
+                result = await cast(Any, super()).act(action, browser, *args, **kwargs)
+            active_policy.blocked_reason = None
+            # An executor return is an action result, not independent outcome
+            # proof. Only the owned-tab verifier can set verified here.
+            metadata = cast(dict[str, object], result.metadata or {})
+            verified = metadata.get("browski_verified")
+            await active_policy.event(
+                "browser_failed" if result.error else "action_finished",
+                operation,
+                label,
+                url,
+                False if result.error else True if verified is True else None,
+            )
+            return result
+
+        async def navigate_fast(self, params: dict[str, Any], browser: Any) -> ActionResult:
+            """Navigate once the document is parsed rather than fully loaded.
+
+            Upstream waits for the load event (every image, ad and tracker) and then
+            captures the page a second time for a blank-page check; the agent's next
+            step observes the page anyway. Measured on store pages this saved
+            seconds per navigation. The HTTP(S) policy check has already run.
+            """
+            from browser_use.browser.events import NavigateToUrlEvent
+
+            url = str(params["url"])
+            new_tab = bool(params.get("new_tab"))
+            try:
+                event = browser.event_bus.dispatch(
+                    NavigateToUrlEvent(url=url, new_tab=new_tab, wait_until="domcontentloaded")
+                )
+                await event
+                await event.event_result(raise_if_any=True, raise_if_none=False)
+            except Exception as error:
+                return ActionResult(
+                    error=f"Navigation to {url} failed ({type(error).__name__}); try another page."
+                )
+            memory = f"Opened new tab with URL {url}" if new_tab else f"Navigated to {url}"
+            return ActionResult(extracted_content=memory, long_term_memory=memory)
+
+        async def focused_index(self, browser: Any, *, refresh: bool = False) -> int | None:
+            """Index of the focused field; refreshes the page map only when it is missing."""
+            if refresh:
+                await browser.get_browser_state_summary(include_screenshot=False, cached=False)
+            page = await browser.get_current_page()
+            if page is None:
+                return None
+            # Resolve the actual focused node, not a previously focused selector.
+            session_id = await page.session_id
+            result = await browser.cdp_client.send.Runtime.evaluate(
+                params={"expression": "document.activeElement", "returnByValue": False},
+                session_id=session_id,
+            )
+            object_id = result.get("result", {}).get("objectId")
+            if not object_id:
+                return None
+            try:
+                described = await browser.cdp_client.send.DOM.describeNode(
+                    params={"objectId": object_id}, session_id=session_id
+                )
+                backend_id = described["node"]["backendNodeId"]
+            finally:
+                await browser.cdp_client.send.Runtime.releaseObject(
+                    params={"objectId": object_id}, session_id=session_id
+                )
+            selectors = await browser.get_selector_map()
+            found = next(
+                (i for i, node in selectors.items() if node.backend_node_id == backend_id), None
+            )
+            if found is None and not refresh:
+                return await self.focused_index(browser, refresh=True)
+            return found
+
+        def action_label(
+            self, operation: str, params: dict[str, Any], target: RiskTarget | None
+        ) -> str:
+            from urllib.parse import urlsplit
+
+            name = target.label if target is not None else "field"
+            if operation == "input":
+                text = (
+                    "••••"
+                    if target is not None and target.sensitive
+                    else str(params.get("text", ""))[:80]
+                )
+                return _bounded_label(f"Typed “{text}” into {name}")
+            if operation == "click":
+                return _bounded_label(f"Clicked “{name}”")
+            if operation == "navigate":
+                return f"Opened {urlsplit(str(params['url'])).hostname}"
+            if operation == "search":
+                engine = _SEARCH_ENGINE_NAMES.get(str(params.get("engine")), "the web")
+                return _bounded_label(f"Searched {engine} for “{str(params.get('query', ''))}”")
+            if operation == "send_keys":
+                return f"Pressed {params.get('keys', '')[:60]}"
+            if operation == "select_dropdown":
+                return _bounded_label(f"Selected an option in {name}")
+            if operation == "scroll":
+                return "Scrolled down" if params.get("down", True) else "Scrolled up"
+            if operation == "switch":
+                return f"Switched to tab {params.get('tab_id', '')}"
+            return {
+                "extract": "Read the page",
+                "done": "Prepared the answer",
+                "wait": "Waited",
+                "go_back": "Went back",
+            }.get(operation, "Read the page")
+
         def refuse(
-            self, reason: str, *, executed: bool = False, reacquired: bool = False
+            self,
+            reason: str,
+            *,
+            executed: bool = False,
+            reacquired: bool = False,
+            phase: str | None = None,
         ) -> ActionResult:
             active_policy.blocked_reason = reason
-            active_policy.blocked_phase = "verification" if executed else "approval"
+            active_policy.blocked_phase = phase or ("verification" if executed else "approval")
             return ActionResult(
-                is_done=True,
-                success=False,
+                is_done=not active_policy.model_authored,
+                success=False if not active_policy.model_authored else None,
                 error=reason,
                 metadata={"browski_executed": executed, "browski_reacquired": reacquired},
             )
 
     tools = ApprovedTools()
+    if active_policy.model_authored:
+        tools.registry.exclude_action("evaluate")
+        tools.registry.exclude_action("upload_file")
+        return tools
     allowed = {"navigate", "go_back", "wait", "scroll", "find_text", "switch", "done"}
     if active_policy.approve is not None:
         allowed.update({"click", "input"})

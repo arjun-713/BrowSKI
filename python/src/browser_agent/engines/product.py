@@ -23,6 +23,24 @@ class EngineConfigurationError(ValueError):
     """Safe actionable configuration failure before browser execution."""
 
 
+def preflight_general(config: BrowskiConfig) -> str:
+    """Return the OpenAI key, or raise before any browser is touched."""
+    options = config.agent
+    if options.text_provider is not TextProviderName.OPENAI or not options.allow_paid_api:
+        raise EngineConfigurationError(
+            "General needs generative inference. Explicitly select OpenAI text and permit "
+            "paid API calls, or choose local Fast/Laya."
+        )
+    if config.privacy.mode is not PrivacyMode.STANDARD:
+        raise EngineConfigurationError(
+            "Hosted General inference is unavailable in this privacy mode."
+        )
+    api_key = configured_openai_api_key()
+    if not api_key:
+        raise EngineConfigurationError("Add your OpenAI API key in Settings to run tasks.")
+    return api_key
+
+
 async def _execute_selected_task(
     goal: str,
     config: BrowskiConfig,
@@ -32,30 +50,30 @@ async def _execute_selected_task(
     events: EventSink,
     control: TaskControl,
     headless: bool = False,
+    cdp_url: str | None = None,
 ) -> EngineResult:
     options = config.agent
     if options.engine is ExecutionEngine.GENERAL:
-        if options.text_provider is not TextProviderName.OPENAI or not options.allow_paid_api:
-            raise EngineConfigurationError(
-                "General needs generative inference. Explicitly select OpenAI text and permit "
-                "paid API calls, or choose local Fast/Laya."
-            )
-        if config.privacy.mode is not PrivacyMode.STANDARD:
-            raise EngineConfigurationError(
-                "Hosted General inference is unavailable in this privacy mode."
-            )
         from browser_agent.engines.general import GeneralConfig, run_general
 
-        api_key = configured_openai_api_key()
-        if not api_key:
-            raise EngineConfigurationError(
-                "OpenAI credentials are unavailable; choose local Fast/Laya or configure a key."
-            )
+        api_key = preflight_general(config)
         task = goal if not start_url else f"{goal}\nStarting page supplied by user: {start_url}"
         return await run_general(
             task,
-            GeneralConfig(model=options.text_model, allow_paid_api=True, headless=headless),
+            GeneralConfig(
+                model=options.text_model,
+                allow_paid_api=True,
+                headless=headless,
+                max_steps=options.general_max_steps,
+                max_calls=options.general_max_calls,
+                timeout_seconds=options.general_timeout_seconds,
+                max_failures=options.general_max_failures,
+                step_timeout=options.general_step_timeout,
+                search_engine=options.general_search_engine.value,
+                reasoning_effort=options.general_reasoning_effort.value,
+            ),
             api_key=api_key,
+            cdp_url=cdp_url,
             criteria=criteria,
             event_sink=events,
             cancel=control.cancel,
@@ -119,6 +137,7 @@ async def execute_managed_task(
     events: EventSink,
     control: TaskControl,
     headless: bool = False,
+    cdp_url: str | None = None,
     run_id: str | None = None,
     session_id: str | None = None,
 ) -> EngineResult:
@@ -134,7 +153,9 @@ async def execute_managed_task(
         record_debug(
             "task.received",
             {
-                "prompt": goal,
+                "prompt": "[General task prompt omitted]"
+                if config.agent.engine is ExecutionEngine.GENERAL
+                else goal,
                 "engine": config.agent.engine.value,
                 "provider": config.agent.fast_provider.value
                 if config.agent.engine is ExecutionEngine.FAST
@@ -150,6 +171,7 @@ async def execute_managed_task(
                 events=events,
                 control=control,
                 headless=headless,
+                cdp_url=cdp_url,
             )
         except EngineConfigurationError as error:
             record_debug("task.blocked", {"category": "configuration", "message": str(error)})
@@ -161,5 +183,8 @@ async def execute_managed_task(
             record_debug("task.error", {"category": "runtime", "error_type": type(error).__name__})
             raise
         result = result.model_copy(update={"run_id": selected_run})
-        record_debug("task.result", result.model_dump(mode="json", exclude={"answer", "evidence"}))
+        record_debug(
+            "task.result",
+            result.model_dump(mode="json", exclude={"answer", "evidence", "verdict_reason"}),
+        )
         return result

@@ -18,7 +18,7 @@ async def test_general_rejects_paid_calls_before_import_or_key_access() -> None:
 
     with pytest.raises(ValueError, match="opt-in"):
         await run_general("Open an article", GeneralConfig())
-    with pytest.raises(ValueError, match="credentials"):
+    with pytest.raises(ValueError, match="Add your OpenAI API key"):
         await run_general("Open an article", GeneralConfig(allow_paid_api=True))
 
 
@@ -179,7 +179,7 @@ async def test_live_laya_finishes_real_navigation_tasks(
     assert result.generative_calls == 0
 
 
-async def test_local_defaults_and_hosted_permission_are_independent_of_credentials(
+async def test_product_defaults_and_explicit_hosted_denial_are_independent_of_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from dataclasses import replace
@@ -190,13 +190,20 @@ async def test_local_defaults_and_hosted_permission_are_independent_of_credentia
     from browser_agent.engines.product import EngineConfigurationError, execute_managed_task
 
     config = load_config()
-    assert config.agent.engine is ExecutionEngine.FAST
-    assert not config.agent.allow_paid_api
+    from browser_agent.cli.config import AgentConfig
+
+    defaults = AgentConfig(orchestrator="langgraph")
+    assert defaults.engine is ExecutionEngine.GENERAL
+    assert defaults.text_provider is TextProviderName.OPENAI
+    assert defaults.allow_paid_api
     monkeypatch.setenv("OPENAI_API_KEY", "offline-permission-test")
     hosted = replace(
         config,
         agent=replace(
-            config.agent, engine=ExecutionEngine.GENERAL, text_provider=TextProviderName.OPENAI
+            config.agent,
+            engine=ExecutionEngine.GENERAL,
+            text_provider=TextProviderName.OPENAI,
+            allow_paid_api=False,
         ),
     )
 
@@ -600,7 +607,7 @@ async def test_managed_approval_is_one_use_and_stop_timeout_fail_closed(decision
 @pytest.mark.parametrize(
     "mode", ["approve", "deny", "changed", "append", "inferred", "password", "controls"]
 )
-async def test_general_text_entry_needs_exact_literal_approval_and_unchanged_page(
+async def test_fast_literal_tools_keep_exact_literal_approval_and_unchanged_page(
     article_site: str, tmp_path: Path, mode: str
 ) -> None:
     from browser_agent.engines.browser_use_runtime import ManagedBrowser
@@ -690,3 +697,31 @@ async def test_approval_clears_before_a_prior_pause_and_resume_is_still_required
     assert not control.respond_to_approval(request.approval_id, True)
     control.resume()
     assert await asyncio.wait_for(pending, 1)
+
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real Chrome bounded candidate selection"
+)
+async def test_fast_large_page_uses_deterministic_bounded_candidates_instead_of_failing(
+    article_site: str, tmp_path: Path
+) -> None:
+    from browser_agent.engines.fast_browser import FastBrowser
+
+    links = "".join(
+        f'<a href="botany.html?item={index}" style="display:inline-block;width:80px">'
+        f"Item {index:03}</a>"
+        for index in range(160)
+    )
+    (tmp_path / "large.html").write_text("<h1>Large index</h1>" + links)
+    async with FastBrowser() as owner:
+        assert owner.browser is not None
+        await owner.browser.start()
+        page = await owner.browser.get_current_page()
+        assert page is not None
+        await page.goto(f"{article_site}/large.html")
+        first = await owner.observe_links({"127.0.0.1"})
+        second = await owner.observe_links({"127.0.0.1"})
+        assert len(first.candidates) == len(second.candidates) == 120
+        assert first.candidates == second.candidates
+        assert first.text.startswith("[Candidates truncated: showing 120 of 160;")
+        assert [c.label for c in first.candidates] == [f"Item {i:03}" for i in range(120)]

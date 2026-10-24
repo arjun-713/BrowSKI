@@ -14,7 +14,12 @@ from browser_agent.engines.contracts import EngineEvent, EventSink
 class ActionApproval:
     action: str
     target: str
+    reason: str = ""
     approval_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def __post_init__(self) -> None:
+        if len(self.reason) > 300:
+            raise ValueError("Approval reason exceeds 300 characters.")
 
 
 ApprovalSink = Callable[[ActionApproval | None], Awaitable[None]]

@@ -59,6 +59,14 @@ class ExecutionEngine(StrEnum):
     LEGACY = "legacy"
 
 
+class SearchEngine(StrEnum):
+    """Engine for General's search action; Google suits the user's own profile."""
+
+    GOOGLE = "google"
+    BING = "bing"
+    DUCKDUCKGO = "duckduckgo"
+
+
 class FastProviderName(StrEnum):
     LAYA = "laya"
     JEV = "jev"
@@ -72,13 +80,22 @@ class TextProviderName(StrEnum):
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
     orchestrator: str
-    engine: ExecutionEngine = ExecutionEngine.FAST
+    engine: ExecutionEngine = ExecutionEngine.GENERAL
     fast_provider: FastProviderName = FastProviderName.LAYA
-    text_provider: TextProviderName = TextProviderName.DISABLED
-    allow_paid_api: bool = False
+    text_provider: TextProviderName = TextProviderName.OPENAI
+    allow_paid_api: bool = True
     text_model: str = "gpt-6-luna"
     laya_checkpoint: str = ".browser-data/laya-browser-v19s"
     jev_endpoint: str = "https://api.typesafe.ai/v1/systemone"
+
+    general_max_steps: int = 60
+    general_max_calls: int = 150
+    general_timeout_seconds: int = 1800
+    general_max_failures: int = 3
+    general_step_timeout: int = 180
+    general_search_engine: SearchEngine = SearchEngine.GOOGLE
+    # "none" made precise multi-step work (e.g. configurators) unreliable live.
+    general_reasoning_effort: ReasoningEffort = ReasoningEffort.LOW
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,10 +175,10 @@ class RuntimeSettings:
     trace_level: TraceLevel
     confirm_high_risk_actions: bool
     extension_transport: ExtensionTransportMode
-    engine: ExecutionEngine = ExecutionEngine.FAST
+    engine: ExecutionEngine = ExecutionEngine.GENERAL
     fast_provider: FastProviderName = FastProviderName.LAYA
-    text_provider: TextProviderName = TextProviderName.DISABLED
-    allow_paid_api: bool = False
+    text_provider: TextProviderName = TextProviderName.OPENAI
+    allow_paid_api: bool = True
     text_model: str = "gpt-6-luna"
     laya_checkpoint: str = ".browser-data/laya-browser-v19s"
     jev_endpoint: str = "https://api.typesafe.ai/v1/systemone"
@@ -177,6 +194,13 @@ _EXPECTED_KEYS: dict[str, set[str]] = {
         "text_model",
         "laya_checkpoint",
         "jev_endpoint",
+        "general_max_steps",
+        "general_max_calls",
+        "general_timeout_seconds",
+        "general_max_failures",
+        "general_step_timeout",
+        "general_search_engine",
+        "general_reasoning_effort",
     },
     "reasoning": {"provider", "model", "enabled", "effort"},
     "decision": {
@@ -245,13 +269,19 @@ def _optional_path(section: Mapping[str, object], key: str) -> Path | None:
 
 
 def _engine_options(agent: Mapping[str, object]) -> AgentConfig:
-    """Old files get local-only defaults; credentials never imply paid permission."""
+    """Honor explicit engine choices; missing keys use the ADR-032 product defaults."""
     defaults = AgentConfig(orchestrator=_string(agent, "orchestrator"))
 
     def text(key: str, default: str) -> str:
         value = _string({key: agent.get(key, default)}, key)
         if len(value) > 1_000:
             raise ConfigError(f"'agent.{key}' exceeds the supported length.")
+        return value
+
+    def budget(key: str, default: int, minimum: int, maximum: int) -> int:
+        value = agent.get(key, default)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ConfigError(f"'agent.{key}' must be an integer between {minimum} and {maximum}.")
         return value
 
     endpoint = text("jev_endpoint", defaults.jev_endpoint)
@@ -280,11 +310,31 @@ def _engine_options(agent: Mapping[str, object]) -> AgentConfig:
             TextProviderName, text("text_provider", defaults.text_provider), "agent.text_provider"
         ),
         allow_paid_api=_boolean(
-            {"allow_paid_api": agent.get("allow_paid_api", False)}, "allow_paid_api"
+            {"allow_paid_api": agent.get("allow_paid_api", defaults.allow_paid_api)},
+            "allow_paid_api",
         ),
         text_model=text("text_model", defaults.text_model),
         laya_checkpoint=text("laya_checkpoint", defaults.laya_checkpoint),
         jev_endpoint=endpoint,
+        general_max_steps=budget("general_max_steps", defaults.general_max_steps, 1, 200),
+        general_max_calls=budget("general_max_calls", defaults.general_max_calls, 1, 500),
+        general_timeout_seconds=budget(
+            "general_timeout_seconds", defaults.general_timeout_seconds, 5, 7200
+        ),
+        general_max_failures=budget("general_max_failures", defaults.general_max_failures, 1, 10),
+        general_step_timeout=budget(
+            "general_step_timeout", defaults.general_step_timeout, 120, 600
+        ),
+        general_search_engine=_enum_value(
+            SearchEngine,
+            text("general_search_engine", defaults.general_search_engine),
+            "agent.general_search_engine",
+        ),
+        general_reasoning_effort=_enum_value(
+            ReasoningEffort,
+            text("general_reasoning_effort", defaults.general_reasoning_effort),
+            "agent.general_reasoning_effort",
+        ),
     )
 
 

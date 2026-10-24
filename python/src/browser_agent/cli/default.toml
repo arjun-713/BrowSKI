@@ -1,9 +1,11 @@
 [agent]
 orchestrator = "langgraph" # Legacy rollback only; new engines do not use the graph.
-engine = "fast"
+# Side-panel default (ADR-032): General/OpenAI in your own tabs. Each task uses
+# paid OpenAI calls. Choose engine = "fast" for local Laya link navigation.
+engine = "general"
 fast_provider = "laya"
-text_provider = "disabled"
-allow_paid_api = false
+text_provider = "openai"
+allow_paid_api = true
 text_model = "gpt-6-luna"
 laya_checkpoint = ".browser-data/laya-browser-v19s"
 jev_endpoint = "https://api.typesafe.ai/v1/systemone"

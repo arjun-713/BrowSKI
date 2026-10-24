@@ -173,9 +173,10 @@ async def test_service_authenticates_native_host_and_negotiates_supported_cdp_ca
         assert host_payload["debuggerEvents"] == ["Page.loadEventFired"]
         snapshot_payload = cast(dict[str, object], runtime_snapshot["payload"])
         session = cast(dict[str, object], snapshot_payload["session"])
-        assert session["engine"] == "fast"
-        assert session["provider"] == "laya"
-        assert session["browserMode"] == "managed"
+        # ADR-032: side-panel tasks default to General acting in the user's own tabs.
+        assert session["engine"] == "general"
+        assert session["provider"] == "openai"
+        assert session["browserMode"] == "attached"
         assert session["status"] == "idle"
         assert snapshot_payload["events"] == []
         assert snapshot_payload["pendingApproval"] is None
@@ -345,9 +346,10 @@ async def test_native_host_connects_to_service_and_relays_protocol_frames(
         assert runtime_snapshot["type"] == "runtime.snapshot"
         snapshot_payload = cast(dict[str, object], runtime_snapshot["payload"])
         session = cast(dict[str, object], snapshot_payload["session"])
-        assert session["engine"] == "fast"
-        assert session["provider"] == "laya"
-        assert session["browserMode"] == "managed"
+        # ADR-032: side-panel tasks default to General acting in the user's own tabs.
+        assert session["engine"] == "general"
+        assert session["provider"] == "openai"
+        assert session["browserMode"] == "attached"
         assert session["status"] == "idle"
         assert snapshot_payload["events"] == []
         assert snapshot_payload["pendingApproval"] is None

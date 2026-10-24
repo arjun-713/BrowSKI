@@ -7,7 +7,9 @@ import os
 import select
 import socket
 import stat
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 from browser_agent.extension.native_messaging import (
@@ -20,6 +22,8 @@ from browser_agent.extension.native_messaging import (
 )
 
 _READ_SIZE = 16 * 1024
+_SERVICE_START_SECONDS = 15.0
+_SERVICE_POLL_SECONDS = 0.25
 
 
 class NativeHostError(RuntimeError):
@@ -111,6 +115,72 @@ def read_runtime_token(socket_path: Path) -> str:
     return token
 
 
+def runtime_ready(socket_path: Path) -> bool:
+    """True only when a private runtime socket is present and accepting connections.
+
+    A stopped service can leave its socket and token files behind; existence alone
+    would skip autostart and leave the panel offline.
+    """
+    try:
+        validate_runtime_socket(socket_path)
+        read_runtime_token(socket_path)
+    except NativeHostError:
+        return False
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(_SERVICE_POLL_SECONDS * 4)
+        probe.connect(str(socket_path))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def _runtime_working_directory(executable: Path) -> Path:
+    """Repository root for a source install (.venv inside python/), else home.
+
+    The service resolves the default Laya checkpoint and the local ``.env``
+    relative to its working directory, exactly as when started by hand.
+    """
+    parents = executable.absolute().parents
+    if len(parents) > 3 and (parents[2] / "pyproject.toml").is_file():
+        return parents[3]
+    return Path.home()
+
+
+def start_runtime_service(socket_path: Path, *, executable: Path | None = None) -> None:
+    """Start ``browski serve`` beside this host and wait a bounded time for it.
+
+    The service's own lock refuses a second instance, so a race between two
+    hosts starts at most one runtime.
+    """
+    interpreter = executable or Path(sys.executable)
+    browski = interpreter.with_name("browski")
+    if not os.access(browski, os.X_OK):
+        raise NativeHostError("the BROWSKI runtime is not installed beside the native host")
+    log_dir = Path.home() / ".local" / "state" / "browski"
+    log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    log_fd = os.open(log_dir / "backend.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        subprocess.Popen(  # noqa: S603 - fixed sibling executable, no shell
+            [str(browski), "serve", "--socket-path", str(socket_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=log_fd,
+            stderr=log_fd,
+            cwd=_runtime_working_directory(interpreter),
+            start_new_session=True,
+        )
+    finally:
+        os.close(log_fd)
+    deadline = time.monotonic() + _SERVICE_START_SECONDS
+    while time.monotonic() < deadline:
+        if runtime_ready(socket_path):
+            return
+        time.sleep(_SERVICE_POLL_SECONDS)
+    raise NativeHostError("the BROWSKI runtime did not start in time")
+
+
 def _write_all(fd: int, payload: bytes) -> None:
     offset = 0
     while offset < len(payload):
@@ -159,6 +229,8 @@ def run_native_host(
 ) -> None:
     """Authorize Chrome, then relay its protocol to the local runtime."""
     validate_extension_origin(origin, {extension_id})
+    if not runtime_ready(socket_path):
+        start_runtime_service(socket_path)
     validate_runtime_socket(socket_path)
     token = read_runtime_token(socket_path)
 

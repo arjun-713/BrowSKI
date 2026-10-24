@@ -1,3 +1,4 @@
+import { isRelayHostMessage, type RelayHostMessage } from "./agent-relay";
 import { createNativeEnvelope } from "./native-envelope";
 import {
   ALLOWED_DEBUGGER_EVENTS,
@@ -29,6 +30,7 @@ type NativeHostDependencies = {
   clearSelectedTab: () => Promise<void>;
   handleDebuggerCommand: (payload: unknown) => void;
   handleDetachRequest: (payload: Record<string, unknown>) => void;
+  handleRelayMessage: (message: RelayHostMessage) => void;
 };
 
 export class NativeHostController {
@@ -165,6 +167,11 @@ export class NativeHostController {
     ) {
       this.setHostError("Native host message exceeded the 1 MiB application limit.");
       this.nativePort?.disconnect();
+      return;
+    }
+    if (isRelayHostMessage(value)) {
+      // Relay lifecycle only; CDP traffic uses the lease's loopback socket.
+      if (snapshot.protocolReady) this.dependencies.handleRelayMessage(value);
       return;
     }
     if (!isNativeHostMessage(value)) {
@@ -390,6 +397,10 @@ export class NativeHostController {
     }
     if (snapshot.session?.sessionId !== payload.sessionId) return;
     if (payload.runId !== undefined && payload.runId !== this.activeRunId) return;
+    snapshot.lastResult = payload as Extract<
+      NativeHostMessage,
+      { type: "runtime.task.result" }
+    >["payload"];
     const outcomes = {
       verified_success: {
         status: "completed",
