@@ -20,30 +20,18 @@ from browser_agent.providers.privacy import (
     has_recognized_sensitive_content,
     has_recognized_sensitive_label,
 )
+from browser_agent.task_literals import quoted_transfer_labels
 
-_TRANSFER = re.compile(
-    r'\btransfer\s+(?P<source_quote>["\'])(?P<source>(?:(?!(?P=source_quote))[^\r\n]){1,120})'
-    r"(?P=source_quote)\s+from\s+supporting\s+page\s+into\s+"
-    r'(?P<destination_quote>["\'])(?P<destination>'
-    r"(?:(?!(?P=destination_quote))[^\r\n]){1,120})(?P=destination_quote)",
-    re.IGNORECASE,
-)
-_MAX_TASK_CHARS = 8_000
 _MAX_VALUE_CHARS = 256
 _MAX_EVIDENCE_ENTRIES = 8
 
 
 def transfer_labels(task: str) -> tuple[str, str] | None:
     """Return the one bounded explicit transfer request, if it is unambiguous."""
-    if len(task) > _MAX_TASK_CHARS:
+    labels = quoted_transfer_labels(task)
+    if labels is None:
         return None
-    matches = list(_TRANSFER.finditer(task))
-    if len(matches) != 1:
-        return None
-    source = matches[0].group("source").strip()
-    destination = matches[0].group("destination").strip()
-    if not source or not destination:
-        return None
+    source, destination = labels
     if has_recognized_sensitive_label(source) or has_recognized_sensitive_label(destination):
         return None
     return source, destination

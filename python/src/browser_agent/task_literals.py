@@ -19,6 +19,46 @@ class TaskLiteralError(ValueError):
     """Explicit field instructions are ambiguous or outside the supported bounds."""
 
 
+def quoted_transfer_labels(task: str, *, strict: bool = False) -> tuple[str, str] | None:
+    """Parse one user-authorized source/destination pair, never a page instruction."""
+    if len(task) > 8000:
+        if strict:
+            raise TaskLiteralError("Task exceeds the 8000-character intent bound.")
+        return None
+    outside = _instruction_positions(task, strict=strict)
+    pattern = re.compile(
+        r'\btransfer\s+(?P<sq>["\'])(?P<source>(?:(?!(?P=sq))[^\r\n]){1,120})(?P=sq)'
+        r'\s+from\s+supporting\s+page\s+into\s+(?P<dq>["\'])'
+        r"(?P<destination>(?:(?!(?P=dq))[^\r\n]){1,120})(?P=dq)",
+        re.I,
+    )
+    matches = [m for m in pattern.finditer(task) if m.start() in outside]
+    requested = {
+        m.start("verb")
+        for m in re.finditer(
+            r"(?:^|[.;,\n]|\b(?:and|then)\b)\s*(?:please\s+)?(?P<verb>transfer)\s+",
+            task,
+            re.I,
+        )
+        if m.start("verb") in outside
+    }
+    labels = (
+        (matches[0].group("source").strip(), matches[0].group("destination").strip())
+        if len(matches) == 1
+        else None
+    )
+    valid = labels is not None and all(
+        label and not any(ord(c) < 0x20 or ord(c) == 0x7F for c in label) for label in labels
+    )
+    if len(matches) > 1 or requested - {m.start() for m in matches} or (matches and not valid):
+        if strict:
+            raise TaskLiteralError(
+                'Use one transfer "Source label" from supporting page into "Field label".'
+            )
+        return None
+    return labels if valid else None
+
+
 def _instruction_positions(task: str, *, strict: bool) -> set[int]:
     outside: set[int] = set()
     quote: str | None = None

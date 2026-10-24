@@ -24,10 +24,14 @@ from browser_agent.engines.owned_tabs import (
     focus_owned_tab,
     observe_owned_tabs,
 )
+from browser_agent.engines.source_transfer import SourceTransfer
 from browser_agent.task_literals import (
+    MAX_BINDINGS,
+    TaskLiteralError,
     normalize_field_label,
     quoted_click_target,
     quoted_field_values,
+    quoted_transfer_labels,
 )
 
 
@@ -49,24 +53,38 @@ class FastBrowser(ManagedBrowser):
         self._fields_at_click = False
         self._tab_targets: dict[str, OwnedTab] = {}
         self._pending_popup: set[str] | None = None
+        self._transfer: SourceTransfer | None = None
+        self._literal_values: dict[str, str] = {}
 
     def enable_fields(self, goal: str, approve: ApprovalHandler | None) -> None:
         assert self.browser is not None
         self._field_values = quoted_field_values(goal, strict=True)
+        self._literal_values = dict(self._field_values)
+        transfer = quoted_transfer_labels(goal, strict=True)
+        if transfer is not None:
+            self._transfer = SourceTransfer(transfer)
+            if self._transfer.destination_label in self._field_values:
+                raise TaskLiteralError("A field cannot have both a literal and a source value.")
+            if len(self._field_values) >= MAX_BINDINGS:
+                raise TaskLiteralError("At most eight field requirements are supported.")
         self._click_label = quoted_click_target(goal)
-        if (self._field_values or self._click_label) and approve is not None:
+        if (self._field_values or self._click_label or self._transfer) and approve is not None:
             self.browser.browser_profile.highlight_elements = False
             self._input_policy = InteractionPolicy(
                 goal=goal,
                 approve=approve,
                 native_fields=True,
                 values_by_label=dict(self._field_values),
+                source=self._transfer,
             )
             self._input_tools = navigation_tools(self._input_policy)
 
     @property
     def fields_verified(self) -> bool:
-        return self._verified_fields == set(self._field_values)
+        required = set(self._field_values)
+        if self._transfer is not None:
+            required.add(self._transfer.destination_label)
+        return self._verified_fields == required
 
     @property
     def pending_click(self) -> bool:
@@ -87,14 +105,21 @@ class FastBrowser(ManagedBrowser):
 
     @property
     def input_unavailable(self) -> bool:
-        return bool(self._field_values or self._click_label) and self._input_tools is None
+        return (
+            bool(self._field_values or self._click_label or self._transfer)
+            and self._input_tools is None
+        )
 
     @property
     def input_blocked_reason(self) -> str | None:
+        if self._transfer is not None and self._transfer.error is not None:
+            return self._transfer.error
         return self._input_policy.blocked_reason if self._input_policy is not None else None
 
     @property
     def action_failure_phase(self) -> str:
+        if self._transfer is not None and self._transfer.error is not None:
+            return "verification"
         if self._input_policy is not None and self._input_policy.blocked_reason:
             return self._input_policy.blocked_phase
         return "browser"
@@ -117,6 +142,13 @@ class FastBrowser(ManagedBrowser):
             or (active_page is not None and active_page.evidence.url != state.url)
         ):
             raise TabStateChanged()
+        if self._transfer is not None and not self.awaiting_outcome:
+            await self._transfer.observe(self.browser, tabs)
+            self._field_values = dict(self._literal_values)
+            if self._transfer.value is not None:
+                self._field_values[self._transfer.destination_label] = self._transfer.value
+            if self._input_policy is not None:
+                self._input_policy.values_by_label = dict(self._field_values)
         candidates: list[Candidate] = []
         destinations: list[str] = []
         self._targets.clear()
@@ -174,6 +206,10 @@ class FastBrowser(ManagedBrowser):
             if (
                 node.tag_name not in {"input", "textarea", "select"}
                 or str(node.target_id) != tabs.active_id
+                or (
+                    self._transfer is not None
+                    and tabs.active_id != self._transfer.destination_target
+                )
             ):
                 continue
             label = node.ax_node.name if node.ax_node is not None else ""
@@ -278,10 +314,34 @@ class FastBrowser(ManagedBrowser):
             )
             candidates.append(candidate)
             self._tab_targets[candidate.id] = tab
-        if len(candidates) > 120:
-            raise ValueError(
-                "Page exceeds the current 120-candidate Fast limit; no targets truncated."
-            )
+        candidate_total = len(candidates)
+        if candidate_total > 120:
+
+            def priority(item: tuple[int, Candidate]) -> tuple[int, bool, int]:
+                order, candidate = item
+                node = self._targets.get(candidate.id)
+                snapshot = getattr(node, "snapshot_node", None)
+                rect = getattr(snapshot, "clientRects", None)
+                info = state.page_info
+                in_view = bool(
+                    rect
+                    and info
+                    and rect.width > 0
+                    and rect.height > 0
+                    and rect.x + rect.width > 0
+                    and rect.y + rect.height > 0
+                    and rect.x < info.viewport_width
+                    and rect.y < info.viewport_height
+                )
+                visible = getattr(node, "is_visible", False) is True
+                same_host = urlsplit(candidate.href).hostname == urlsplit(state.url).hostname
+                return (0 if in_view else 1 if visible else 2, not same_host, order)
+
+            # The selector map follows document order; stable tie-breaking also
+            # keeps before/after observation fingerprints deterministic.
+            candidates = [
+                candidate for _, candidate in sorted(enumerate(candidates), key=priority)[:120]
+            ]
         page = await self.browser.get_current_page()
         if page is None:
             raise ValueError("Task page disappeared during observation.")
@@ -289,11 +349,26 @@ class FastBrowser(ManagedBrowser):
         # cannot be part of a semantic freshness fingerprint. Read page text
         # separately, and keep backend-node identity in the candidate table.
         text = await cast(Any, page).evaluate("() => document.body.innerText.slice(0,6000)")
+        if candidate_total > 120:
+            text = (
+                f"[Candidates truncated: showing 120 of {candidate_total}; "
+                "prefer visible same-host targets in document order.]\n" + text
+            )[:6000]
+        source_state = ""
+        if self._transfer is not None:
+            source_state = self._transfer.fingerprint
+            if self._transfer.value is not None:
+                text = (
+                    f'Task source "{self._transfer.source_label}": {self._transfer.value}; '
+                    f'destination "{self._transfer.destination_label}" is on the '
+                    "original task tab.\n" + text
+                )[:6000]
         structure = "\n".join(
             [
                 state.url,
                 title,
                 tabs.fingerprint,
+                source_state,
                 *[c.model_dump_json() for c in candidates],
                 *destinations,
             ]

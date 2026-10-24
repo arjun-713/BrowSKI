@@ -133,6 +133,11 @@ async def run_fast(
                 evidence = current_evidence
                 headings = tuple(current_evidence.headings) if current_evidence else ()
                 progress_before = (owned.progress_id, headings)
+                if owned.input_blocked_reason is not None:
+                    status = EngineStatus.PARTIALLY_COMPLETED if actions else EngineStatus.BLOCKED
+                    failure_phase = owned.action_failure_phase
+                    error = owned.input_blocked_reason
+                    break
                 if owned.pending_click and (criteria is None or criteria.verify(evidence)):
                     failure_phase = "task"
                     error = "The named action needs outcome checks that do not already match."
@@ -369,7 +374,15 @@ async def run_fast(
         failure_phase = "provider" if provider_errors else "browser"
         if not provider_errors:
             await emit("browser_failed")
-        error = f"Fast {failure_phase} failed ({type(exc).__name__})."
+        # Only expose our fixed invariant messages. Upstream exceptions can
+        # contain URLs, field values or transport credentials.
+        safe_reasons = {
+            "Task page disappeared during observation.",
+            "The task's browser page is no longer available.",
+            "Target is not in the fresh Browser Use observation.",
+        }
+        reason = str(exc) if str(exc) in safe_reasons else type(exc).__name__
+        error = f"Fast {failure_phase} failed: {reason}"
     finally:
         for task in (work, watch):
             if task is not None and not task.done():

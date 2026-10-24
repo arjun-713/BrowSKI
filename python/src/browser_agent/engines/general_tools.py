@@ -16,6 +16,7 @@ from browser_agent.engines.native_fields import (
     validate_native_date,
 )
 from browser_agent.engines.owned_tabs import OwnedTab, TabStateChanged, focus_owned_tab
+from browser_agent.engines.source_transfer import SourceTransfer
 from browser_agent.task_literals import TaskLiteralError, normalize_field_label
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ class InteractionPolicy:
     blocked_phase: str = "approval"
     native_fields: bool = False
     values_by_label: dict[str, str] | None = None
+    source: SourceTransfer | None = None
 
 
 @dataclass(frozen=True)
@@ -183,8 +185,19 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                             ord(character) < 0x20 or ord(character) == 0x7F for character in text
                         )
                         or params.get("clear", True) is not True
-                        or not any(
-                            f"{quote}{text}{quote}" in active_policy.goal for quote in ('"', "'")
+                        or not (
+                            any(
+                                f"{quote}{text}{quote}" in active_policy.goal
+                                for quote in ('"', "'")
+                            )
+                            or (
+                                active_policy.source is not None
+                                and active_policy.source.matches_input(
+                                    proposed.ax_node.name if proposed.ax_node else "",
+                                    text,
+                                    str(proposed.target_id),
+                                )
+                            )
                         )
                         or proposed.tag_name not in {"input", "textarea"}
                         or proposed.attributes.get("type", "text").lower()
@@ -246,6 +259,13 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                                 "The requested native option is missing or ambiguous."
                             )
                         expected = choice[1].value
+                source_required = active_policy.source is not None and (
+                    operation == "click"
+                    or normalize_field_label(before.label) == active_policy.source.destination_label
+                )
+                if source_required and active_policy.source is not None:
+                    if not await active_policy.source.verify(browser_session):
+                        return self.refuse("The supporting source is no longer verified.")
                 if active_policy.approve is None or not await active_policy.approve(
                     ActionApproval(
                         action="select option" if operation == "select_dropdown" else operation,
@@ -255,6 +275,9 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                     return self.refuse(
                         "The pending action was denied, stopped or not approved in time."
                     )
+                if source_required and active_policy.source is not None:
+                    if not await active_policy.source.verify(browser_session):
+                        return self.refuse("The supporting source changed during approval.")
                 after = await _target_state(
                     browser_session,
                     index,
@@ -301,6 +324,13 @@ def navigation_tools(policy: InteractionPolicy | None = None) -> Tools[Any]:
                         "browski_verified": True,
                         "browski_reacquired": reacquired,
                     }
+                    if source_required and active_policy.source is not None:
+                        if not await active_policy.source.verify(browser_session):
+                            return self.refuse(
+                                "The supporting source changed during input; "
+                                "its result is unverified.",
+                                executed=True,
+                            )
                 return result
             return await cast(Any, super()).act(action, browser_session, *args, **kwargs)
 

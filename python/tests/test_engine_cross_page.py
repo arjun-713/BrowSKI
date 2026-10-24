@@ -12,6 +12,127 @@ import pytest
 from browser_agent.engines.contracts import CompletionCriteria
 
 
+@pytest.mark.skipif(os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real source transfer")
+@pytest.mark.parametrize("case", ["fixture", "laya", "field-only"])
+async def test_transfer_uses_owned_source_and_actual_field_receipt(
+    article_site: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    from browser_agent.engines import fast
+    from browser_agent.engines.contracts import EngineEvent
+    from browser_agent.engines.fast_browser import FastBrowser
+    from browser_agent.engines.fast_contract import (
+        FastDecision,
+        FastDecisionProvider,
+        FastRequest,
+        Operation,
+    )
+    from browser_agent.engines.fast_providers import LayaFastProvider
+    from browser_agent.engines.lifecycle import ActionApproval
+
+    if case == "laya" and os.environ.get("BROWSKI_LAYA_E2E") != "1":
+        pytest.skip("Prepared CPU Laya required")
+    (tmp_path / "transfer.html").write_text("""
+        <title>Reference form</title><h1>Reference form</h1>
+        <a href="/transfer-source.html" target="_blank">Reference</a>
+        <form action="/transfer-receipt.html" method="get">
+          <label>Reference code<input name="code" required></label>
+          <button type="submit">Save reference</button>
+        </form><script>window.writes=0;
+        document.querySelector('input').addEventListener('change',()=>writes++);</script>
+    """)
+    (tmp_path / "transfer-source.html").write_text("""
+        <title>Reference</title><h1>Reference</h1>
+        <dl><dt>Reference code</dt><dd>REF-4821</dd></dl>
+    """)
+    (tmp_path / "transfer-receipt.html").write_text("<h1>Saved reference</h1>")
+    owned = FastBrowser()
+    approvals: list[str] = []
+    visits: list[str] = []
+    field_values: list[str] = []
+    source_seen = False
+
+    def factory(**kwargs: Any) -> FastBrowser:
+        return owned
+
+    monkeypatch.setattr(fast, "FastBrowser", factory)
+
+    async def approve(request: ActionApproval) -> bool:
+        approvals.append(request.target)
+        return True
+
+    async def events(event: EngineEvent) -> None:
+        if event.kind in {"tab_selected", "verification"}:
+            assert owned.browser is not None
+            page = cast(Any, await owned.browser.get_current_page())
+            visits.append(await page.evaluate("() => location.href"))
+            value = await page.evaluate("() => document.querySelector('input')?.value ?? null")
+            if value is not None:
+                field_values.append(value)
+
+    class TransferFixture:
+        name = "fixture"
+        model = "source-transfer-fixture"
+
+        async def predict(self, request: FastRequest) -> FastDecision:
+            nonlocal source_seen
+            candidates = request.observation.candidates
+            if request.observation.url.endswith("transfer-source.html"):
+                source_seen = True
+                selected = next(c for c in candidates if c.role == "tab")
+            else:
+                selected = next((c for c in candidates if c.operation is Operation.TYPE_TEXT), None)
+                selected = selected or next(
+                    (c for c in candidates if c.label == "Save reference"), None
+                )
+                if selected is None and not source_seen:
+                    selected = next(c for c in candidates if c.label == "Reference")
+            return FastDecision(
+                observation_id=request.observation.id,
+                provider=self.name,
+                model=self.model,
+                operation=selected.operation if selected is not None else Operation.BLOCKED,
+                candidate_id=selected.id if selected is not None else None,
+                latency_ms=0,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    provider: FastDecisionProvider = (
+        LayaFastProvider(Path(__file__).parents[2] / ".browser-data/laya-browser-v19s")
+        if case == "laya"
+        else TransferFixture()
+    )
+    goal = (
+        'Open Reference in its supporting tab; transfer "Reference code" '
+        'from supporting page into "Reference code"'
+    )
+    if case != "field-only":
+        goal += '; click "Save reference".'
+    result = await fast.run_fast(
+        goal,
+        f"{article_site}/transfer.html",
+        provider,
+        criteria=CompletionCriteria(
+            url=f"{article_site}/transfer.html"
+            if case == "field-only"
+            else f"{article_site}/transfer-receipt.html?code=REF-4821",
+            heading="Reference form" if case == "field-only" else "Saved reference",
+        ),
+        approve_action=approve,
+        event_sink=events,
+    )
+    print("BROWSKI_TRANSFER_METRIC " + json.dumps(result.model_dump(mode="json")))
+    assert result.verified, result.model_dump()
+    assert result.action_count == (4 if case == "field-only" else 5)
+    assert result.generative_calls == 0 and result.provider_errors == 0
+    assert approvals == (
+        ["Reference code"] if case == "field-only" else ["Reference code", "Save reference"]
+    )
+    assert f"{article_site}/transfer-source.html" in visits
+    assert "REF-4821" in field_values
+
+
 @pytest.mark.skipif(os.environ.get("BROWSKI_ENGINE_E2E") != "1", reason="real owned Chrome tabs")
 @pytest.mark.parametrize(
     "provider_name", ["fixture", "laya", "closed-fixture", "changed-fixture", "budget-fixture"]
@@ -280,9 +401,11 @@ async def test_general_switches_owned_tabs_with_offline_agent_responses(
         event_sink=events,
     )
     if missing_target:
+        # ADR-032: a refused switch no longer ends the run. The agent continues,
+        # but it finishes on the source page, so the outcome stays unverified.
         assert not result.verified and result.action_count == 2
-        assert result.failure_phase == "browser" and result.provider_errors == 0
-        assert calls == 3
+        assert result.failure_phase == "verification" and result.provider_errors == 0
+        assert calls == 4
     else:
         assert result.verified and result.action_count == 3, result.model_dump()
         assert visits == [
