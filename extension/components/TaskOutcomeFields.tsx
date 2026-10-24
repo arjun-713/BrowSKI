@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+
 export type OutcomeDraft = { startUrl: string; url: string; heading: string };
 
 export function TaskOutcomeFields({
@@ -11,7 +13,10 @@ export function TaskOutcomeFields({
 }) {
   return (
     <details className="task-outcome-fields">
-      <summary>Starting page and outcome check</summary>
+      <summary>
+        <Icon name="chevron" size={11} />
+        Verify outcome (optional)
+      </summary>
       <label htmlFor="task-start-url">Starting page</label>
       <input
         id="task-start-url"
@@ -23,7 +28,7 @@ export function TaskOutcomeFields({
         onChange={(event) => onChange({ ...draft, startUrl: event.target.value })}
       />
       <p className="footnote">
-        Fast starts here. A link in your task is used when this is empty.
+        Fast starts here, or uses a link in your task. General starts in your current tab.
       </p>
       <label htmlFor="task-expected-url">Expected final page URL</label>
       <input
@@ -43,8 +48,8 @@ export function TaskOutcomeFields({
         onChange={(event) => onChange({ ...draft, heading: event.target.value })}
       />
       <p className="footnote">
-        Both checks must match the actual page to report verified completion. Without a
-        check, the result is marked unverified.
+        Both checks must match the final page. Without these checks, General asks an
+        independent judge to verify the outcome.
       </p>
     </details>
   );

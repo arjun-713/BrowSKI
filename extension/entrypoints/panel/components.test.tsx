@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderHook, act } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfirmationCard } from "../../components/ConfirmationCard";
 import { ConnectionStatus } from "../../components/ConnectionStatus";
 import { SettingsPanel } from "../../components/SettingsPanel";
@@ -25,6 +25,10 @@ const EMPTY_SNAPSHOT: ExtensionSnapshot = {
   selectedTab: null,
   attachment: null,
 };
+
+beforeEach(() => {
+  vi.stubGlobal("chrome", { runtime: { getManifest: () => ({ version: "0.3.0" }) } });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -68,15 +72,13 @@ describe("panel components", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(
-      true,
-    );
-    fireEvent.submit(screen.getByRole("button", { name: "Send task" }).closest("form")!);
+    expect(screen.queryByRole("button", { name: "Send task" })).toBeNull();
+    fireEvent.submit(screen.getByRole("button", { name: "Stop task" }).closest("form")!);
 
     expect(onDispatch).not.toHaveBeenCalled();
   });
 
-  it("routes approval and denial through the confirmation callback", async () => {
+  it("routes approval once and disables repeated responses", async () => {
     const approval: PendingApproval = {
       approvalId: "approval-1",
       sessionId: "session-1",
@@ -88,11 +90,11 @@ describe("panel components", () => {
     render(<ConfirmationCard approval={approval} busy={false} onRespond={onRespond} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Approve action" }));
-    fireEvent.click(screen.getByRole("button", { name: "Deny action" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve action" }));
 
     await waitFor(() => {
       expect(onRespond).toHaveBeenNthCalledWith(1, approval, true);
-      expect(onRespond).toHaveBeenNthCalledWith(2, approval, false);
+      expect(onRespond).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -120,7 +122,7 @@ describe("panel components", () => {
         onSaveRuntimeSettings={onSaveRuntimeSettings.mockResolvedValue(undefined)}
       />,
     );
-    fireEvent.click(screen.getByText("Settings and transport details"));
+    fireEvent.click(screen.getByText("Advanced"));
 
     fireEvent.change(screen.getByLabelText("Default reasoning effort"), {
       target: { value: "none" },
@@ -131,10 +133,10 @@ describe("panel components", () => {
     fireEvent.change(screen.getByLabelText("Laya comparison"), {
       target: { value: "disabled" },
     });
-    fireEvent.change(screen.getByLabelText("Trace detail"), {
+    fireEvent.change(screen.getByLabelText("Debug capture"), {
       target: { value: "detailed" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save runtime settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => {
       expect(onSaveRuntimeSettings).toHaveBeenCalledWith({
@@ -144,11 +146,9 @@ describe("panel components", () => {
         traceLevel: "detailed",
       });
     });
-    expect(screen.getByText("Always required")).toBeTruthy();
+    expect(screen.getByText("always require your approval")).toBeTruthy();
     expect(screen.getByText(/cannot be disabled here/)).toBeTruthy();
-    expect(
-      screen.getByText(/Attached browser through Chrome Native Messaging/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Legacy uses an explicitly attached tab/)).toBeTruthy();
   });
 });
 

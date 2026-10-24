@@ -1,121 +1,166 @@
+import { useState } from "react";
 import type { TimelineEvent, RuntimeStatus } from "../src/protocol";
 import { Icon, type IconName } from "./Icon";
+import { formatDuration, pageHost } from "./display";
+
+const VISIBLE_STEPS = 6;
+
+function statusTitle(status: RuntimeStatus | undefined, host: string): string {
+  switch (status) {
+    case "running":
+      return host ? `Working on ${host}…` : "Working in your browser…";
+    case "paused":
+      return "Paused. Ready when you are.";
+    case "awaiting_approval":
+      return "Waiting for your approval";
+    case "completed":
+      return "Finished browsing";
+    case "partially_completed":
+      return "Finished with an incomplete outcome";
+    case "failed":
+      return "The task ran into a problem";
+    case "blocked":
+      return "The task needs your attention";
+    case "stopped":
+    case "cancelled":
+      return "Task stopped";
+    default:
+      return "Activity";
+  }
+}
 
 export function ActionTimeline({
   events,
   status,
+  busy = false,
+  onControl,
 }: {
   events: TimelineEvent[];
   status?: RuntimeStatus;
+  busy?: boolean;
+  onControl?: (control: "pause" | "resume") => void;
 }) {
-  const ordered = [...events].sort((a, b) => b.sequence - a.sequence);
-  const running = status === "running";
-
-  if (ordered.length === 0) {
-    return (
-      <section className="welcome" aria-labelledby="welcome-heading">
-        <span className="welcome-mark" aria-hidden="true">
-          <Icon name="tab" size={30} />
-        </span>
-        <h2 id="welcome-heading">
-          What can I do
-          <br />
-          with your browser?
-        </h2>
-        <p>Give BROWSKI a task. Follow each action as it works in your browser.</p>
-        <ul className="welcome-hints">
-          <li>
-            <Icon name="at" />
-            <span>Mention a tab or paste a link</span>
-          </li>
-          <li>
-            <Icon name="slash" />
-            <span>Find a shortcut with slash commands</span>
-          </li>
-          <li>
-            <Icon name="attach" />
-            <span>Attach a text file for context</span>
-          </li>
-        </ul>
-      </section>
-    );
-  }
+  const [expanded, setExpanded] = useState(false);
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  const visible = expanded ? ordered : ordered.slice(-VISIBLE_STEPS);
+  const host = pageHost([...ordered].reverse().find((event) => event.pageUrl)?.pageUrl);
+  const live = status === "running";
+  const started = ordered.at(0)?.createdAt;
+  const elapsed = started ? Date.now() - Date.parse(started) : 0;
 
   return (
-    <section className="timeline-section" aria-labelledby="timeline-heading">
-      <div className="section-heading">
-        <h2 id="timeline-heading">Activity</h2>
-        <span className={`activity-state ${running ? "is-working" : ""}`} role="status">
-          {running && <span className="working-dot" aria-hidden="true" />}
-          {status?.replaceAll("_", " ") ?? `${ordered.length} events`}
+    <section className={`run-block ${live ? "is-live" : ""}`} aria-label="Agent activity">
+      <div className="run-heading">
+        <span className={`agent-avatar ${live ? "is-working" : ""}`}>
+          <Icon name="brand" size={16} />
         </span>
+        <p role="status">{statusTitle(status, host)}</p>
+        {onControl && (status === "running" || status === "paused") && (
+          <button
+            className="icon-button"
+            disabled={busy}
+            aria-label={status === "paused" ? "Resume task" : "Pause task"}
+            title={status === "paused" ? "Resume task" : "Pause task"}
+            onClick={() => onControl(status === "paused" ? "resume" : "pause")}
+          >
+            <Icon name={status === "paused" ? "play" : "pause"} size={15} />
+          </button>
+        )}
       </div>
-      <p className="timeline-note">Decisions, actions & verified results</p>
-      <ol className="timeline-list" aria-label="Runtime activity">
-        {ordered.map((event) => (
-          <TimelineRow key={event.eventId} event={event} />
-        ))}
-      </ol>
+      {ordered.length > VISIBLE_STEPS && (
+        <button
+          className="steps-toggle text-button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? "Show recent steps" : `Show all ${ordered.length} steps`}
+        </button>
+      )}
+      {visible.length > 0 ? (
+        <ol className="timeline-list" aria-label="Runtime activity">
+          {visible.map((event, index) => (
+            <TimelineRow
+              key={event.eventId}
+              event={event}
+              number={ordered.indexOf(event) + 1}
+              live={live && index === visible.length - 1}
+            />
+          ))}
+        </ol>
+      ) : (
+        <p className="run-starting">Feeding the first line…</p>
+      )}
+      {live && ordered.length > 0 && Number.isFinite(elapsed) && (
+        <p className="run-meter" aria-label="Progress so far">
+          {ordered.length} {ordered.length === 1 ? "line" : "lines"} ·{" "}
+          {formatDuration(Math.max(0, elapsed))}
+        </p>
+      )}
     </section>
   );
 }
 
-function eventPresentation(event: TimelineEvent): { icon: IconName; label: string } {
-  if (event.type === "DecisionMade") return { icon: "thought", label: "Decision summary" };
-  if (event.type === "VerificationCompleted")
-    return { icon: "check", label: "Verification" };
-  if (event.type === "ObservationCompleted") return { icon: "globe", label: "Observation" };
-  if (event.type === "ActionStarted" || event.type === "ActionCompleted")
-    return { icon: "play", label: "Action" };
-  if (event.type === "BrowserCodeStarted" || event.type === "BrowserCodeCompleted")
-    return { icon: "code", label: "Page data" };
-  if (event.type === "RunPaused") return { icon: "pause", label: "Paused" };
-  if (event.type === "RunCompleted") return { icon: "check", label: "Result" };
-  return { icon: "tab", label: "Runtime" };
+function actionIcon(event: TimelineEvent): IconName {
+  const label = event.label.toLowerCase();
+  if (event.type === "DecisionMade" || event.type === "DecisionStarted") return "thought";
+  if (/\bsearch/.test(label)) return "search";
+  if (/\b(typ|input|fill|enter)/.test(label)) return "type";
+  if (/\b(click|press|select)/.test(label)) return "click";
+  if (/\bscroll/.test(label)) return "scroll";
+  if (/\btab/.test(label)) return "tab";
+  if (/\b(wait|load)/.test(label)) return "wait";
+  if (/\b(read|observ|extract)/.test(label)) return "read";
+  if (/\b(open|navigat)/.test(label)) return "globe";
+  if (/\b(page changed|looking again)/.test(label)) return "refresh";
+  if (event.type?.includes("Verification") || event.type === "RunCompleted") return "check";
+  if (event.status === "failed") return "info";
+  return "globe";
 }
 
-function TimelineRow({ event }: { event: TimelineEvent }) {
-  const presentation = eventPresentation(event);
+function TimelineRow({
+  event,
+  number,
+  live,
+}: {
+  event: TimelineEvent;
+  number: number;
+  live: boolean;
+}) {
   const date = new Date(event.createdAt);
   const time = Number.isNaN(date.getTime())
     ? ""
     : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const host = pageHost(event.pageUrl);
   return (
-    <li className={`timeline-item event-${event.status}`}>
+    <li
+      className={`timeline-item event-${event.status} ${live ? "is-live" : ""}`}
+      aria-current={live ? "step" : undefined}
+    >
+      <span className="step-number" aria-hidden="true">
+        {String(number).padStart(2, "0")}
+      </span>
       <span className="timeline-icon">
-        <Icon name={presentation.icon} size={16} />
+        <Icon name={actionIcon(event)} size={15} />
       </span>
       <div className="timeline-copy">
-        <div className="timeline-meta">
-          <span>
-            {presentation.label}
-            {event.step !== undefined ? ` · Step ${event.step}` : ""}
-          </span>
-          <time dateTime={event.createdAt}>{time}</time>
-        </div>
-        {event.type === "DecisionMade" && event.detail ? (
-          <details className="decision-summary">
+        {event.detail ? (
+          <details className="step-detail">
             <summary>
-              {event.label}
-              <Icon name="chevron" size={14} />
+              <span>{event.label}</span>
+              <Icon name="chevron" size={12} />
             </summary>
             <p>{event.detail}</p>
           </details>
         ) : (
-          <>
-            <h3>{event.label}</h3>
-            {event.detail && <p>{event.detail}</p>}
-          </>
+          <p className="step-label">{event.label}</p>
         )}
-        <span className="event-outcome">
-          {event.status === "completed"
-            ? "Completed"
-            : event.status === "failed"
-              ? "Failed"
-              : event.status === "running"
-                ? "In progress"
-                : "Update"}
-        </span>
+        <div className="timeline-meta">
+          {host && <span className="step-host">{host}</span>}
+          <time dateTime={event.createdAt}>{time}</time>
+          {event.status === "failed" && <span className="text-danger">Failed</span>}
+          {event.status === "running" && <span>In progress</span>}
+        </div>
+        {event.failure && <p className="inline-error">{event.failure.safeMessage}</p>}
       </div>
     </li>
   );

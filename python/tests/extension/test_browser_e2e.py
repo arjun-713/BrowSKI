@@ -146,10 +146,9 @@ async def attached_harness(
     starting_engine = getattr(request, "param", "legacy")
     configuration = default_config.read_text().replace('mode = "shadow"', 'mode = "disabled"')
     if starting_engine == "legacy":
-        configuration = configuration.replace('engine = "fast"', 'engine = "legacy"').replace(
-            "allow_paid_api = false", "allow_paid_api = true"
-        )
+        configuration = configuration.replace('engine = "general"', 'engine = "legacy"')
     else:
+        configuration = configuration.replace('engine = "general"', 'engine = "fast"')
         import json
 
         checkpoint = str(root / ".browser-data/laya-browser-v19s")

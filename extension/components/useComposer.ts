@@ -19,11 +19,13 @@ import type { ComposerOption } from "./CommandMenu";
 export function useComposer({
   status,
   onControl,
+  initialTask = "",
 }: {
   status?: RuntimeStatus;
+  initialTask?: string;
   onControl: (control: RunControl) => Promise<void>;
 }) {
-  const [task, setTask] = useState("");
+  const [task, setTask] = useState(initialTask);
   const [context, setContext] = useState<ComposerContext[]>([]);
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null);
   const [selected, setSelected] = useState(0);

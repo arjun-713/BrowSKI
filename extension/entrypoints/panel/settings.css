@@ -1,64 +1,124 @@
-.settings-section {
-    flex: none;
-    margin-top: 16px;
-    border-top: 1px solid var(--line);
-}
-.settings-section > summary {
-    min-height: 44px;
-    padding: 12px 0;
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 12px;
-}
 .settings-content {
-    padding-bottom: 16px;
+    padding-bottom: 24px;
+}
+.settings-group {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--line);
+}
+.settings-group:first-child {
+    padding-top: 0;
+}
+.settings-group > h2,
+.setting-heading h2 {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+}
+.settings-group > h2 {
+    margin-bottom: 4px;
 }
 label {
     display: block;
-    margin: 14px 0 6px;
-    font-size: 12px;
+    margin: 16px 0 8px;
+    font-size: 13px;
     font-weight: 550;
 }
 input:not([type="checkbox"]),
 select {
     width: 100%;
-    min-height: 38px;
-    padding: 8px 10px;
+    min-height: 40px;
+    padding: 8px 12px;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
+    border-radius: var(--radius-control);
     color: var(--ink);
     background: var(--surface);
 }
-.credential-setting {
-    margin: 20px 0;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
+select {
+    padding-right: 36px;
+    appearance: none;
+    background: var(--surface) var(--select-chevron) no-repeat right 12px center / 12px;
+    cursor: pointer;
+}
+input:focus-visible,
+select:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+}
+:root {
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a39b8e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: light) {
+    :root {
+        --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235d564c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    }
+}
+input:disabled,
+select:disabled {
+    opacity: 0.6;
 }
 .setting-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-weight: 550;
-}
-.runtime-readonly-setting {
-    margin-top: 16px;
 }
 .setting-toggle {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: 12px;
     font-weight: 400;
 }
 .setting-toggle input {
     flex: none;
-    margin-top: 3px;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
     accent-color: var(--accent);
+}
+.settings-group .button-row {
+    margin-top: 12px;
+}
+.settings-group > .button {
+    margin-top: 16px;
+}
+.safety-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 24px;
+    color: var(--muted);
+    font-size: 12px;
+}
+.safety-note svg {
+    margin-top: 2px;
+    color: var(--success);
+}
+.safety-note strong {
+    font-weight: 500;
+}
+.advanced-settings > summary {
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 550;
+}
+.advanced-settings[open] > summary {
+    margin-bottom: 16px;
+}
+.about-settings {
+    border: 0;
 }
 .settings-list {
     display: grid;
     gap: 8px;
     margin: 0;
+    font-size: 12px;
 }
 .settings-list div {
     display: grid;
@@ -71,4 +131,36 @@ select {
 .settings-list dd {
     margin: 0;
     overflow-wrap: anywhere;
+}
+.tab-section {
+    margin-top: 24px;
+    padding: 16px 0;
+    border-top: 1px solid var(--line);
+}
+.tab-summary,
+.tab-copy {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.tab-copy {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+.tab-copy h2 {
+    font-size: 13px;
+}
+.selection-review {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    font-size: 12px;
+}
+.selection-review code {
+    overflow-wrap: anywhere;
+}
+.tab-section .button-row {
+    margin-top: 16px;
 }

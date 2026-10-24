@@ -4,29 +4,39 @@ import { MAX_TASK_LENGTH } from "../src/composer-context";
 import { canStartTask, type RunControl } from "../src/run-controls";
 import { CommandMenu } from "./CommandMenu";
 import { Icon } from "./Icon";
-import { RunControls } from "./RunControls";
 import { useComposer } from "./useComposer";
 import { TaskOutcomeFields, type OutcomeDraft } from "./TaskOutcomeFields";
 
 export function TaskComposer({
   protocolReady,
   session,
-  events,
   busy,
   onDispatch,
   engine = "legacy",
+  model = "gpt-6-luna",
+  fastProvider = "laya",
+  initialTask = "",
+  onSettings,
 }: {
   protocolReady: boolean;
   session: { status: RuntimeStatus; runId?: string } | null;
   engine?: "fast" | "general" | "legacy";
   events: TimelineEvent[];
+  model?: string;
+  fastProvider?: "laya" | "jev";
+  initialTask?: string;
+  onSettings?: () => void;
   busy: boolean;
   onDispatch: (message: Record<string, unknown>) => Promise<{ error?: string }>;
 }) {
   function controlTask(control: RunControl): Promise<void> {
     return onDispatch({ type: "task.control", control }).then(() => undefined);
   }
-  const composer = useComposer({ status: session?.status, onControl: controlTask });
+  const composer = useComposer({
+    status: session?.status,
+    onControl: controlTask,
+    initialTask,
+  });
   const container = useRef<HTMLElement>(null);
   const [outcome, setOutcome] = useState<OutcomeDraft>({
     startUrl: "",
@@ -39,6 +49,14 @@ export function TaskComposer({
   const overLimit = composer.serializedTask.length > MAX_TASK_LENGTH;
   const locked = busy || composer.reading;
   const menuOpen = Boolean(composer.trigger);
+  const active = Boolean(session && !canStartTask(session.status));
+
+  useEffect(() => {
+    const textarea = composer.input.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(180, Math.max(56, textarea.scrollHeight))}px`;
+  }, [composer.task, composer.input]);
 
   useEffect(() => {
     function closeOutside(event: PointerEvent): void {
@@ -118,9 +136,6 @@ export function TaskComposer({
         if (!locked) void composer.attachFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      {session && (session.runId || events.some((event) => event.runId)) && (
-        <RunControls status={session.status} busy={busy} onControl={controlTask} />
-      )}
       <form onSubmit={(event) => void submitTask(event)} className="composer-form">
         {engine !== "legacy" && (
           <TaskOutcomeFields
@@ -193,7 +208,7 @@ export function TaskComposer({
             placeholder="Give your browser a task…"
             maxLength={MAX_TASK_LENGTH}
             disabled={locked}
-            rows={3}
+            rows={2}
           />
           <div className="composer-toolbar">
             <div className="composer-tools">
@@ -232,15 +247,28 @@ export function TaskComposer({
               <span className={`character-count ${overLimit ? "text-danger" : ""}`}>
                 {composer.serializedTask.length.toLocaleString()}/4,000
               </span>
-              <button
-                type="submit"
-                className="send-button"
-                aria-label="Send task"
-                title="Send task (Enter)"
-                disabled={!canSubmit || locked || overLimit || !composer.task.trim()}
-              >
-                <Icon name="arrow" size={20} />
-              </button>
+              {active ? (
+                <button
+                  type="button"
+                  className="send-button stop-button"
+                  aria-label="Stop task"
+                  title="Stop task"
+                  disabled={busy}
+                  onClick={() => void controlTask("stop")}
+                >
+                  <Icon name="stop" size={18} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="send-button"
+                  aria-label="Send task"
+                  title="Send task (Enter)"
+                  disabled={!canSubmit || locked || overLimit || !composer.task.trim()}
+                >
+                  <Icon name="arrow" size={20} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -275,16 +303,32 @@ export function TaskComposer({
         )}
         {composer.reading && <p className="footnote">Reading text files…</p>}
       </div>
-      <p id="composer-hint" className="composer-hint">
-        {!protocolReady || !session
-          ? engine === "legacy"
-            ? "Connect the runtime and attach a tab to send."
-            : "Connect the runtime to send."
-          : !canSubmit
-            ? "You can draft the next task while this run is active."
-            : "Enter to send · Shift+Enter for a new line"}
-      </p>
-      <p className="attachment-hint">Text files: .txt, .md, .csv, .json · shared on send</p>
+      <div className="composer-bottom">
+        <button
+          className="engine-chip"
+          type="button"
+          onClick={onSettings}
+          disabled={!onSettings}
+          aria-label="Engine settings"
+        >
+          <span className="engine-dot" />
+          {engine === "general"
+            ? `General · ${model}`
+            : engine === "fast"
+              ? `Fast · ${fastProvider === "jev" ? "Jev" : "Laya"}`
+              : "Legacy"}
+          <Icon name="chevron" size={12} />
+        </button>
+        <p id="composer-hint" className="composer-hint">
+          {!protocolReady || !session
+            ? engine === "legacy"
+              ? "Connect the runtime and attach a tab to send."
+              : "Connect the runtime to send."
+            : !canSubmit
+              ? "Draft the next task while this runs"
+              : "Shift+Enter for a new line"}
+        </p>
+      </div>
     </section>
   );
 }

@@ -9,9 +9,33 @@ export function EngineSettingsFields({
   disabled: boolean;
   onChange: (patch: Partial<RuntimeSettingsUpdate>) => void;
 }) {
-  if (settings.engine === undefined) return null;
   return (
     <>
+      <label htmlFor="runtime-engine">Engine</label>
+      <select
+        id="runtime-engine"
+        value={settings.engine ?? "legacy"}
+        disabled={disabled}
+        onChange={(event) => {
+          const engine = event.target.value as RuntimeSettingsUpdate["engine"];
+          onChange({ engine, ...(engine === "general" ? { textProvider: "openai" } : {}) });
+        }}
+      >
+        <option value="general">General · OpenAI</option>
+        <option value="fast">
+          Fast · {settings.fastProvider === "jev" ? "Jev" : "Laya"}
+        </option>
+        {(settings.engine ?? "legacy") === "legacy" && (
+          <option value="legacy">Legacy · Advanced</option>
+        )}
+      </select>
+      <p className="footnote">
+        {settings.engine === "general"
+          ? "Works in your current Chrome tab with your existing logins. Send starts the task; risky actions need your approval."
+          : settings.engine === "fast"
+            ? "Local Laya handles bounded browser tasks in a separate task browser."
+            : "The retained Legacy runtime requires an explicit tab attachment under Advanced."}
+      </p>
       <label htmlFor="runtime-text-provider">Generative text</label>
       <select
         id="runtime-text-provider"
@@ -24,7 +48,7 @@ export function EngineSettingsFields({
         }
       >
         <option value="disabled">Disabled</option>
-        <option value="openai">OpenAI · hosted</option>
+        <option value="openai">OpenAI</option>
       </select>
       {settings.textProvider === "openai" && (
         <>
@@ -33,6 +57,7 @@ export function EngineSettingsFields({
             id="runtime-text-model"
             value={settings.textModel ?? "gpt-6-luna"}
             maxLength={200}
+            required
             disabled={disabled}
             onChange={(event) => onChange({ textModel: event.target.value })}
           />
@@ -45,37 +70,13 @@ export function EngineSettingsFields({
           disabled={disabled}
           onChange={(event) => onChange({ allowPaidApi: event.target.checked })}
         />
-        <span>Permit paid API calls for tasks</span>
+        <span>Allow paid API usage</span>
       </label>
       <p className="footnote">
-        Laya stays local. General/OpenAI and Jev need this permission and their credentials.
-        A provider failure never enables paid fallback.
+        General sends page content and, when needed, screenshots to OpenAI. Each task uses
+        your API credits. Turning this off prevents paid calls. Local Laya does not use API
+        credits; providers never switch automatically.
       </p>
-      <label htmlFor="runtime-laya-checkpoint">Local Laya checkpoint</label>
-      <input
-        id="runtime-laya-checkpoint"
-        value={settings.layaCheckpoint ?? ""}
-        maxLength={1000}
-        disabled={disabled}
-        onChange={(event) => onChange({ layaCheckpoint: event.target.value })}
-      />
-      {settings.fastProvider === "jev" && (
-        <>
-          <label htmlFor="runtime-jev-endpoint">Jev endpoint</label>
-          <input
-            id="runtime-jev-endpoint"
-            type="url"
-            value={settings.jevEndpoint ?? ""}
-            maxLength={1000}
-            disabled={disabled}
-            onChange={(event) => onChange({ jevEndpoint: event.target.value })}
-          />
-          <p className="footnote">
-            Jev is optional. Configure TYPESAFE_API_KEY in the runtime environment before
-            selecting it.
-          </p>
-        </>
-      )}
     </>
   );
 }
