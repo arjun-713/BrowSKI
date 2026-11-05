@@ -75,3 +75,6 @@ Thumbs.db
 .impeccable/review/
 # Local tooling scratch (live-run harnesses, previews, results)
 .cache/
+
+# Local launch videos
+launch-video/
